@@ -1,1 +1,1 @@
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/gabi_ground"/><foreground android:drawable="@drawable/ic_daanvia"/></adaptive-icon>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/gabi_ground"/><foreground android:drawable="@drawable/ic_daanvia"/><monochrome android:drawable="@drawable/ic_daanvia_mono"/></adaptive-icon>

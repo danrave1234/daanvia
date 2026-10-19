@@ -128,7 +128,7 @@ public final class DashboardRenderer {
             for (String line : wrap(s.destination, pw - pad * 2, 26 * t, bold, 2)) { y += 32 * t; text(c, line, pad, y, 26 * t, ink(), bold); }
             y += 40 * t; text(c, Gabi.minutes(s.seconds) + " · " + distance(s.remaining), pad, y, 24 * t, pal.accent, black);
         } else {
-            text(c, fit(s.ready ? s.regionName + " · offline" : "Preparing maps…", pw - pad * 2, 20, bold), pad, y, 20, soft(), bold);
+            text(c, fit(s.ready ? s.regionName : "Getting the map ready…", pw - pad * 2, 20, bold), pad, y, 20, soft(), bold);
             y += 30; text(c, fit("Choose a destination on your phone", pw - pad * 2, 17, semi), pad, y, 17, muted(), semi);
         }
     }
@@ -190,9 +190,9 @@ public final class DashboardRenderer {
             c.restore();
         }
         if (s.simulation) {
-            p.setTextSize(15); p.setTypeface(black); p.setLetterSpacing(0.1f); float tw = p.measureText("SIMULATION");
+            p.setTextSize(15); p.setTypeface(black); p.setLetterSpacing(0.1f); float tw = p.measureText("DEMO");
             RectF b = new RectF(left + w - tw - 40, top + 16, left + w - 16, top + 46); p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(b, 15, 15, p);
-            text(c, "SIMULATION", b.left + 12, b.bottom - 9, 15, 0xFF1A1203, black); p.setLetterSpacing(0);
+            text(c, "DEMO", b.left + 12, b.bottom - 9, 15, 0xFF1A1203, black); p.setLetterSpacing(0);
         }
         p.setTextSize(11); p.setTypeface(semi); float aw = p.measureText("© OpenStreetMap contributors");
         text(c, "© OpenStreetMap contributors", left + w - aw - 10, top + h - 8, 11, muted(), semi);

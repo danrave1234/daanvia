@@ -36,7 +36,7 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
  * While it is open it keeps trying to put Daanvia on the saved bike's dashboard, like Carbit does.
  */
 public final class HomeActivity extends Activity implements DashboardLink.Host {
-    private enum Mode { EXPLORE, SEARCH, PIN, SAVE, ROUTE, RIDE, PARK_FORM }
+    private enum Mode { EXPLORE, SEARCH, PIN, SAVE, LOT, ROUTE, RIDE, PARK_FORM }
 
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -49,7 +49,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private int insetTop, insetBottom, insetIme;
 
     // search
-    private LinearLayout searchPanel, results; private EditText field; private SearchIndex index; private int searchToken;
+    private LinearLayout searchPanel, results; private EditText field; private SearchIndex index; private Lots lots; private int searchToken;
+    // parking lot details
+    private LinearLayout lotSheet, lotFacts; private TextView lotTitle, lotSub, lotLive; private View lotLiveDot; private Lots.Lot lot; private String lotParent; private int lotToken;
     // explore
     private LinearLayout explore, savedBox, recentsBox; private TextView exploreStatus; private Bookmarks bookmarks;
     // save place
@@ -59,7 +61,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // pin
     private LinearLayout pinSheet; private TextView pinSub; private double dropLat, dropLon;
     // route
-    private LinearLayout routeSheet, routeTags, parkRow; private TextView routeName, routeEta, routeMeta, routeStatus, parkText, startBtn, simNote; private FrameLayout routeStar; private View shimmer;
+    private LinearLayout routeSheet, parkRow; private TextView routeName, routeEta, routeMeta, routeStatus, parkText, startBtn, simNote; private FrameLayout routeStar; private View shimmer;
     // parking
     private LinearLayout parkForm; private EditText parkName, parkPrice; private TextView parkError; private String parkBasis = "hour"; private double parkLat, parkLon;
     // ride
@@ -91,7 +93,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         sheet.setListener(h -> { float lift = -Math.max(h, mode == Mode.RIDE ? etaBar.getHeight() + k.dp(8) : 0); fabs.setTranslationY(lift); attribution.setTranslationY(lift); });
         buildSearch(); buildNotice();
         bookmarks = new Bookmarks(this);
-        explore = buildExplore(); pinSheet = buildPin(); saveSheet = buildSave(); routeSheet = buildRoute(); parkForm = buildParkForm();
+        explore = buildExplore(); pinSheet = buildPin(); saveSheet = buildSave(); lotSheet = buildLot(); routeSheet = buildRoute(); parkForm = buildParkForm();
         setContentView(root);
         Gabi.insets(root, (l, t, r, b, ime) -> { insetTop = t; insetBottom = b; insetIme = ime; layoutInsets(); });
         sheet.swap(explore);
@@ -129,6 +131,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     public void onBackPressed() {
         switch (mode) {
             case SEARCH: case PIN: case SAVE: go(Mode.EXPLORE); return;
+            case LOT: go(Mode.SEARCH); return;
             case PARK_FORM: go(Mode.EXPLORE); return;
             case ROUTE: closeRoute(); return;
             default: super.onBackPressed();
@@ -171,6 +174,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         chips = k.row(6);
         regionChip = chip(""); bikeChip = chip("");
         Gabi.press(bikeChip, this::openSettings);
+        Gabi.press(regionChip, () -> k.tip(regionChip, "Daanvia keeps the map, search and routes on your phone, so it works with no signal or mobile data. Right now it covers " + s.regionName + "."));
         chips.addView(regionChip); chips.addView(bikeChip);
         top.addView(chips);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP); lp.leftMargin = lp.rightMargin = k.dp(14);
@@ -226,6 +230,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         LinearLayout c = k.column(0);
         LinearLayout head = k.row(8);
         TextView title = k.text("Ride somewhere", 19, 750, INK); head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        head.addView(k.info("Search for a place, tap a saved place, or press and hold anywhere on the map to drop a pin. You can also share a place to Daanvia from Google Maps to save it here."));
         c.addView(head);
         exploreStatus = k.text("", 13, 500, MUTED); exploreStatus.setPadding(0, k.dp(4), 0, k.dp(14)); c.addView(exploreStatus);
         c.addView(k.label("Saved places"));
@@ -283,13 +288,13 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         LinearLayout fieldRow = k.row(10); fieldRow.setPadding(k.dp(16), 0, k.dp(8), 0);
         theme.add(p -> fieldRow.setBackground(Gabi.round(p.chip, k.dp(26), p.accent, k.dp(1.5f))));
         fieldRow.addView(k.icon(IconDrawable.SEARCH, 20, ACCENT));
-        field = new EditText(this); field.setBackground(null); field.setSingleLine(); field.setTextSize(16.5f); field.setTypeface(Gabi.font(this, 550)); field.setHint("Search places on this phone");
+        field = new EditText(this); field.setBackground(null); field.setSingleLine(); field.setTextSize(16.5f); field.setTypeface(Gabi.font(this, 550)); field.setHint("Search a place");
         field.setImeOptions(EditorInfo.IME_ACTION_SEARCH); field.setPadding(0, 0, 0, 0);
         theme.add(p -> { field.setTextColor(p.ink); field.setHintTextColor(p.muted); field.setHighlightColor(p.accentSoft); });
         fieldRow.addView(field, new LinearLayout.LayoutParams(0, -1, 1));
         fieldRow.addView(k.circle(IconDrawable.CLOSE, 38, CHIP, MUTED, () -> { if (field.length() > 0) field.setText(""); else go(Mode.EXPLORE); }));
         searchPanel.addView(fieldRow, new LinearLayout.LayoutParams(-1, k.dp(54)));
-        TextView lab = k.label("Places on this phone"); lab.setPadding(k.dp(4), k.dp(18), 0, k.dp(6)); searchPanel.addView(lab);
+        TextView lab = k.label("Places"); lab.setPadding(k.dp(4), k.dp(18), 0, k.dp(6)); searchPanel.addView(lab);
         ScrollView sc = new ScrollView(this); sc.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS); sc.setVerticalScrollBarEnabled(false);
         results = k.column(0); sc.addView(results);
         searchPanel.addView(sc, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -307,7 +312,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             int n = places.length(); ArrayList<String> names = new ArrayList<>(n); double[] lat = new double[n], lon = new double[n];
             for (int i = 0; i < n; i++) { JSONObject p = places.optJSONObject(i); names.add(p == null ? null : p.optString("name", null)); lat[i] = p == null ? 0 : p.optDouble("lat"); lon[i] = p == null ? 0 : p.optDouble("lon"); }
             SearchIndex built = new SearchIndex(names, lat, lon);
-            ui.post(() -> { index = built; if (mode == Mode.SEARCH) runSearch.run(); });
+            Lots parking = null;
+            try (java.io.InputStream in = getAssets().open("cebu/lots.json")) { java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream(); byte[] b = new byte[16384]; int r; while ((r = in.read(b)) > 0) o.write(b, 0, r); parking = new Lots(o.toString("UTF-8")); } catch (Exception ignored) {}
+            Lots loaded = parking;
+            ui.post(() -> { index = built; lots = loaded; if (mode == Mode.SEARCH) runSearch.run(); });
         });
     }
     private final Runnable runSearch = () -> {
@@ -320,7 +328,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     };
     private void showResults(String q, Object[] r) {
         results.removeAllViews();
-        if (r == null) { results.addView(k.listRow(IconDrawable.CLOCK, s.ready ? "Preparing search…" : s.status, null, null, null)); return; }
+        if (r == null) { results.addView(k.listRow(IconDrawable.CLOCK, "Getting search ready…", null, null, null)); return; }
         int[] hits = (int[])r[0]; double fromLat = (double)r[1], fromLon = (double)r[2];
         for (Bookmarks.Place b : bookmarks.match(q)) results.addView(starRow(b, highlight(b.name, q), "Saved", Gabi.distance(GeoMath.distance(fromLat, fromLon, b.lat, b.lon))));
         boolean anySaved = results.getChildCount() > 0;
@@ -330,15 +338,73 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 results.addView(k.listRow(IconDrawable.CLOCK, n, "Recent", Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> choose(la, lo, n))); }
             results.addView(k.listRow(IconDrawable.LOC, "Choose on the map", "Long-press anywhere to drop a pin", null, () -> { go(Mode.EXPLORE); notice("Long-press the map where you want to go"); }));
         } else if (hits.length == 0 && !anySaved) {
-            results.addView(k.listRow(IconDrawable.SEARCH, "No places match “" + q.trim() + "”", "Not in the offline map. Share it to Daanvia from Google Maps to save it, or long-press the map.", null, null));
-        } else for (int h : hits) {
-            String name = index.names[h]; double la = index.lat[h], lo = index.lon[h];
-            results.addView(k.listRow(IconDrawable.PIN, highlight(name, q), null, Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> choose(la, lo, name)));
+            results.addView(k.listRow(IconDrawable.SEARCH, "Can’t find “" + q.trim() + "”", "Try another spelling, or share the place to Daanvia from Google Maps", null, null));
+        } else {
+            // Sub-places ("SM City Cebu PUJ Terminal") belong to the main place they are named after, so the
+            // main place lists all of their parking once and the sub-places don't repeat it.
+            int[] parent = new int[hits.length]; Arrays.fill(parent, -1);
+            for (int n = 0; n < hits.length; n++) for (int m = 0; m < n; m++) {
+                if (parent[m] != -1) continue;
+                String a = index.names[hits[m]].toLowerCase(Locale.ROOT), b = index.names[hits[n]].toLowerCase(Locale.ROOT);
+                if ((b.startsWith(a + " ") || b.endsWith(" " + a)) && GeoMath.distance(index.lat[hits[m]], index.lon[hits[m]], index.lat[hits[n]], index.lon[hits[n]]) < 800) { parent[n] = m; break; }
+            }
+            for (int n = 0; n < hits.length; n++) {
+                int h = hits[n]; String name = index.names[h]; double la = index.lat[h], lo = index.lon[h];
+                List<Lots.Lot> near = new ArrayList<>();
+                if (lots != null && parent[n] == -1 && n < 12) {
+                    LinkedHashMap<String, Lots.Lot> all = new LinkedHashMap<>();
+                    for (Lots.Lot l : lots.near(la, lo, 300)) all.put(l.id, l);
+                    for (int c = n + 1; c < hits.length; c++) if (parent[c] == n) for (Lots.Lot l : lots.near(index.lat[hits[c]], index.lon[hits[c]], 300)) all.putIfAbsent(l.id, l);
+                    near.addAll(all.values()); Lots.rank(near, la, lo);
+                }
+                String sub = parent[n] != -1 ? "Part of " + index.names[hits[parent[n]]] : near.isEmpty() ? null : near.size() + " parking nearby";
+                results.addView(k.listRow(IconDrawable.PIN, highlight(name, q), sub, Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> choose(la, lo, name)));
+                addLots(results, near, name, la, lo, 3);
+            }
         }
         for (int i = 0; i < results.getChildCount(); i++) {
             View v = results.getChildAt(i); v.setAlpha(0f); v.setTranslationY(k.dp(12));
             v.animate().alpha(1f).translationY(0).setStartDelay(Math.min(i, 10) * 22L).setDuration(360).setInterpolator(Gabi.EASE_OUT).start();
         }
+    }
+    /** Parking that belongs to a place, drawn as branches under it; extra lots fold behind a "more" row. */
+    private void addLots(LinearLayout into, List<Lots.Lot> near, String parent, double la, double lo, int show) {
+        int count = Math.min(show, near.size());
+        for (int i = 0; i < count; i++) {
+            Lots.Lot l = near.get(i);
+            into.addView(branch(l.motorcycle() ? IconDrawable.BIKE : IconDrawable.PARK, l.title(), l.summary(), Gabi.distance(GeoMath.distance(la, lo, l.lat, l.lon)), i == count - 1 && near.size() <= show, l.restricted(), () -> openLot(l, parent)));
+        }
+        if (near.size() > show) {
+            int at = into.getChildCount(); int rest = near.size() - show;
+            View[] more = new View[1];
+            more[0] = branch(IconDrawable.CHEVRON, "Show " + rest + " more parking", null, null, true, true, () -> {
+                into.removeView(more[0]); LinearLayout tmp = k.column(0); addLots(tmp, near.subList(show, near.size()), parent, la, lo, near.size());
+                int pos = at; while (tmp.getChildCount() > 0) { View v = tmp.getChildAt(0); tmp.removeViewAt(0); v.setAlpha(0); into.addView(v, pos++); v.animate().alpha(1).setDuration(260).start(); }
+            });
+            into.addView(more[0]);
+        }
+    }
+    private LinearLayout branch(int icon, String title, String sub, String trail, boolean last, boolean dim, Runnable action) {
+        LinearLayout r = k.row(10); r.setMinimumHeight(k.dp(52)); r.setPadding(0, 0, 0, 0);
+        View line = new View(this) {
+            final android.graphics.Paint pt = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            protected void onDraw(android.graphics.Canvas c) {
+                pt.setColor(theme.palette.night ? 0x33FFFFFF : 0x33101820); pt.setStrokeWidth(k.dp(1.5f)); pt.setStyle(android.graphics.Paint.Style.STROKE);
+                float x = k.dp(18), mid = getHeight() / 2f, rad = k.dp(8);
+                android.graphics.Path p = new android.graphics.Path(); p.moveTo(x, 0); p.lineTo(x, mid - rad); p.quadTo(x, mid, x + rad, mid); p.lineTo(getWidth(), mid);
+                if (!last) { p.moveTo(x, mid - rad); p.lineTo(x, getHeight()); }
+                c.drawPath(p, pt);
+            }
+        };
+        r.addView(line, new LinearLayout.LayoutParams(k.dp(34), -1));
+        FrameLayout b = new FrameLayout(this); k.fill(b, 10, dim ? CHIP : ACCENT_SOFT);
+        b.addView(k.icon(icon, 16, dim ? MUTED : ACCENT), new FrameLayout.LayoutParams(k.dp(16), k.dp(16), Gravity.CENTER));
+        r.addView(b, new LinearLayout.LayoutParams(k.dp(30), k.dp(30)));
+        LinearLayout col = k.column(2); col.addView(k.single(k.text(title, 14, 600, dim ? INK_SOFT : INK)));
+        if (sub != null) col.addView(k.single(k.text(sub, 12, 500, MUTED)));
+        r.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+        if (trail != null) r.addView(k.num(trail, 12, 600, MUTED));
+        Gabi.press(r, action); return r;
     }
     private CharSequence highlight(String name, String q) {
         SpannableString sp = new SpannableString(name);
@@ -369,6 +435,70 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         return c;
     }
 
+    // ================================================================ parking lot
+    private LinearLayout buildLot() {
+        LinearLayout c = k.column(0);
+        LinearLayout head = k.row(8);
+        LinearLayout tc = k.column(3); lotTitle = k.text("", 19, 750, INK); lotSub = k.text("", 13, 500, MUTED); tc.addView(lotTitle); tc.addView(lotSub);
+        head.addView(tc, new LinearLayout.LayoutParams(0, -2, 1));
+        head.addView(k.info("Parking details come from OpenStreetMap, a public map that people keep up to date. When you have signal, Daanvia checks it again so you see the latest. Hours, prices and access can still be missing or out of date, so check the signs when you arrive."));
+        head.addView(k.circle(IconDrawable.CLOSE, 38, CHIP, MUTED, () -> go(Mode.SEARCH)));
+        c.addView(head);
+        lotFacts = k.column(2); lotFacts.setPadding(0, k.dp(10), 0, k.dp(4)); c.addView(lotFacts);
+        LinearLayout live = k.row(8); live.setPadding(k.dp(12), k.dp(10), k.dp(12), k.dp(10)); k.fill(live, 14, CHIP);
+        lotLiveDot = new View(this); live.addView(lotLiveDot, new LinearLayout.LayoutParams(k.dp(8), k.dp(8)));
+        lotLive = k.text("", 13, 600, INK_SOFT); live.addView(lotLive, new LinearLayout.LayoutParams(0, -2, 1));
+        c.addView(live);
+        LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(14), 0, 0);
+        btns.addView(k.circle(IconDrawable.STAR, 56, CHIP, ACCENT, () -> { if (lot != null) openSave(lot.title() + (lotParent == null ? "" : " · " + lotParent), lot.lat, lot.lon); }));
+        btns.addView(k.primary("Ride here", () -> { if (lot != null) choose(lot.lat, lot.lon, lot.title() + (lotParent == null ? "" : " · " + lotParent)); }), new LinearLayout.LayoutParams(0, -2, 1));
+        c.addView(btns);
+        return c;
+    }
+    private void openLot(Lots.Lot l, String parent) {
+        lot = l; lotParent = parent; hideKeyboard();
+        lotTitle.setText(l.title()); lotSub.setText(parent == null ? "" : "At " + parent);
+        paintLotFacts(l);
+        liveState(MUTED, "Checking the map for updates…");
+        go(Mode.LOT);
+        if (map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(l.lat, l.lon), 17), 900);
+        int token = ++lotToken;
+        worker.execute(() -> {
+            LiveCheck.Result r = LiveCheck.check(l.id);
+            ui.post(() -> {
+                if (token != lotToken || mode != Mode.LOT) return;
+                if (!r.reachable) liveState(MUTED, "Couldn’t check for updates. No signal?");
+                else if (!r.exists) liveState(DANGER, "This parking is no longer on the map. It may have closed.");
+                else {
+                    liveState(OK, "Still on the map" + (r.edited == null ? "" : " · last updated " + month(r.edited)));
+                    Lots.Lot fresh = Lots.Lot.fromTags(l.id, l.lat, l.lon, r.tags); lot = fresh; lotTitle.setText(fresh.title()); paintLotFacts(fresh);
+                }
+            });
+        });
+    }
+    private void liveState(Gabi.Role role, String text) { lotLive.setText(text); lotLiveDot.setBackground(Gabi.round(role.color(theme.palette), k.dp(4))); }
+    private static String month(String isoDate) {
+        try { return new java.text.SimpleDateFormat("MMM yyyy", Locale.US).format(new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(isoDate)); } catch (Exception e) { return isoDate; }
+    }
+    private void paintLotFacts(Lots.Lot l) {
+        lotFacts.removeAllViews();
+        fact(IconDrawable.BIKE, l.motorcycle() ? "Motorcycles can park here" : l.noMotorcycles() ? "No motorcycles" : "Motorcycle parking not confirmed", l.motorcycle() ? OK : MUTED);
+        if (l.hours.isEmpty()) fact(IconDrawable.CLOCK, "Opening hours not listed", MUTED);
+        else { OpeningHours.Status st = OpeningHours.now(l.hours); fact(IconDrawable.CLOCK, st.label, st.state == OpeningHours.State.OPEN ? OK : st.state == OpeningHours.State.CLOSED ? DANGER : MUTED); }
+        String price = !l.charge.isEmpty() ? l.charge : l.fee.equals("yes") ? "Paid parking · price not listed" : l.fee.equals("no") ? "Free" : "Price not listed";
+        fact(IconDrawable.PARK, price, MUTED);
+        String access = l.restricted() ? "Private · not open to the public" : l.access.equals("customers") ? "For customers" : l.access.equals("yes") ? "Open to the public" : l.access.equals("destination") ? "For visitors" : "Access not listed";
+        fact(IconDrawable.CHECK, access, l.restricted() ? DANGER : MUTED);
+        if (!l.capacityMoto.isEmpty()) fact(IconDrawable.BIKE, "Space for " + l.capacityMoto + " motorcycles", MUTED);
+        else if (!l.capacity.isEmpty()) fact(IconDrawable.PARK, l.capacity + " spaces", MUTED);
+        if (!l.operator.isEmpty()) fact(IconDrawable.TOOLS, "Run by " + l.operator, MUTED);
+    }
+    private void fact(int icon, String text, Gabi.Role tint) {
+        LinearLayout r = k.row(12); r.setPadding(0, k.dp(6), 0, k.dp(6));
+        r.addView(k.icon(icon, 18, tint)); r.addView(k.text(text, 14, 550, INK), new LinearLayout.LayoutParams(0, -2, 1));
+        lotFacts.addView(r);
+    }
+
     // ================================================================ save place
     private LinearLayout buildSave() {
         LinearLayout c = k.column(10);
@@ -382,7 +512,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         btns.addView(k.ghost("Ride here", () -> { String n = saveName.getText().toString().trim(); choose(saveLat, saveLon, n.isEmpty() ? "Map pin" : n); }), new LinearLayout.LayoutParams(0, -2, 1));
         btns.addView(k.primary("Save", () -> {
             String n = saveName.getText().toString().trim(); if (n.isEmpty()) { Gabi.shake(saveName); return; }
-            bookmarks.save(n, saveLat, saveLon); hideKeyboard(); go(Mode.EXPLORE); notice("Saved " + n + ". Search finds it offline now.");
+            bookmarks.save(n, saveLat, saveLon); hideKeyboard(); go(Mode.EXPLORE); notice("Saved " + n);
         }), new LinearLayout.LayoutParams(0, -2, 1.3f));
         c.addView(btns);
         return c;
@@ -390,7 +520,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void openSave(String name, double lat, double lon) {
         if (s.active) { notice("End the ride before saving places"); return; }
         saveLat = lat; saveLon = lon; saveName.setText(name); saveName.setSelection(saveName.length());
-        saveSub.setText(s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) + " from you" : s.inRegion(lat, lon) ? "Inside " + s.regionName : "Outside the installed offline region · saved for later");
+        saveSub.setText(s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) + " from you" : s.inRegion(lat, lon) ? s.regionName : "Outside " + s.regionName + " for now · saved for later");
         dropLat = lat; dropLon = lon;
         go(Mode.SAVE);
         if (map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(lat, lon), 16), 900);
@@ -399,7 +529,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (s.active) { notice("End the ride before changing destination"); return; }
         if (mode == Mode.PARK_FORM || mode == Mode.SAVE) return;
         dropLat = lat; dropLon = lon;
-        pinSub.setText(s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) + " from you" : s.inRegion(lat, lon) ? "Inside " + s.regionName : "Outside the installed offline region");
+        pinSub.setText(s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) + " from you" : s.inRegion(lat, lon) ? s.regionName : "Outside " + s.regionName + " for now");
         root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         go(Mode.PIN);
     }
@@ -414,7 +544,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         c.addView(head);
         LinearLayout etaRow = k.row(10); etaRow.setGravity(Gravity.BOTTOM); etaRow.setPadding(0, k.dp(6), 0, 0);
         routeEta = k.num("—", 40, 800, INK); routeEta.setLetterSpacing(-0.03f); etaRow.addView(routeEta);
-        routeMeta = k.num("", 14, 600, MUTED); routeMeta.setPadding(0, 0, 0, k.dp(6)); etaRow.addView(routeMeta);
+        routeMeta = k.num("", 14, 600, MUTED); routeMeta.setPadding(0, 0, 0, k.dp(6)); etaRow.addView(routeMeta, new LinearLayout.LayoutParams(0, -2, 1));
+        etaRow.addView(k.info("Routes are planned for a 160 cc scooter, so they skip expressways and toll roads. Times are estimates and don’t include live traffic. Parking near the end of the trip shows on the map and on your bike display."));
         c.addView(etaRow);
         shimmer = new View(this); k.fill(shimmer, 2, ACCENT); shimmer.setPivotX(0);
         FrameLayout track = new FrameLayout(this); k.fill(track, 2, CHIP); track.addView(shimmer, new FrameLayout.LayoutParams(k.dp(90), -1));
@@ -423,13 +554,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         sh.addUpdateListener(a -> shimmer.setTranslationX((float)a.getAnimatedValue() * track.getWidth())); sh.start();
         track.setTag(sh);
         routeStatus = k.text("", 13, 550, INK_SOFT); routeStatus.setPadding(0, k.dp(8), 0, 0); c.addView(routeStatus);
-        routeTags = k.row(6); routeTags.setPadding(0, k.dp(12), 0, k.dp(12));
-        for (String t : new String[]{"Scooter route", "No highways", "No tolls", "Offline"}) routeTags.addView(k.chip(t, CHIP, INK_SOFT));
-        HorizontalScrollView hs = new HorizontalScrollView(this); hs.setHorizontalScrollBarEnabled(false); hs.addView(routeTags); c.addView(hs);
+        View gap = new View(this); c.addView(gap, new LinearLayout.LayoutParams(1, k.dp(12)));
         parkRow = k.row(10); parkRow.setPadding(k.dp(12), k.dp(10), k.dp(12), k.dp(10)); k.fill(parkRow, 16, ACCENT_SOFT);
         parkRow.addView(k.icon(IconDrawable.PARK, 18, ACCENT)); parkText = k.text("", 13, 600, INK_SOFT); parkRow.addView(parkText, new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(parkRow);
-        simNote = k.text("Simulates the route on this phone and the connected TFT. Do not follow a simulated position while riding.", 12.5f, 500, MUTED);
+        simNote = k.text("The demo moves by itself so you can check the bike display while parked. Don’t follow it while riding.", 12.5f, 500, MUTED);
         simNote.setPadding(0, k.dp(10), 0, 0); c.addView(simNote);
         LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(12), 0, 0);
         startBtn = k.primary("Start ride", this::start); btns.addView(startBtn, new LinearLayout.LayoutParams(0, -2, 1));
@@ -438,25 +567,34 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     private void paintRoute() {
         boolean mine = destName != null && destName.equals(s.destination) && !s.shape.isEmpty();
-        routeName.setText((demoTrip ? "Simulation · " : "") + (destName == null ? "" : destName));
+        routeName.setText(demoTrip ? "Demo ride" : destName == null ? "" : destName);
         boolean busy = s.routing || pendingPlan;
         ((View)shimmer.getParent()).setVisibility(busy ? View.VISIBLE : View.GONE);
-        if (s.routing) { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText("Calculating on this phone…"); }
-        else if (pendingPlan) { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText("Waiting for GPS. Simulation works without it."); }
+        if (s.routing) { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText("Finding the best route…"); }
+        else if (pendingPlan) { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText("Finding your location…"); }
         else if (mine) {
             routeEta.setText(Gabi.minutes(s.seconds)); routeMeta.setText(Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
-            routeStatus.setText(s.simulation ? "Simulated route ready. No live GPS is used." : "Route calculated offline on this phone.");
-        } else { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText(s.status); }
+            routeStatus.setText(s.simulation ? "Demo route ready" : "");
+        } else { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText(friendly(s.status)); }
+        routeStatus.setVisibility(routeStatus.length() == 0 ? View.GONE : View.VISIBLE);
         int lots = s.nearbyParking.size(), priced = 0;
         for (JSONObject l : s.nearbyParking) if (!MapStyle.priceOf(l).isEmpty()) priced++;
         parkRow.setVisibility(mine && lots > 0 ? View.VISIBLE : View.GONE);
         parkText.setText(lots + " parking " + (lots == 1 ? "spot" : "spots") + " near arrival" + (priced > 0 ? " · " + priced + " with a saved rate" : ""));
         simNote.setVisibility(demoTrip ? View.VISIBLE : View.GONE);
-        startBtn.setText(demoTrip ? "Start simulation" : "Start ride");
+        startBtn.setText(demoTrip ? "Start demo" : "Start ride");
         boolean can = mine && !s.routing; startBtn.setAlpha(can ? 1f : 0.45f);
         routeStar.setVisibility(demoTrip ? View.GONE : View.VISIBLE);
         boolean saved = destName != null && bookmarks.find(destLat, destLon) != null;
         ((ImageView)routeStar.getChildAt(0)).setImageDrawable(new IconDrawable(saved ? IconDrawable.STAR_FILLED : IconDrawable.STAR, theme.palette.accent));
+    }
+    /** Turn engine status lines into plain words for the route card. */
+    private String friendly(String status) {
+        if (status == null) return "";
+        if (status.startsWith("Outside")) return "That place is outside " + s.regionName + " for now.";
+        if (status.startsWith("No offline route")) return "Couldn’t find a route there. Try a spot on a nearby road.";
+        if (status.startsWith("Wait")) return "Getting the map ready…";
+        return "";
     }
     private void toggleRouteStar() {
         if (destName == null) return;
@@ -484,7 +622,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         boolean demo = demoTrip;
         if (!s.ready || s.shape.isEmpty() || s.routing) { Gabi.shake(startBtn); notice("Choose a destination and calculate a route first"); return; }
         if (!demo && (s.simulation || s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 40)) {
-            Gabi.shake(startBtn); notice("Get a fresh precise GPS location before a live ride"); locate(); return;
+            Gabi.shake(startBtn); notice("Waiting for a clear GPS signal. Try again in a moment."); locate(); return;
         }
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
@@ -492,7 +630,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** Simulated ride over the region's sample route, started from Settings › Testing. */
     private void demo() {
         if (s.active) { notice("End the current ride first"); return; }
-        if (!s.ready) { pendingDemo = true; notice("Loading the offline map first…"); return; }
+        if (!s.ready) { pendingDemo = true; notice("Getting the map ready first…"); return; }
         if (s.routing) { notice("Wait for the route calculation"); return; }
         s.lat = s.demoFrom[0]; s.lon = s.demoFrom[1]; s.fixAt = 0;
         destLat = s.demoTo[0]; destLon = s.demoTo[1]; destName = s.demoName; demoTrip = true; pendingPlan = false;
@@ -508,7 +646,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         head.addView(k.text("Save checked parking", 19, 750, INK), new LinearLayout.LayoutParams(0, -2, 1));
         head.addView(k.circle(IconDrawable.CLOSE, 38, CHIP, MUTED, () -> go(Mode.EXPLORE)));
         c.addView(head);
-        c.addView(k.text("Local record on this phone. Enter a motorcycle rate you checked. Leave the price blank if you don’t know it.", 13, 500, MUTED));
+        c.addView(k.text("Add the motorcycle rate you saw at the gate. Leave the price blank if you’re not sure.", 13, 500, MUTED));
         parkName = input("Parking name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS); c.addView(parkName, new LinearLayout.LayoutParams(-1, k.dp(52)));
         parkPrice = input("₱ amount · optional", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL); c.addView(parkPrice, new LinearLayout.LayoutParams(-1, k.dp(52)));
         String[] basis = {"hour", "entry", "2h"};
@@ -529,7 +667,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         try {
             s.saveParking(parkLat, parkLon, name.isEmpty() ? "Saved parking" : name, parkPrice.getText().toString(), parkBasis);
             hideKeyboard(); parkName.setText(""); parkPrice.setText(""); parkError.setVisibility(View.GONE);
-            go(Mode.EXPLORE); notice("Saved on this phone. Rates are owner-entered, not live availability.");
+            go(Mode.EXPLORE); notice("Saved. The rate shows on the parking pin for 30 days.");
         } catch (Exception e) { parkError.setText("Enter a valid non-negative amount or leave it blank"); parkError.setVisibility(View.VISIBLE); Gabi.shake(parkPrice); }
     }
 
@@ -558,8 +696,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         etaBar = k.row(12); etaBar.setPadding(k.dp(20), k.dp(10), k.dp(10), k.dp(10)); k.glass(etaBar, 30);
         LinearLayout et = k.column(3);
         LinearLayout etTop = k.row(8); etaMin = k.num("", 25, 800, INK); etTop.addView(etaMin);
-        simBadge = k.chip("SIMULATION", ACCENT_SOFT, ACCENT); simBadge.setTextSize(10.5f); simBadge.setLetterSpacing(0.08f); etTop.addView(simBadge);
-        tftBadge = k.chip("TFT live", OK_SOFT, OK); tftBadge.setTextSize(10.5f); etTop.addView(tftBadge);
+        simBadge = k.chip("DEMO", ACCENT_SOFT, ACCENT); simBadge.setTextSize(10.5f); simBadge.setLetterSpacing(0.08f); etTop.addView(simBadge);
+        tftBadge = k.chip("On bike", OK_SOFT, OK); tftBadge.setTextSize(10.5f); etTop.addView(tftBadge);
         et.addView(etTop);
         etaMeta = k.num("", 13, 600, MUTED); et.addView(etaMeta);
         etaBar.addView(et, new LinearLayout.LayoutParams(0, -2, 1));
@@ -614,12 +752,14 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void go(Mode next) {
         Mode prev = mode; mode = next;
         boolean searching = next == Mode.SEARCH, riding = next == Mode.RIDE;
-        if (searching) {
+        if (searching && prev == Mode.LOT) { sheet.hide(); Gabi.show(searchPanel, true, k.dp(16)); searchPanel.bringToFront(); }
+        else if (searching) {
             searchPanel.setVisibility(View.VISIBLE); searchPanel.setAlpha(0); searchPanel.setTranslationY(k.dp(16)); searchPanel.bringToFront();
             searchPanel.animate().alpha(1).translationY(0).setDuration(300).setInterpolator(Gabi.EASE_OUT).start();
             field.requestFocus(); ui.postDelayed(() -> ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(field, 0), 120);
             runSearch.run();
         } else if (prev == Mode.SEARCH) { hideKeyboard(); Gabi.show(searchPanel, false, k.dp(16)); }
+        if (next == Mode.SEARCH && prev == Mode.LOT) { layoutInsets(); paintLocateFab(); paintMap(); return; }
         Gabi.show(top, next == Mode.EXPLORE || next == Mode.PIN, -k.dp(14));
         if (prev == Mode.SAVE && next != Mode.SAVE) hideKeyboard();
         Gabi.show(rideTop, riding, -k.dp(24)); if (!riding) thenChip.setVisibility(View.GONE);
@@ -629,6 +769,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             case PIN: sheet.swap(pinSheet); break;
             case ROUTE: paintRoute(); sheet.swap(routeSheet); drawnShape = null; break;
             case SAVE: sheet.swap(saveSheet); break;
+            case LOT: sheet.swap(lotSheet); break;
             case PARK_FORM: sheet.swap(parkForm); parkName.requestFocus(); break;
             case SEARCH: sheet.hide(); break;
             case RIDE: sheet.hide(); follow = true; shownManeuver = -1; lastFix = -1; break;
@@ -644,14 +785,15 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         long now = SystemClock.elapsedRealtime();
         if (now - themeCheckedAt > 60000) { themeCheckedAt = now; applyTheme(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)); }
         installLayers();
-        if (!s.ready) dotChip(regionChip, "Preparing offline maps…", MUTED);
-        else dotChip(regionChip, s.regionName + " · offline", OK);
+        if (!s.ready) dotChip(regionChip, "Getting the map ready…", MUTED);
+        else dotChip(regionChip, s.regionName, OK);
         String model = savedModel();
         if (StreamService.navigationActive) dotChip(bikeChip, "Bike display live", OK);
         else if (link != null && link.searching()) dotChip(bikeChip, "Looking for " + (model == null ? "your bike" : model) + "…", ACCENT);
         else dotChip(bikeChip, model == null ? "Set up your bike" : model + " · not connected", MUTED);
         if (pendingDemo && s.ready) { pendingDemo = false; demo(); }
-        exploreStatus.setText(!s.ready ? s.status : s.fixAt > 0 ? "GPS ready · maps and routing work without data" : "Maps and routing work without data in " + s.regionName);
+        exploreStatus.setText(!s.ready ? "Getting the map ready…" : s.status.startsWith("Offline region could not load") ? "The map couldn't load. Open Settings › Support." : "");
+        exploreStatus.setVisibility(exploreStatus.length() == 0 ? View.GONE : View.VISIBLE);
         if (pendingPlan && s.ready && !s.routing && s.fixAt > 0) { pendingPlan = false; s.plan(destLat, destLon, destName, false); }
         if (s.active && mode != Mode.RIDE) go(Mode.RIDE);
         else if (!s.active && mode == Mode.RIDE) { destName = null; demoTrip = false; go(Mode.EXPLORE); }
@@ -687,7 +829,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         // destination / pin
         GeoJsonSource dest = src(MapStyle.DEST), drop = src(MapStyle.DROP);
         if (routeMode && destName != null || mode == Mode.RIDE) dest.setGeoJson(mode == Mode.RIDE ? MapStyle.point(s.destLat, s.destLon) : MapStyle.point(destLat, destLon)); else dest.setGeoJson(MapStyle.empty());
-        if (mode == Mode.PIN || mode == Mode.SAVE) drop.setGeoJson(MapStyle.point(dropLat, dropLon)); else drop.setGeoJson(MapStyle.empty());
+        if (mode == Mode.PIN || mode == Mode.SAVE) drop.setGeoJson(MapStyle.point(dropLat, dropLon));
+        else if (mode == Mode.LOT && lot != null) drop.setGeoJson(MapStyle.point(lot.lat, lot.lon)); else drop.setGeoJson(MapStyle.empty());
         // parking near the destination, before the ride and in the last kilometre
         List<JSONObject> lots = (showRoute && (mode == Mode.ROUTE || s.remaining < 1000)) ? s.nearbyParking : Collections.emptyList();
         if (lots != drawnParking || drawnParkingPalette != theme.palette) {
@@ -779,7 +922,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     public void onRequestPermissionsResult(int code, String[] p, int[] r) {
         super.onRequestPermissionsResult(code, p, r);
         if (code == 71 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { locate(); autoConnect(); }
-        else if (code == 71) { pendingPlan = false; notice("Precise location is needed for a live ride."); refresh(); }
+        else if (code == 71) { pendingPlan = false; notice("Allow precise location to ride with directions."); refresh(); }
         if (code == DashboardLink.PERMISSIONS) link.onPermissionsResult();
     }
     private void openSettings() {
@@ -803,14 +946,14 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         ShareLinks.Place place = ShareLinks.parse(text);
         if (place == null) { notice("That share has no place in it. In Google Maps, open the place and tap Share."); return; }
         if (place.located()) { openSave(place.name.equals("Shared place") ? "" : place.name, place.lat, place.lon); return; }
-        notice("Reading the Google Maps link…");
+        notice("Opening the shared place…");
         worker.execute(() -> {
             ShareLinks.Place found;
             try { found = ShareLinks.resolve(place); } catch (Exception e) { found = place; }
             ShareLinks.Place r = found;
             ui.post(() -> {
                 if (r.located()) openSave(r.name.equals("Shared place") ? "" : r.name, r.lat, r.lon);
-                else notice("Couldn't read that link. Share it again while online, or long-press the map to pin it.");
+                else notice("Couldn’t open that link. Try again with signal, or press and hold the map to pin it.");
             });
         });
     }

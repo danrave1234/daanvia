@@ -164,6 +164,33 @@ public final class Gabi {
             View g = new View(c); fill(g, 2, Role.GRAB);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(38), dp(4)); lp.gravity = Gravity.CENTER_HORIZONTAL; lp.bottomMargin = dp(12); g.setLayoutParams(lp); return g;
         }
+        /** Small ⓘ that explains something in plain words when tapped, instead of putting the detail on screen. */
+        public FrameLayout info(String explanation) {
+            FrameLayout f = new FrameLayout(c); ImageView i = icon(IconDrawable.INFO, 18, Role.MUTED);
+            f.addView(i, new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER));
+            f.setLayoutParams(new LinearLayout.LayoutParams(dp(36), dp(36)));
+            f.setContentDescription("More information");
+            press(f, () -> tip(f, explanation)); return f;
+        }
+        /** Glass bubble under (or above) the anchor; any tap closes it. */
+        public void tip(View anchor, String text) {
+            ViewGroup root = (ViewGroup)anchor.getRootView();
+            FrameLayout scrim = new FrameLayout(c); scrim.setClickable(true); scrim.setElevation(dp(40));
+            TextView bubble = text(text, 14, 550, Role.INK); bubble.setLineSpacing(0, 1.25f); bubble.setPadding(dp(16), dp(14), dp(16), dp(14));
+            t.add(p -> bubble.setBackground(round(p.night ? 0xFF1E2935 : 0xFFFFFFFF, dp(18), p.stroke, dp(1)))); bubble.setElevation(dp(16));
+            int width = Math.min(root.getWidth() - dp(32), dp(320));
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(width, -2);
+            int[] at = new int[2]; anchor.getLocationInWindow(at);
+            lp.leftMargin = Math.max(dp(16), Math.min(at[0] + anchor.getWidth() / 2 - width / 2, root.getWidth() - width - dp(16)));
+            scrim.addView(bubble, lp);
+            root.addView(scrim, new ViewGroup.LayoutParams(-1, -1));
+            bubble.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
+            boolean below = at[1] + anchor.getHeight() + bubble.getMeasuredHeight() + dp(24) < root.getHeight();
+            lp.topMargin = below ? at[1] + anchor.getHeight() + dp(4) : Math.max(dp(24), at[1] - bubble.getMeasuredHeight() - dp(4));
+            bubble.setAlpha(0f); bubble.setScaleX(0.92f); bubble.setScaleY(0.92f); bubble.setPivotY(below ? 0 : bubble.getMeasuredHeight());
+            bubble.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(EASE_OUT).start();
+            scrim.setOnClickListener(v -> bubble.animate().alpha(0f).setDuration(140).withEndAction(() -> root.removeView(scrim)).start());
+        }
         public TextView label(String s) { TextView v = text(s.toUpperCase(Locale.US), 11.5f, 700, Role.MUTED); v.setLetterSpacing(0.1f); return v; }
 
         /** Icon bubble + title/subtitle + trailing text, the list row used everywhere. */

@@ -7,7 +7,7 @@ import android.graphics.drawable.Drawable;
 public final class IconDrawable extends Drawable {
     public static final int SEARCH = 1, LOC = 2, BIKE = 3, RIGHT = 4, LEFT = 5, SLIGHT_RIGHT = 6, SLIGHT_LEFT = 7, SHARP_RIGHT = 8, SHARP_LEFT = 9,
         UTURN = 10, STRAIGHT = 11, FLAG = 12, ROUNDABOUT = 13, MERGE = 14, PARK = 15, TFT = 16, PLAY = 17, PIN = 18, CLOCK = 19, CLOSE = 20,
-        CHEVRON = 21, BACK = 22, QR = 23, SHARE = 24, CROSSHAIR = 25, SUN = 26, MOON = 27, CHECK = 28, PHOTO = 29, TOOLS = 30, STOP = 31, AUTO = 32, ROAD = 33, GEAR = 34, STAR = 35, STAR_FILLED = 36;
+        CHEVRON = 21, BACK = 22, QR = 23, SHARE = 24, CROSSHAIR = 25, SUN = 26, MOON = 27, CHECK = 28, PHOTO = 29, TOOLS = 30, STOP = 31, AUTO = 32, ROAD = 33, GEAR = 34, STAR = 35, STAR_FILLED = 36, INFO = 37;
 
     private final int type; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG); private final Path path = new Path(); private boolean filled;
     public IconDrawable(int type, int color) {
@@ -60,6 +60,7 @@ public final class IconDrawable extends Drawable {
             case STAR: case STAR_FILLED:
                 for (int i = 0; i < 10; i++) { double a = -Math.PI / 2 + Math.PI / 5 * i; float r = i % 2 == 0 ? 9.5f : 4.2f; float x = (float)(12 + Math.cos(a) * r), y = (float)(12.6 + Math.sin(a) * r); if (i == 0) p.moveTo(x, y); else p.lineTo(x, y); }
                 p.close(); filled = type == STAR_FILLED; break;
+            case INFO: p.addCircle(12, 12, 9.5f, Path.Direction.CW); p.moveTo(12, 11); p.lineTo(12, 16.5f); p.moveTo(12, 7.6f); p.lineTo(12, 7.7f); break;
             case ROAD: p.moveTo(8, 3); p.lineTo(4, 21); p.moveTo(16, 3); p.lineTo(20, 21); p.moveTo(12, 4); p.lineTo(12, 7); p.moveTo(12, 11); p.lineTo(12, 14); p.moveTo(12, 18); p.lineTo(12, 20); break;
         }
     }

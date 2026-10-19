@@ -60,9 +60,10 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
 
         // ---- TFT preview and fit
         LinearLayout tft = GabiPage.card(k);
-        tft.addView(k.label("Bike display"));
+        LinearLayout tftHead = k.row(4); tftHead.addView(k.label("Bike display"), new LinearLayout.LayoutParams(0, -2, 1));
+        tftHead.addView(k.info("This is what Daanvia sends to your bike’s screen. It updates live, but it’s drawn here on the phone, so colors may look a little different on the bike."));
+        tft.addView(tftHead);
         preview = new TftPreview(this, s); tft.addView(preview, new LinearLayout.LayoutParams(-1, -2));
-        tft.addView(k.text("A preview drawn on this phone, not a capture from the TFT.", 12, 500, MUTED));
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
         fitNote = k.text("End the ride and adjust fit while parked.", 12.5f, 600, ACCENT); fitNote.setVisibility(View.GONE); tft.addView(fitNote);
         fitControls = k.column(6); fitControls.setVisibility(View.GONE); tft.addView(fitControls);

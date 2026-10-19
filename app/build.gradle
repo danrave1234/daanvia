@@ -12,6 +12,7 @@ dependencies {
     implementation "androidx.core:core:1.16.0"
     implementation "androidx.dynamicanimation:dynamicanimation:1.1.0"
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
     implementation files('libs/zxing-core-3.5.3.jar')
     implementation 'org.maplibre.gl:android-sdk:13.7.1'
     implementation 'io.github.rallista:valhalla-mobile:0.6.4'
