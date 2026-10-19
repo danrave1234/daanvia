@@ -94,12 +94,13 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         sheet = new SheetView(this, k);
         FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); sp.leftMargin = sp.rightMargin = k.dp(8);
         root.addView(sheet, sp);
-        sheet.setListener(h -> { sheetVisible = h; if (frame != null) frame.invalidate(); float lift = -Math.max(h, mode == Mode.RIDE ? etaBar.getHeight() + k.dp(8) : 0); fabs.setTranslationY(lift); attribution.setTranslationY(lift); });
+        sheet.setListener(h -> { sheetVisible = h; if (frame != null) frame.invalidate(); if (landscape) return; float lift = -Math.max(h, mode == Mode.RIDE ? etaBar.getHeight() + k.dp(8) : 0); fabs.setTranslationY(lift); attribution.setTranslationY(lift); });
         buildSearch(); buildNotice();
         bookmarks = new Bookmarks(this);
         selSheet = buildSelect(); explore = buildExplore(); pinSheet = buildPin(); saveSheet = buildSave(); lotSheet = buildLot(); routeSheet = buildRoute(); parkForm = buildParkForm();
         setContentView(root);
         Gabi.insets(root, (l, t, r, b, ime) -> { insetTop = t; insetBottom = b; insetIme = ime; layoutInsets(); });
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != laidW || b - t != laidH) { laidW = r - l; laidH = b - t; root.post(this::layoutInsets); } });
         sheet.swap(explore);
         mapView.getMapAsync(this::onMap);
         link = new DashboardLink(this, this); linkedQr = savedQr();
@@ -107,16 +108,29 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); handleIntent(i); }
 
+    /** Landscape puts the sheet, search and turn card in a left column and keeps the map on the right. */
+    private boolean landscape; private int panelW, laidW, laidH;
     private void layoutInsets() {
-        ((FrameLayout.LayoutParams)top.getLayoutParams()).topMargin = insetTop + k.dp(8); top.requestLayout();
-        if (selTop != null) { ((FrameLayout.LayoutParams)selTop.getLayoutParams()).topMargin = insetTop + k.dp(8); selTop.requestLayout(); }
-        ((FrameLayout.LayoutParams)rideTop.getLayoutParams()).topMargin = insetTop + k.dp(8); rideTop.requestLayout();
-        ((FrameLayout.LayoutParams)sheet.getLayoutParams()).bottomMargin = insetBottom + k.dp(8) + (mode == Mode.PARK_FORM || mode == Mode.SAVE ? insetIme : 0); sheet.requestLayout();
-        ((FrameLayout.LayoutParams)etaBar.getLayoutParams()).bottomMargin = insetBottom + k.dp(8); etaBar.requestLayout();
+        int w = root.getWidth() > 0 ? root.getWidth() : getResources().getDisplayMetrics().widthPixels, h = root.getHeight() > 0 ? root.getHeight() : getResources().getDisplayMetrics().heightPixels;
+        landscape = w > h; panelW = landscape ? Math.min(k.dp(420), Math.round(w * 0.42f)) : 0;
+        int column = landscape ? panelW : -1;
+        place(top, column, Gravity.TOP | Gravity.START, k.dp(14), insetTop + k.dp(8), landscape ? 0 : k.dp(14), 0);
+        if (selTop != null) place(selTop, column, Gravity.TOP | Gravity.START, k.dp(14), insetTop + k.dp(8), landscape ? 0 : k.dp(14), 0);
+        place(rideTop, column, Gravity.TOP | Gravity.START, k.dp(10), insetTop + k.dp(8), landscape ? 0 : k.dp(10), 0);
+        place(sheet, column, Gravity.BOTTOM | Gravity.START, k.dp(8), 0, landscape ? 0 : k.dp(8), insetBottom + k.dp(8) + (mode == Mode.PARK_FORM || mode == Mode.SAVE ? insetIme : 0));
+        place(etaBar, column, Gravity.BOTTOM | Gravity.START, k.dp(10), 0, landscape ? 0 : k.dp(10), insetBottom + k.dp(8));
+        place(notice, column, Gravity.TOP | Gravity.START, k.dp(14), insetTop + k.dp(70), landscape ? 0 : k.dp(14), 0);
         ((FrameLayout.LayoutParams)fabs.getLayoutParams()).bottomMargin = insetBottom + k.dp(16); fabs.requestLayout();
-        ((FrameLayout.LayoutParams)attribution.getLayoutParams()).bottomMargin = insetBottom + k.dp(14); attribution.requestLayout();
+        FrameLayout.LayoutParams ap = (FrameLayout.LayoutParams)attribution.getLayoutParams();
+        ap.bottomMargin = insetBottom + k.dp(14); ap.leftMargin = landscape ? panelW + k.dp(26) : k.dp(18); attribution.requestLayout();
+        FrameLayout.LayoutParams sp = (FrameLayout.LayoutParams)searchPanel.getLayoutParams(); sp.width = landscape ? panelW + k.dp(28) : -1; sp.gravity = Gravity.START; searchPanel.requestLayout();
         searchPanel.setPadding(k.dp(14), insetTop + k.dp(8), k.dp(14), Math.max(insetBottom, insetIme));
-        ((FrameLayout.LayoutParams)notice.getLayoutParams()).topMargin = insetTop + k.dp(70); notice.requestLayout();
+        if (landscape) { fabs.setTranslationY(0); attribution.setTranslationY(0); }
+        if (frame != null) frame.invalidate();
+    }
+    private void place(View v, int width, int gravity, int left, int topMargin, int right, int bottom) {
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams)v.getLayoutParams();
+        lp.width = width; lp.gravity = gravity; lp.leftMargin = left; lp.topMargin = topMargin; lp.rightMargin = right; lp.bottomMargin = bottom; v.requestLayout();
     }
 
     protected void onStart() {
@@ -289,6 +303,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         final android.graphics.RectF rect = new android.graphics.RectF();
         Frame() { super(HomeActivity.this); edge.setStyle(android.graphics.Paint.Style.STROKE); edge.setStrokeWidth(k.dp(3)); edge.setStrokeCap(android.graphics.Paint.Cap.ROUND); setWillNotDraw(false); }
         android.graphics.RectF rect() {
+            if (landscape) { rect.set(panelW + k.dp(36), insetTop + k.dp(24), getWidth() - k.dp(90), getHeight() - insetBottom - k.dp(24)); return rect; }
             float top = insetTop + k.dp(132), bottom = getHeight() - Math.max(sheetVisible, k.dp(200)) - k.dp(20);
             rect.set(k.dp(28), top, getWidth() - k.dp(28), Math.max(top + k.dp(120), bottom)); return rect;
         }
@@ -1091,7 +1106,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         for (double[] p : shape) b.include(new LatLng(p[0], p[1]));
         b.include(new LatLng(destLat, destLon));
         int sheetH = sheet.getHeight() > 0 ? sheet.getHeight() : k.dp(330);
-        try { map.animateCamera(CameraUpdateFactory.newLatLngBounds(b.build(), k.dp(56), insetTop + k.dp(56), k.dp(56), sheetH + insetBottom + k.dp(36)), 1100); } catch (Exception ignored) {}
+        try {
+            if (landscape) map.animateCamera(CameraUpdateFactory.newLatLngBounds(b.build(), panelW + k.dp(56), insetTop + k.dp(48), k.dp(96), insetBottom + k.dp(48)), 1100);
+            else map.animateCamera(CameraUpdateFactory.newLatLngBounds(b.build(), k.dp(56), insetTop + k.dp(56), k.dp(56), sheetH + insetBottom + k.dp(36)), 1100);
+        } catch (Exception ignored) {}
     }
 
     // ================================================================ puck & camera
@@ -1122,7 +1140,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void follow() {
         int h = mapView.getHeight();
         CameraPosition pos = new CameraPosition.Builder().target(new LatLng(shownLat, shownLon)).bearing(shownBearing).tilt(52)
-            .zoom(s.remaining < 600 ? 17.4 : 16.8).padding(0, h * 0.42, 0, 0).build();
+            .zoom(s.remaining < 600 ? 17.4 : 16.8).padding(landscape ? panelW : 0, landscape ? h * 0.3 : h * 0.42, 0, 0).build();
         map.moveCamera(CameraUpdateFactory.newCameraPosition(pos));
     }
     private void startPulse() {

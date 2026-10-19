@@ -20,7 +20,12 @@ final class GabiPage {
         head.addView(k.text(title, 22, 800, Gabi.Role.INK));
         content.addView(head);
         scroll.addView(content); root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
-        Gabi.insets(root, (l, t, r, b, ime) -> content.setPadding(k.dp(16) + l, t + k.dp(8), k.dp(16) + r, Math.max(b, ime) + k.dp(24)));
+        // On wide screens (landscape, tablets) the page is a centred column instead of stretching edge to edge.
+        int[] in = new int[4];
+        Runnable pad = () -> { int side = Math.max(0, (root.getWidth() - k.dp(680)) / 2);
+            content.setPadding(Math.max(k.dp(16) + in[0], side), in[1] + k.dp(8), Math.max(k.dp(16) + in[2], side), in[3] + k.dp(24)); };
+        Gabi.insets(root, (l, t, r, b, ime) -> { in[0] = l; in[1] = t; in[2] = r; in[3] = Math.max(b, ime); pad.run(); });
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != or - ol) root.post(pad); });
         a.setContentView(root);
         content.setAlpha(0f); content.setTranslationY(k.dp(16));
         content.animate().alpha(1f).translationY(0).setDuration(420).setInterpolator(Gabi.EASE_OUT).start();
