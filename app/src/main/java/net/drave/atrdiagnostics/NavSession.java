@@ -13,7 +13,7 @@ public final class NavSession {
     public final Context context;
     public final ExecutorService worker=Executors.newSingleThreadExecutor();
     public volatile boolean ready,active,simulation,calibration,routing;
-    public volatile String status="Preparing offline Metro Cebu…",instruction="Choose a destination",destination="";
+    public volatile String status="Preparing offline maps…",instruction="Choose a destination",destination="";
     public volatile double lat=10.3157,lon=123.8854,destLat,destLon,remaining,seconds,distanceToTurn;
     public volatile float accuracy=999,bearing;
     public volatile long fixAt;
@@ -27,19 +27,22 @@ public final class NavSession {
     private Valhalla engine;private long lastReroute;private int offRoute,requestId;
     public volatile String roadsJson="{\"type\":\"FeatureCollection\",\"features\":[]}";
     public double minLat,maxLat,minLon,maxLon;
+    public volatile String regionName="Offline region";public volatile double[] demoFrom={10.3157,123.8854},demoTo={10.2934,123.9019};public volatile String demoName="Sample route";
+    public volatile double[] home;public double homeLat(){return home!=null?home[0]:ready?(minLat+maxLat)/2:lat;}public double homeLon(){return home!=null?home[1]:ready?(minLon+maxLon)/2:lon;}
     public float insetLeft,insetTop,insetRight,insetBottom,textScale=1;public String layout="Map focus";
     public static final class Road {public final double[][] points;public final String name,kind;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;Road(double[][] p,String n,String k){points=p;name=n;kind=k;for(double[] a:p){minLat=Math.min(minLat,a[0]);maxLat=Math.max(maxLat,a[0]);minLon=Math.min(minLon,a[1]);maxLon=Math.max(maxLon,a[1]);}}}
     private NavSession(Context c){context=c;loadFit();worker.execute(this::load);}
     public void signal(){context.sendBroadcast(new Intent(EVENT).setPackage(context.getPackageName()));}
     private final ArrayDeque<String> logs=new ArrayDeque<>();
     public void message(String text){status=text;String clean=destination.isEmpty()?text:text.replace(destination,"[destination]");clean=clean.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}","[coordinate]");synchronized(logs){if(logs.size()>=150)logs.removeFirst();logs.addLast(new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+clean);}signal();}
-    public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia 0.4.0-alpha1").put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("layout",layout).put("location_and_identifiers","omitted");synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
+    public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia "+BuildInfo.VERSION).put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("layout",layout).put("location_and_identifiers","omitted");synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
     private String asset(String p)throws Exception{try(InputStream in=context.getAssets().open(p)){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}}
     private void load(){try{
         File dir=new File(context.getFilesDir(),"cebu-v1");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Cannot create offline storage");
         File tiles=new File(dir,"valhalla_tiles.tar");
         if(!tiles.exists()){File temp=new File(dir,"tiles.part");try(InputStream in=context.getAssets().open("cebu/valhalla_tiles.tar");FileOutputStream out=new FileOutputStream(temp)){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)out.write(b,0,n);out.getFD().sync();}if(!temp.renameTo(tiles))throw new IOException("Cannot install region");}
         JSONObject region=new JSONObject(asset("cebu/region.json"));JSONArray box=region.getJSONArray("bounds");minLon=box.getDouble(0);minLat=box.getDouble(1);maxLon=box.getDouble(2);maxLat=box.getDouble(3);
+        regionName=region.optString("display_name",region.optString("name",regionName));JSONObject demo=region.optJSONObject("demo");if(demo!=null){JSONArray f=demo.getJSONArray("from"),t=demo.getJSONArray("to");demoFrom=new double[]{f.getDouble(0),f.getDouble(1)};demoTo=new double[]{t.getDouble(0),t.getDouble(1)};demoName=demo.optString("name",demoName);}JSONArray hc=region.optJSONArray("home");if(hc!=null)home=new double[]{hc.getDouble(0),hc.getDouble(1)};
         roadsJson=asset("cebu/roads.geojson");ArrayList<Road> list=new ArrayList<>();
         try(android.util.JsonReader reader=new android.util.JsonReader(new StringReader(roadsJson))){
             reader.beginObject();while(reader.hasNext()){String key=reader.nextName();if(!"features".equals(key)){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){
@@ -53,13 +56,13 @@ public final class NavSession {
         roads=Collections.unmodifiableList(list);places=new JSONArray(asset("cebu/places.json"));parking=new JSONArray(asset("cebu/parking.json"));mergeSavedParking();
         JSONObject cfg=new JSONObject(asset("cebu/valhalla-template.json"));cfg.getJSONObject("mjolnir").put("tile_extract",tiles.getAbsolutePath()).put("tile_dir",dir.getAbsolutePath()).remove("tile_url");
         File config=new File(dir,"valhalla.json");try(FileOutputStream out=new FileOutputStream(config)){out.write(cfg.toString().getBytes("UTF-8"));}
-        engine=new Valhalla(config.getAbsolutePath());ready=true;message("Metro Cebu offline · choose a destination");
+        engine=new Valhalla(config.getAbsolutePath());ready=true;message(regionName+" offline · choose a destination");
     }catch(Throwable e){message("Offline region could not load: "+e.getClass().getSimpleName()+". Open Support.");android.util.Log.e("Daanvia","Offline load failed",e);}}
     public boolean inRegion(double a,double b){return a>=minLat&&a<=maxLat&&b>=minLon&&b<=maxLon;}
     public void plan(double a,double b,String name,boolean demo){
         if(!ready){message("Wait for the offline region to finish loading");return;}
         if(routing){message("Route calculation in progress · wait before changing destination");return;}
-        if(!inRegion(a,b)||!inRegion(lat,lon)){message("Outside the bundled Metro Cebu region");return;}
+        if(!inRegion(a,b)||!inRegion(lat,lon)){message("Outside the installed offline region ("+regionName+")");return;}
         simulation=demo;destLat=a;destLon=b;destination=name;refreshParking();route();
     }
     private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;

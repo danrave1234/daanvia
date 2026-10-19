@@ -36,5 +36,21 @@
       "bytes": 1148241,
       "sha256": "534734df71c746bbe0ecd62df5f7b1e262632fb1ac456eb461e7183c5c958505"
     }
-  }
+  },
+  "display_name": "Metro Cebu",
+  "demo": {
+    "name": "Cebu sample route",
+    "from": [
+      10.3157,
+      123.8854
+    ],
+    "to": [
+      10.2934,
+      123.9019
+    ]
+  },
+  "home": [
+    10.3075,
+    123.8935
+  ]
 }
