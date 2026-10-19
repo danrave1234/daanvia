@@ -44,11 +44,17 @@ class Cell:
     def road(self, feat):
         if self.roads is None: self.roads = open(work / 'roads' / (cell_id(self.c) + '.geojson'), 'w', encoding='utf-8', newline='\n')
         self.roads.write((',' if self.nroads else '') + json.dumps(feat, separators=(',', ':'), ensure_ascii=False)); self.nroads += 1
-    def place(self, name, lon, lat):
-        key = (name, round(lat * 50), round(lon * 50))
+    def place(self, name, lon, lat, poi=False):
+        # Streets repeat their name segment after segment: one entry per name per ~2 km. Shops and restaurants are each
+        # their own place (a chain has many branches close together): one per name per ~50 m.
+        key = (name, round(lat * 2000), round(lon * 2000)) if poi else (name, round(lat * 50), round(lon * 50))
         if key not in self.seen: self.seen.add(key); self.places.append(js({'name': name, 'lon': r6(lon), 'lat': r6(lat)}))
 cells = {}
 js = lambda x: json.dumps(x, separators=(',', ':'), ensure_ascii=False)  # cells keep serialized records to stay small in RAM
+def branch_name(t):
+    """OSM names most chain branches just "Jollibee" and puts the branch in branch=: "Jollibee Vito Cruz", like Google Maps."""
+    name, branch = t['name'].strip(), t.get('branch', '').strip()
+    return name + ' ' + branch if branch and branch.lower() not in name.lower() else name
 def cell(lon, lat):
     c = cell_of(lon, lat)
     if c not in cells: cells[c] = Cell(c)
@@ -69,7 +75,7 @@ for o in fp:
         if not o.location.valid(): continue
         lon, lat = o.location.lon, o.location.lat; k = cell(lon, lat); park = t.get('amenity') in ('parking', 'motorcycle_parking')
         if park: k.parking.append((t.get('access', 'unknown'), js(parking_record(str(o.id), lon, lat, t)))); k.lots.append(js(record('n%d' % o.id, lon, lat, t)))
-        if t.get('name') and any(x in t for x in ('amenity', 'tourism', 'shop', 'place', 'public_transport')): k.place(t['name'], lon, lat)
+        if t.get('name') and any(x in t for x in ('amenity', 'tourism', 'shop', 'place', 'public_transport')): k.place(branch_name(t), lon, lat, poi='place' not in t)
         if t.get('place') in ('city', 'town') and t.get('name'):
             try: pop = int(str(t.get('population', '0')).replace(',', '').split(';')[0] or 0)
             except ValueError: pop = 0
@@ -86,7 +92,7 @@ for o in fp:
         if park:
             cx, cy = sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts); k = cell(cx, cy)
             k.parking.append((t.get('access', 'unknown'), js(parking_record(str(o.id), cx, cy, t)))); k.lots.append(js(record('w%d' % o.id, cx, cy, t)))
-        if t.get('name') and (hw or park or 'natural' not in t): cell(*pts[len(pts) // 2]).place(t['name'], *pts[len(pts) // 2])
+        if t.get('name') and (hw or park or 'natural' not in t): cell(*pts[len(pts) // 2]).place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=not hw)
     elif o.is_area():
         if not (t.get('natural') == 'water' or t.get('waterway') == 'riverbank' or t.get('landuse') in ('reservoir', 'basin')): continue
         try: polys = [[[[r6(n.lon), r6(n.lat)] for n in outer]] + [[[r6(n.lon), r6(n.lat)] for n in inner] for inner in o.inner_rings(outer)] for outer in o.outer_rings()]

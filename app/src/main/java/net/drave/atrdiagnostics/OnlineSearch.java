@@ -21,7 +21,9 @@ final class OnlineSearch {
 
     static final class Place {
         final String name, address; final double lat, lon;
-        Place(String name, String address, double lat, double lon) { this.name = name; this.address = address; this.lat = lat; this.lon = lon; }
+        /** The name with its street and city, to tell one branch of a chain from the next: "Jollibee · EDSA, Makati". */
+        String branch;
+        Place(String name, String address, double lat, double lon) { this.name = name; this.address = address; this.lat = lat; this.lon = lon; branch = name; }
     }
 
     static List<Place> search(String query, double nearLat, double nearLon, int limit) throws IOException {
@@ -50,7 +52,12 @@ final class OnlineSearch {
                 if (!part.isEmpty() && !part.equalsIgnoreCase(name) && parts.size() < 3) parts.add(part);
             }
             if (parts.isEmpty() && !p.optString("state").isEmpty()) parts.add(p.optString("state"));
-            out.add(new Place(name, String.join(", ", parts), xy.getDouble(1), xy.getDouble(0)));
+            Place place = new Place(name, String.join(", ", parts), xy.getDouble(1), xy.getDouble(0));
+            String where = !p.optString("street").isEmpty() ? p.optString("street") : !p.optString("locality").isEmpty() ? p.optString("locality") : p.optString("district");
+            String town = !p.optString("city").isEmpty() ? p.optString("city") : p.optString("county");
+            String at = join(", ", where.equalsIgnoreCase(name) ? "" : where, town.equalsIgnoreCase(where) ? "" : town);
+            if (!at.isEmpty()) place.branch = name + " · " + at;
+            out.add(place);
         }
         return out;
     }

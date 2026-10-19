@@ -7,9 +7,9 @@ import android.graphics.drawable.Drawable;
 public final class IconDrawable extends Drawable {
     public static final int SEARCH = 1, LOC = 2, BIKE = 3, RIGHT = 4, LEFT = 5, SLIGHT_RIGHT = 6, SLIGHT_LEFT = 7, SHARP_RIGHT = 8, SHARP_LEFT = 9,
         UTURN = 10, STRAIGHT = 11, FLAG = 12, ROUNDABOUT = 13, MERGE = 14, PARK = 15, TFT = 16, PLAY = 17, PIN = 18, CLOCK = 19, CLOSE = 20,
-        CHEVRON = 21, BACK = 22, QR = 23, SHARE = 24, CROSSHAIR = 25, SUN = 26, MOON = 27, CHECK = 28, PHOTO = 29, TOOLS = 30, STOP = 31, AUTO = 32, ROAD = 33, GEAR = 34, STAR = 35, STAR_FILLED = 36, INFO = 37, DOWNLOAD = 38, VOICE = 39, MUTE = 40, MAP = 41;
+        CHEVRON = 21, BACK = 22, QR = 23, SHARE = 24, CROSSHAIR = 25, SUN = 26, MOON = 27, CHECK = 28, PHOTO = 29, TOOLS = 30, STOP = 31, AUTO = 32, ROAD = 33, GEAR = 34, STAR = 35, STAR_FILLED = 36, INFO = 37, DOWNLOAD = 38, VOICE = 39, MUTE = 40, MAP = 41, COMPASS = 42, MIRROR = 43;
 
-    private final int type; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG); private final Path path = new Path(); private boolean filled;
+    private final int type; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG); private final Path path = new Path(), solid = new Path(); private boolean filled;
     public IconDrawable(int type, int color) {
         this.type = type; paint.setColor(color); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2f);
         paint.setStrokeCap(Paint.Cap.ROUND); paint.setStrokeJoin(Paint.Join.ROUND); build();
@@ -65,6 +65,11 @@ public final class IconDrawable extends Drawable {
             case VOICE: case MUTE: p.moveTo(4, 9); p.lineTo(8, 9); p.lineTo(13, 4.5f); p.lineTo(13, 19.5f); p.lineTo(8, 15); p.lineTo(4, 15); p.close();
                 if (type == VOICE) { p.moveTo(16.5f, 9); p.quadTo(18.5f, 12, 16.5f, 15); p.moveTo(19, 6.5f); p.quadTo(23, 12, 19, 17.5f); } else { p.moveTo(16.5f, 9.5f); p.lineTo(21.5f, 14.5f); p.moveTo(21.5f, 9.5f); p.lineTo(16.5f, 14.5f); } break;
             case MAP: p.moveTo(3, 6); p.lineTo(9, 3.5f); p.lineTo(15, 6); p.lineTo(21, 3.5f); p.lineTo(21, 18); p.lineTo(15, 20.5f); p.lineTo(9, 18); p.lineTo(3, 20.5f); p.close(); p.moveTo(9, 3.5f); p.lineTo(9, 18); p.moveTo(15, 6); p.lineTo(15, 20.5f); break;
+            // A compass needle: the north half solid, so the way it points reads at a glance.
+            case COMPASS: p.moveTo(12, 2.5f); p.lineTo(16.5f, 12); p.lineTo(12, 21.5f); p.lineTo(7.5f, 12); p.close(); solid.moveTo(12, 2.5f); solid.lineTo(16.5f, 12); solid.lineTo(7.5f, 12); solid.close(); break;
+            // Screen casting: a display with signal arcs from its corner.
+            case MIRROR: p.moveTo(2, 9); p.lineTo(2, 6); p.quadTo(2, 4, 4, 4); p.lineTo(20, 4); p.quadTo(22, 4, 22, 6); p.lineTo(22, 18); p.quadTo(22, 20, 20, 20); p.lineTo(14, 20);
+                p.moveTo(2, 16.5f); p.quadTo(6, 16.5f, 6, 20.5f); p.moveTo(2, 12.5f); p.quadTo(10, 12.5f, 10, 20.5f); solid.addCircle(2.6f, 20, 1.1f, Path.Direction.CW); break;
             case ROAD: p.moveTo(8, 3); p.lineTo(4, 21); p.moveTo(16, 3); p.lineTo(20, 21); p.moveTo(12, 4); p.lineTo(12, 7); p.moveTo(12, 11); p.lineTo(12, 14); p.moveTo(12, 18); p.lineTo(12, 20); break;
         }
     }
@@ -74,7 +79,9 @@ public final class IconDrawable extends Drawable {
         float s = Math.min(b.width(), b.height()) / 24f;
         c.save(); c.translate(b.left + (b.width() - 24 * s) / 2, b.top + (b.height() - 24 * s) / 2); c.scale(s, s);
         paint.setStyle(filled ? Paint.Style.FILL_AND_STROKE : Paint.Style.STROKE);
-        c.drawPath(path, paint); c.restore();
+        c.drawPath(path, paint);
+        if (!solid.isEmpty()) { paint.setStyle(Paint.Style.FILL_AND_STROKE); c.drawPath(solid, paint); }
+        c.restore();
     }
     public int getIntrinsicWidth() { return -1; }
     public int getIntrinsicHeight() { return -1; }

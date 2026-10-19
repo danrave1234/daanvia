@@ -49,10 +49,16 @@ class Pack:
     def has(self, lon, lat): return any(a[0] <= lon <= a[2] and a[1] <= lat <= a[3] for a in self.areas)
     def touches(self, box):  # box = minLon,minLat,maxLon,maxLat
         return any(not (box[2] < a[0] or box[0] > a[2] or box[3] < a[1] or box[1] > a[3]) for a in self.areas)
-    def place(self, name, lon, lat):
-        key = (name, round(lat * 50), round(lon * 50))  # one entry per name per ~2 km cell; road segments repeat names
+    def place(self, name, lon, lat, poi=False):
+        # one entry per name per ~2 km cell for roads (segments repeat names); per ~50 m for shops, so every branch stays
+        key = (name, round(lat * 2000), round(lon * 2000)) if poi else (name, round(lat * 50), round(lon * 50))
         if key in self.seen_places: return
         self.seen_places.add(key); self.write('places.json', {'name': name, 'lon': r6(lon), 'lat': r6(lat)})
+
+def branch_name(t):
+    """OSM names most chain branches just "Jollibee" and puts the branch in branch=: "Jollibee Vito Cruz", like Google Maps."""
+    name, branch = t['name'].strip(), t.get('branch', '').strip()
+    return name + ' ' + branch if branch and branch.lower() not in name.lower() else name
 
 P = [Pack(s) for s in packs]
 def packs_at(lon, lat): return [p for p in P if p.has(lon, lat)]
@@ -83,7 +89,7 @@ for o in fp:
         if t.get('amenity') in ('parking', 'motorcycle_parking'): add_lot('n%d' % o.id, lon, lat, t)
         for p in hit:
             if t.get('amenity') in ('parking', 'motorcycle_parking'): p.parking.append(parking_record(str(o.id), lon, lat, t))
-            if t.get('name') and any(k in t for k in ('amenity', 'tourism', 'shop', 'place', 'public_transport')): p.place(t['name'], lon, lat)
+            if t.get('name') and any(k in t for k in ('amenity', 'tourism', 'shop', 'place', 'public_transport')): p.place(branch_name(t), lon, lat, poi='place' not in t)
     elif o.is_way():
         try: pts = [(n.location.lon, n.location.lat) for n in o.nodes]
         except osmium.InvalidLocationError: continue
@@ -98,7 +104,7 @@ for o in fp:
                 n = p.write('roads.geojson', {'type': 'Feature', 'properties': {'name': t.get('name', ''), 'kind': hw}, 'geometry': {'type': 'LineString', 'coordinates': [[r6(x), r6(y)] for x, y in pts]}})
                 p.kind_bytes[hw] = p.kind_bytes.get(hw, 0) + n
             if park: p.parking.append(parking_record(str(o.id), sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts), t))
-            if t.get('name') and (hw or park or 'natural' not in t): p.place(t['name'], *pts[len(pts) // 2])
+            if t.get('name') and (hw or park or 'natural' not in t): p.place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=not hw)
     elif o.is_area():
         water, green = WATER(t), (not WATER(t)) and GREEN(t)
         if not (water or green): continue

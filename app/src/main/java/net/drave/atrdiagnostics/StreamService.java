@@ -19,6 +19,8 @@ import java.util.concurrent.*;
 
 public final class StreamService extends Service {
     public static volatile boolean navigationActive;
+    /** The phone's own screen is on the bike display (see DashboardLink.mirror). */
+    public static volatile boolean mirroring;
     private boolean userStop;
     public static final String EVENT="net.drave.atrdiagnostics.STREAM_EVENT";
     private static final String PACKAGE="net.drave.atrdiagnostics";
@@ -59,12 +61,12 @@ public final class StreamService extends Service {
         try {
             mode=intent.getStringExtra("mode");
             boolean mirror="mirror".equals(mode);
-            boolean navigation="navigation".equals(mode);navigationActive=navigation;
+            boolean navigation="navigation".equals(mode);navigationActive=navigation;mirroring=mirror;
             NotificationManager notifications=getSystemService(NotificationManager.class);
             notifications.createNotificationChannel(new NotificationChannel("atr-stream","Dashboard stream test",NotificationManager.IMPORTANCE_LOW));
             PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,StreamService.class).setAction("stop"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             PendingIntent open=PendingIntent.getActivity(this,2,new Intent(this,HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            Notification n=new Notification.Builder(this,"atr-stream").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(navigation?"Daanvia is on your bike display":mirror?"Sharing your screen with the dashboard":"Dashboard test pattern")
+            Notification n=new Notification.Builder(this,"atr-stream").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(navigation?"Daanvia is on your bike display":mirror?"Your screen is on your bike display":"Dashboard test pattern")
                 .setContentText(navigation?"Tap Stop to disconnect":"Temporary test • tap Stop to end").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).build();
             int type=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
             if(mirror)type|=ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
@@ -82,8 +84,9 @@ public final class StreamService extends Service {
             int port=intent.getIntExtra("port",10930);
             running=true;frames=0;bytes=0;startedAt=System.currentTimeMillis();
             event("started","Starting "+(navigation?"dedicated Daanvia scene":mirror?"screen mirroring":"animated color-pattern test")+". A successful socket write is not proof of visible video.");
-            int duration=mirror?90000:45000;
-            deadline=()->{log("Test time limit reached.");stopSelf();};if(!navigation)main.postDelayed(deadline,duration);else{lastFrameAt=startedAt;main.postDelayed(watchdog,5000);}
+            int duration=mirror?90000:45000;boolean keep=intent.getBooleanExtra("keep",false);
+            // Support's tests stop on their own; mirroring the rider started from the map runs until they stop it.
+            deadline=()->{log("Test time limit reached.");stopSelf();};if(!navigation&&!keep)main.postDelayed(deadline,duration);else{lastFrameAt=startedAt;main.postDelayed(watchdog,5000);}
             workers.execute(()->setup(port));
         } catch(Exception e){log("Could not start stream test: "+e.getClass().getSimpleName()+" "+e.getMessage());stopSelf();}
         return START_NOT_STICKY;
@@ -195,7 +198,7 @@ public final class StreamService extends Service {
         }
     }
     public void onDestroy() {
-        navigationActive=false;
+        navigationActive=false;mirroring=false;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;if(deadline!=null)main.removeCallbacks(deadline);main.removeCallbacks(watchdog);
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}

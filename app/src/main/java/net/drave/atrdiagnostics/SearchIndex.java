@@ -26,8 +26,12 @@ public final class SearchIndex {
             same.add(i); order.add(i);
         }
         int n = order.size(); this.names = new String[n]; this.lat = new double[n]; this.lon = new double[n]; this.folded = new String[n];
-        for (int k = 0; k < n; k++) { int i = order.get(k); this.names[k] = names.get(i); this.lat[k] = lat[i]; this.lon[k] = lon[i]; this.folded[k] = fold(names.get(i)); }
+        for (int k = 0; k < n; k++) { int i = order.get(k); this.names[k] = names.get(i); this.lat[k] = lat[i]; this.lon[k] = lon[i]; this.folded[k] = fold(names.get(i)); copies.merge(this.folded[k], 1, Integer::sum); }
     }
+
+    private final HashMap<String, Integer> copies = new HashMap<>();
+    /** How many places in the area have this name: more than one means a chain whose branches need telling apart (see Branches). */
+    public int copies(String name) { Integer n = copies.get(fold(name)); return n == null ? 0 : n; }
 
     public static String fold(String s) {
         String n = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+", "");

@@ -122,7 +122,7 @@ final class MapStyle {
         st.addLayer(new SymbolLayer("puck", PUCK).withProperties(iconImage(get("icon")), iconRotate(get("bearing")), iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP), iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
             iconAllowOverlap(true), iconIgnorePlacement(false)));
 
-        st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false));
+        st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false)); st.addImage("puck-ride", ridePuck(c));
         st.addImage("dest", dest(c)); st.addImage("drop", drop(c));
         st.addImage("poi-dot", poiDot(c), true);
     }
@@ -235,7 +235,21 @@ final class MapStyle {
     private static Paint paint() { Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); p.setStyle(Paint.Style.FILL); return p; }
     private static float d(Context c) { return c.getResources().getDisplayMetrics().density; }
 
+    /** The rider on the map, Google Maps sized: an orange dot in a thin white ring (22 dp), or the same with a heading arrow. */
     static Bitmap puck(Context c, boolean arrow) {
+        float s = d(c); int size = Math.round(30 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
+        float cx = size / 2f;
+        p.setShadowLayer(3 * s, 0, 1 * s, 0x55000000); p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 11 * s, p); p.clearShadowLayer();
+        p.setColor(0xFFFFB020); cv.drawCircle(cx, cx, 8.5f * s, p);
+        if (arrow) {
+            Path a = new Path(); a.moveTo(cx, cx - 5.5f * s); a.lineTo(cx + 4.2f * s, cx + 4.5f * s); a.lineTo(cx, cx + 2.2f * s); a.lineTo(cx - 4.2f * s, cx + 4.5f * s); a.close();
+            p.setColor(0xFF1A1203); cv.drawPath(a, p);
+        }
+        return b;
+    }
+    /** The navigation arrow during a ride: larger, so it reads at a glance on a handlebar mount. */
+    static Bitmap ridePuck(Context c) { return ridePuck(c, true); }
+    private static Bitmap ridePuck(Context c, boolean arrow) {
         float s = d(c); int size = Math.round(52 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
         float cx = size / 2f;
         p.setColor(0x40FFB020); cv.drawCircle(cx, cx, 25 * s, p);

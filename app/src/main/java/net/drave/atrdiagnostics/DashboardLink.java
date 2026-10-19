@@ -75,6 +75,24 @@ public final class DashboardLink {
         if (!running) { log("Reconnecting to the bike display."); autoNavigation(); }
         main.postDelayed(reconnect, 8000);
     }
+    /** Runs once the current stream has fully stopped (its ports are free), to start another kind of stream. */
+    private Runnable afterStop; private boolean keepMirror;
+    /**
+     * Show the phone's own screen on the bike display (Google Maps, Waze, music, anything) in place of Daanvia's
+     * directions, until {@link #stopMirror}. {@code consent} is Android's screen-sharing permission, asked for each time.
+     */
+    public void mirror(Intent consent) {
+        if (!profileReady) { log("Scan your dashboard QR first"); return; }
+        Runnable go = () -> { stoppedByUser = false; quiet = false; keepMirror = true; pendingStream = MODE_MIRROR; captureConsent = consent; permissions(true); };
+        replaceStream(go);
+    }
+    /** Back to Daanvia's directions on the bike display. */
+    public void stopMirror() { replaceStream(this::sendNavigation); }
+    private void replaceStream(Runnable next) {
+        main.removeCallbacks(reconnect);
+        if (serviceActive || StreamService.navigationActive || StreamService.mirroring) { expectStop = true; afterStop = next; context.stopService(new Intent(context, StreamService.class)); }
+        else { cleanup(); next.run(); }
+    }
     /** A new ride lets auto-connect run again after the rider stopped the display. */
     public void allowAuto() { stoppedByUser = false; }
     private String SSID = "", MAC = "", password = "", model = "", qrAction = "";
@@ -126,7 +144,10 @@ public final class DashboardLink {
                 boolean dropped = "navigation".equals(event.getStringExtra("mode")) && !expectStop && !stoppedByUser;
                 expectStop = false;
                 serviceActive = false; cleanup();
-                if (dropped) dropped();
+                Runnable next = afterStop; afterStop = null;
+                if (next != null) main.post(next);
+                else if (dropped) dropped();
+                else if ("mirror".equals(event.getStringExtra("mode")) && keepMirror && !user) { keepMirror = false; label("Screen sharing ended • back to directions"); main.postDelayed(DashboardLink.this::autoNavigation, 1500); }
                 else label(visualEvidence.containsKey(lastStreamMode) ? "User reported: " + visualEvidence.get(lastStreamMode) : sawFrames ? "Test ended • confirm what appeared" : "No video confirmed • share report");
                 ui.onChanged();
             }
@@ -489,10 +510,10 @@ public final class DashboardLink {
                         ui.onChanged();
                         if (deadline != null) main.removeCallbacks(deadline);
                         Intent service = new Intent(context, StreamService.class).putExtra("host", host.getHostAddress()).putExtra("local", local).putExtra("port", port)
-                            .putExtra("mode", lastStreamMode).putExtra("network", network == null ? 0 : network.getNetworkHandle());
+                            .putExtra("mode", lastStreamMode).putExtra("network", network == null ? 0 : network.getNetworkHandle()).putExtra("keep", selected == MODE_MIRROR && keepMirror);
                         if (consent != null) service.putExtra("consent", consent);
                         expectStop = false; streamStartedAt = SystemClock.elapsedRealtime();
-                        try { context.startForegroundService(service); if (selected == MODE_NAVIGATION) { main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } }
+                        try { context.startForegroundService(service); if (selected == MODE_NAVIGATION) { main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } else if (selected == MODE_MIRROR && keepMirror) { settle(); label("Your screen is on the bike display"); } }
                         catch (Exception e) {
                             // Android 12+ refuses to start it from the background; the next search after Daanvia is opened connects.
                             serviceActive = false; log(e.getClass().getSimpleName());
@@ -617,7 +638,7 @@ public final class DashboardLink {
     public void requestStream(int kind, Intent consent) {
         if (!identificationAccepted) { log("Run Test connection first. Video tests unlock after an accepted identification probe."); return; }
         if (serviceActive) { log("Stop the current stream test first."); return; }
-        quiet = false; pendingStream = kind; captureConsent = consent;
+        quiet = false; keepMirror = false; pendingStream = kind; captureConsent = consent;
         log(kind == MODE_PATTERN ? "Starting a short animated color-bar test after reconnecting." : "Screen sharing authorized. Reconnecting for a 90-second mirror test; open your navigation app once frames are sent.");
         permissions(true);
     }

@@ -182,16 +182,32 @@ public final class NavSession {
     }
     private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;final Region region=routeRegion;
         worker.execute(()->{try{
-            JSONObject req=new JSONObject().put("locations",new JSONArray().put(new JSONObject().put("lat",a).put("lon",b)).put(new JSONObject().put("lat",c).put("lon",d)))
-                .put("costing","motor_scooter").put("units","kilometers").put("language","en-US")
-                .put("costing_options",new JSONObject().put("motor_scooter",new JSONObject().put("use_highways",0).put("use_tolls",0).put("top_speed",80)));
-            JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));JSONObject trip=response.getJSONObject("trip");JSONArray legs=trip.getJSONArray("legs");JSONObject leg=legs.getJSONObject(0);
+            // A spot the router can't reach (a parking lot behind a private or customers-only road, the rider inside a gated
+            // lot) would leave no route at all: try again from and to the nearest public road beside it.
+            JSONObject response;
+            try{response=routeBetween(region,a,b,c,d);}
+            catch(Throwable first){double[] to=nearestRoad(c,d),from=nearestRoad(a,b);
+                try{if(to==null)throw first;response=routeBetween(region,a,b,to[0],to[1]);}
+                catch(Throwable second){if(from==null||to==null)throw first;response=routeBetween(region,from[0],from[1],to[0],to[1]);}}
+            JSONObject trip=response.getJSONObject("trip");JSONArray legs=trip.getJSONArray("legs");JSONObject leg=legs.getJSONObject(0);
             List<double[]> route=GeoMath.decode(leg.getString("shape"));if(route.size()<2)throw new IOException("Empty route");
             synchronized(this){if(token!=requestId)return;shape=Collections.unmodifiableList(route);maneuvers=leg.getJSONArray("maneuvers");maneuver=0;progress=0;double[] prefix=new double[route.size()];for(int j=1;j<route.size();j++)prefix[j]=prefix[j-1]+GeoMath.distance(route.get(j-1)[0],route.get(j-1)[1],route.get(j)[0],route.get(j)[1]);cumulative=prefix;arrived=false;offRoute=0;routeMeters=prefix[prefix.length-1];remaining=routeMeters;routeSeconds=trip.getJSONObject("summary").getDouble("time");seconds=routeSeconds;instruction="Route ready";}
             message((simulation?"SIMULATION · ":"Offline route ready · ")+destination);
         // A failed reroute keeps the old route, so guidance goes on and the next reroute is tried 12 s later.
         }catch(Throwable e){boolean riding;synchronized(this){if(token!=requestId)return;riding=active&&shape.size()>1;if(!riding)shape=Collections.emptyList();}message(riding?"Couldn't find a new route here · keeping the last one":"No offline route: "+e.getMessage());}finally{routing=false;signal();}});
     }
+    private JSONObject routeBetween(Region region,double a,double b,double c,double d)throws Exception{
+        JSONObject req=new JSONObject().put("locations",new JSONArray().put(new JSONObject().put("lat",a).put("lon",b)).put(new JSONObject().put("lat",c).put("lon",d)))
+            .put("costing","motor_scooter").put("units","kilometers").put("language","en-US")
+            .put("costing_options",new JSONObject().put("motor_scooter",new JSONObject().put("use_highways",0).put("use_tolls",0).put("top_speed",80)));
+        JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));response.getJSONObject("trip");return response;}
+    /** The closest point on a public street (not a service road, path or parking aisle) within 300 m; null if none. */
+    private double[] nearestRoad(double lat,double lon){
+        double pad=300/111000.0,padLon=pad/Math.max(0.2,Math.cos(Math.toRadians(lat)));double[] best=null;double bestD=300;
+        for(Road r:roadIndex.near(lat-pad,lon-padLon,lat+pad,lon+padLon)){
+            if(r.kind.equals("service")||r.kind.equals("track")||r.kind.equals("footway")||r.kind.equals("path")||r.kind.equals("steps")||r.kind.equals("pedestrian")||r.kind.equals("cycleway")||r.kind.equals("corridor"))continue;
+            for(int i=0;i+1<r.size();i++){double[] p={r.lat(i),r.lon(i)},q={r.lat(i+1),r.lon(i+1)};double dist=GeoMath.segmentDistance(lat,lon,p,q);if(dist<bestD){bestD=dist;best=GeoMath.project(lat,lon,p,q);}}}
+        return best;}
     public synchronized void stop(){active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;shape=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
     public void update(double a,double b,float acc,float direction,boolean demo){update(a,b,acc,direction,demo,SystemClock.elapsedRealtime());}
     /** {@code takenAt} is when the fix was taken (elapsedRealtime). Outside a ride any fix places the rider, however rough; during a ride only sharp ones count. */
