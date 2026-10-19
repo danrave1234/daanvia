@@ -1,0 +1,40 @@
+{
+  "id": "cebu-metro-alpha",
+  "name": "Metro Cebu alpha",
+  "bounds": [
+    123.6,
+    10.1,
+    124.08,
+    10.62
+  ],
+  "built": "2026-10-19T06:48:37.978925+00:00",
+  "source": "OpenStreetMap / Geofabrik",
+  "license": "ODbL-1.0",
+  "attribution": "\u00a9 OpenStreetMap contributors",
+  "roads": 61375,
+  "places": 18282,
+  "parking": 1067,
+  "note": "Prices not verified; unknown fees omitted. Route access requires field review.",
+  "files": {
+    "valhalla_tiles.tar": {
+      "bytes": 18903040,
+      "sha256": "76596348686084fe4ec6902199f47335d1dd1a64c660fd0aeac0acdf4764c9eb"
+    },
+    "valhalla-template.json": {
+      "bytes": 7313,
+      "sha256": "6cd2e683b3238be23838bd5acdf29c60b48b82e2f442f44c231efbdd2b3f8676"
+    },
+    "roads.geojson": {
+      "bytes": 17403782,
+      "sha256": "d25462ca2f3e31ac818a89e2d4ec4a53583dcdf1673535357e1577ba43bd893f"
+    },
+    "parking.json": {
+      "bytes": 153322,
+      "sha256": "7e18305ee178c92287f88590ff0d9d76a6ce1f02861ea23f3cdc5faef42da893"
+    },
+    "places.json": {
+      "bytes": 1148241,
+      "sha256": "534734df71c746bbe0ecd62df5f7b1e262632fb1ac456eb461e7183c5c958505"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+Please send back a navigation report from Bike & fit > Share navigation report if anything fails.
+
+1. Does the app reach Metro Cebu offline without crashing?
+2. Does Demo route calculate and move the position without Internet?
+3. Does Send Daanvia to dashboard show navigation without phone-screen-sharing consent?
+4. Can Fit my TFT keep all navigation content above the ATR's native footer without stretching?
+5. Does the TFT keep updating when the phone is locked for two minutes during SIMULATION while parked?
+6. Does End ride stop both projection and GPS/voice?
+7. After ending simulation and getting real GPS, can you calculate a route within Metro Cebu?
+
+Prices are not preverified. Unknown prices have only a P icon. This build supports manually saved checked rates and does not claim available spaces.

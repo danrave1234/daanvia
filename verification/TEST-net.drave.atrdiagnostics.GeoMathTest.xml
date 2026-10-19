@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="net.drave.atrdiagnostics.GeoMathTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-19T07:09:04.390Z" hostname="52642908f25b" time="0.008">
+  <properties/>
+  <testcase name="headingDistinguishesEastFromNorth" classname="net.drave.atrdiagnostics.GeoMathTest" time="0.005"/>
+  <testcase name="extremeInsetsRemainBounded" classname="net.drave.atrdiagnostics.GeoMathTest" time="0.0"/>
+  <testcase name="truncatedPolylineCannotBecomeRoute" classname="net.drave.atrdiagnostics.GeoMathTest" time="0.001"/>
+  <testcase name="routePolylineUsesSixDecimalPrecision" classname="net.drave.atrdiagnostics.GeoMathTest" time="0.0"/>
+  <testcase name="distanceProjectsOntoRoadSegment" classname="net.drave.atrdiagnostics.GeoMathTest" time="0.0"/>
+  <testcase name="footerInsetsDoNotStretchGeometry" classname="net.drave.atrdiagnostics.GeoMathTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,11 @@
+{
+  "build": "assembleDebug/testDebugUnitTest/lintDebug passed",
+  "unit_test_cases": 11,
+  "unit_failures": 0,
+  "lint_summary": "0 errors, 17 warnings",
+  "apk_sha256": "fdd8eee4f0758d1808edb4a312bbc00cf50a3f0868373ff335b0136556b5ea04",
+  "signing": "Matches original ATR Link Check prototype certificate; test signing only",
+  "native_libraries": "ARM64/x86_64 MapLibre and Valhalla; ARM64 ELF alignment checked at 16 KB",
+  "physical_device_test": "NOT performed; follow DEVICE-TEST.txt",
+  "offline_graph": "Host route checks in offline-routing.json; Android native runtime still needs phone validation"
+}
