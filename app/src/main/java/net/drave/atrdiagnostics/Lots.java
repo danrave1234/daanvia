@@ -5,6 +5,14 @@ import java.util.*;
 
 /** Parking lots from lots.json, for listing the parking that belongs to a searched place. Labels use only mapped facts. */
 public final class Lots {
+    /** A name saved by an older version ("Parking lot for customers · Allson's"), turned around the way {@link Lot#placeName} names it now. */
+    public static String renamed(String saved) {
+        int dot = saved.lastIndexOf(" · "); if (dot <= 0) return saved;
+        String lot = saved.substring(0, dot), venue = saved.substring(dot + 3).trim(), l = lot.toLowerCase(Locale.ROOT);
+        if (venue.isEmpty() || !l.contains("parking") || !Lot.generic(lot)) return saved;
+        String what = l.contains("motorcycle") ? " motorcycle parking" : " parking";
+        return venue + (l.contains("private") ? " private" + what : what + (l.contains("customer") ? " for customers" : ""));
+    }
     public static final class Lot {
         public final String id, name, kind, moto, access, hours, fee, charge, capacity, capacityMoto, operator, type; public final double lat, lon;
         Lot(JSONObject o) {
@@ -35,6 +43,27 @@ public final class Lots {
             if (restricted()) return "Private " + base.substring(0, 1).toLowerCase(Locale.ROOT) + base.substring(1);
             if (access.equals("customers")) return base + " for customers";
             return base;
+        }
+        /**
+         * The name to ride to or save: the place it belongs to first, so "Parking lot for customers" at Allson's reads
+         * "Allson's parking for customers" in Recent, ride history and on the bike, instead of a dozen look-alike "Parking lot"s.
+         * A lot with a name of its own keeps it, after the place: "SM City Cebu · North Wing parking".
+         */
+        public String placeName(String venue) {
+            String t = title();
+            if (venue == null || venue.trim().isEmpty() || t.toLowerCase(Locale.ROOT).contains(venue.trim().toLowerCase(Locale.ROOT))) return t;
+            venue = venue.trim();
+            if (!generic(t)) return venue + " · " + t;
+            String what = motorcycle() && "moto".equals(kind) ? " motorcycle parking" : " parking";
+            return venue + (restricted() ? " private" + what : what + (access.equals("customers") ? " for customers" : ""));
+        }
+        private static final java.util.Set<String> PLAIN = new java.util.HashSet<>(java.util.Arrays.asList("parking", "lot", "lots", "park", "area", "for", "the", "and", "of",
+            "customers", "customer", "customer's", "guest", "guests", "visitor", "visitors", "client", "clients", "employees", "staff", "only", "public", "private", "paid", "pay",
+            "free", "car", "cars", "motorcycle", "motorcycles", "motorbike", "bike", "space", "spaces", "building", "underground", "basement", "street", "open", "covered", "multi", "storey", "level"));
+        /** Only describes a parking lot ("Parking lot for customers"), names nothing. */
+        static boolean generic(String t) {
+            for (String w : t.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}']+")) if (!w.isEmpty() && !PLAIN.contains(w)) return false;
+            return true;
         }
         /** Short facts for a list row, in the order riders care about. */
         public String summary() {

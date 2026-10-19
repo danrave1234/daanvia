@@ -157,7 +157,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
-        if (!s.active) here.start(); boolean asking = askLocationOnce(); autoDelay = 15000;
+        if (!s.active) here.start(); boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
         // Android shows one permission request at a time; the location answer starts auto-connect (onRequestPermissionsResult).
         refresh(); if (!asking) autoConnect();
     }
@@ -308,6 +308,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void paintVoice() { ((ImageView)fabVoice.getChildAt(0)).setImageDrawable(new IconDrawable(voiceOn() ? IconDrawable.VOICE : IconDrawable.MUTE, voiceOn() ? theme.palette.ink : theme.palette.danger)); }
     private void toggleVoice() { boolean on = !voiceOn(); getSharedPreferences("ui", 0).edit().putBoolean("voice", on).apply(); paintVoice(); notice(on ? "Voice directions on" : "Voice directions muted"); }
     private void onLocateFab() {
+        if (mode != Mode.RIDE) { userMovedMap = false; askAccuracy(true); }
         if (mode == Mode.RIDE) { follow = true; paintLocateFab(); lastFix = -1; refresh(); return; }
         if (mode == Mode.SELECT) { double[] h = whereAmI(); if (h != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(h[0], h[1]), 10.4), 900); else locate(); return; }
         if (s.fixAt > 0 && map != null) map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder().target(new LatLng(s.lat, s.lon)).zoom(15.5).tilt(0).bearing(0).build()), 900);
@@ -315,12 +316,20 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         locate();
     }
     /** Move to the rider when a fix arrives after they asked, or on the first fix if they haven't moved the map yet. */
+    private long settleUntil;
     private void followFirstFix() {
         if (s.fixAt == 0 || map == null || s.active || mode == Mode.RIDE) return;
         boolean first = !firstFixHandled && !userMovedMap && (mode == Mode.EXPLORE || mode == Mode.SELECT);
         firstFixHandled = true;
-        if (!centerOnFix && !first) return;
-        centerOnFix = false;
+        if (!centerOnFix && !first) {
+            // The first fixes are often rough (Wi-Fi, an old spot). Keep the rider in view while they sharpen, until the map is touched.
+            if (!userMovedMap && SystemClock.elapsedRealtime() < settleUntil) {
+                LatLng t = map.getCameraPosition().target;
+                if (GeoMath.distance(t.getLatitude(), t.getLongitude(), s.lat, s.lon) > Math.max(25, s.accuracy * 0.5)) map.animateCamera(CameraUpdateFactory.newLatLng(new LatLng(s.lat, s.lon)), 700);
+            }
+            return;
+        }
+        centerOnFix = false; settleUntil = SystemClock.elapsedRealtime() + 45000;
         // Choosing a map area frames the rider's surroundings; everywhere else zooms to street level.
         double zoom = mode == Mode.SELECT ? 10.4 : Math.max(15, map.getCameraPosition().zoom);
         map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder().target(new LatLng(s.lat, s.lon)).zoom(zoom).tilt(0).bearing(0).build()), 900);
@@ -547,7 +556,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         JSONArray r = rides(); int shown = 0;
         for (int i = 0; i < r.length() && shown < 3; i++) {
             JSONObject o = r.optJSONObject(i); if (o == null) continue;
-            double lat = o.optDouble("lat"), lon = o.optDouble("lon"); String name = o.optString("name");
+            double lat = o.optDouble("lat"), lon = o.optDouble("lon"); String name = Lots.renamed(o.optString("name"));
             String d = s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) : null;
             recentsBox.addView(k.listRow(IconDrawable.CLOCK, name, "Ridden recently", d, () -> choose(lat, lon, name))); shown++;
         }
@@ -664,7 +673,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         boolean anySaved = results.getChildCount() > 0;
         if (q.trim().isEmpty()) {
             JSONArray rec = recents();
-            for (int i = 0; i < rec.length() && i < 6; i++) { JSONObject o = rec.optJSONObject(i); double la = o.optDouble("lat"), lo = o.optDouble("lon"); String n = o.optString("name");
+            for (int i = 0; i < rec.length() && i < 6; i++) { JSONObject o = rec.optJSONObject(i); double la = o.optDouble("lat"), lo = o.optDouble("lon"); String n = Lots.renamed(o.optString("name"));
                 results.addView(k.listRow(IconDrawable.CLOCK, n, "Recent search", Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> choose(la, lo, n))); }
             results.addView(k.listRow(IconDrawable.LOC, "Choose on the map", "Long-press anywhere to drop a pin", null, () -> { go(Mode.EXPLORE); notice("Long-press the map where you want to go"); }));
         } else if (hits.length == 0 && !anySaved && kept.isEmpty()) {
@@ -790,14 +799,15 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         lotLive = k.text("", 13, 600, INK_SOFT); live.addView(lotLive, new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(live);
         LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(14), 0, 0);
-        btns.addView(k.circle(IconDrawable.STAR, 56, CHIP, ACCENT, () -> { if (lot != null) openSave(lot.title() + (lotParent == null ? "" : " · " + lotParent), lot.lat, lot.lon); }));
-        btns.addView(k.primary("Ride here", () -> { if (lot != null) choose(lot.lat, lot.lon, lot.title() + (lotParent == null ? "" : " · " + lotParent)); }), new LinearLayout.LayoutParams(0, -2, 1));
+        btns.addView(k.circle(IconDrawable.STAR, 56, CHIP, ACCENT, () -> { if (lot != null) openSave(lot.placeName(lotParent), lot.lat, lot.lon); }));
+        btns.addView(k.primary("Ride here", () -> { if (lot != null) choose(lot.lat, lot.lon, lot.placeName(lotParent)); }), new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(btns);
         return c;
     }
     private void openLot(Lots.Lot l, String parent) {
         lot = l; lotParent = parent; hideKeyboard();
-        lotTitle.setText(l.title()); lotSub.setText(parent == null ? "" : "At " + parent);
+        // Headed by the place it belongs to; the lot's own description underneath.
+        String named = l.placeName(parent); lotTitle.setText(named); lotSub.setText(parent == null ? "" : named.equals(l.title()) ? "At " + parent : l.title());
         paintLotFacts(l);
         liveState(MUTED, "Checking the map for updates…");
         go(Mode.LOT);
@@ -811,7 +821,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 else if (!r.exists) liveState(DANGER, "This parking is no longer on the map. It may have closed.");
                 else {
                     liveState(OK, "Still on the map" + (r.edited == null ? "" : " · last updated " + month(r.edited)));
-                    Lots.Lot fresh = Lots.Lot.fromTags(l.id, l.lat, l.lon, r.tags); lot = fresh; lotTitle.setText(fresh.title()); paintLotFacts(fresh);
+                    Lots.Lot fresh = Lots.Lot.fromTags(l.id, l.lat, l.lon, r.tags); lot = fresh; lotTitle.setText(fresh.placeName(lotParent)); paintLotFacts(fresh);
                 }
             });
         });
@@ -1431,8 +1441,27 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void locate() {
         if (s.active && s.simulation) { notice("End simulation before starting GPS"); return; }
         if (!Here.allowed(this)) { requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 71); return; }
-        if (!here.enabled()) { centerOnFix = false; notice("Turn on Location in your phone’s quick settings so Daanvia can find you"); return; }
+        if (!here.enabled()) {
+            // Google's one-tap dialog turns Location on right here; without Play services the rider goes to quick settings.
+            if (LocationFeed.google(this)) askAccuracy(true); else { centerOnFix = false; notice("Turn on Location in your phone’s quick settings so Daanvia can find you"); }
+            return;
+        }
         here.start();
+    }
+    /**
+     * Google's "turn on location accuracy" dialog, shown only when Location or Wi-Fi/Bluetooth scanning is off. Without
+     * them the phone falls back to GPS alone, which is slow to find the rider and poor indoors. Asked when the rider taps
+     * locate, and on its own at most once a week.
+     */
+    private void askAccuracy(boolean tapped) {
+        android.content.SharedPreferences u = getSharedPreferences("ui", 0);
+        if (!Here.allowed(this) || !tapped && System.currentTimeMillis() - u.getLong("asked_accuracy", 0) < 7 * 86400_000L) return;
+        u.edit().putLong("asked_accuracy", System.currentTimeMillis()).apply();
+        LocationFeed.askAccuracy(this, 74);
+    }
+    protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        if (code == 74 && result == RESULT_OK) { here.stop(); here.start(); centerOnFix = true; }
     }
     /** Ask for location the first time the app opens, so the map can show where the rider is. */
     private boolean askLocationOnce() {

@@ -24,4 +24,16 @@ public class ParkingSearchTest {
         String[] n={"SM City Cebu PUJ Terminal","Ayala Center Cebu","SM City Cebu","Botejyu SM City Cebu"};double[] la={10.3106,10.318,10.3127,10.3120},lo={123.9181,123.905,123.9165,123.9170};
         int[] parent=SearchIndex.parents(n,la,lo);assertEquals(2,parent[0]);assertEquals(-1,parent[1]);assertEquals(-1,parent[2]);assertEquals(2,parent[3]);
         assertArrayEquals(new int[]{2,0,3,1},SearchIndex.grouped(parent));}
+    @Test public void parkingIsNamedAfterItsPlace(){
+        Lots l=new Lots("[{\"id\":\"a\",\"lat\":10.31,\"lon\":123.91,\"kind\":\"car\",\"acc\":\"customers\"},{\"id\":\"b\",\"lat\":10.31,\"lon\":123.91,\"kind\":\"moto\"},{\"id\":\"c\",\"lat\":10.31,\"lon\":123.91,\"name\":\"North Wing Parking\"},{\"id\":\"d\",\"lat\":10.31,\"lon\":123.91,\"name\":\"SM City Cebu Parking\"},{\"id\":\"e\",\"lat\":10.31,\"lon\":123.91,\"acc\":\"private\"}]");
+        List<Lots.Lot> all=l.near(10.31,123.91,50);Map<String,Lots.Lot> by=new HashMap<>();for(Lots.Lot x:all)by.put(x.id,x);
+        assertEquals("Allson's parking for customers",by.get("a").placeName("Allson's"));
+        assertEquals("Allson's motorcycle parking",by.get("b").placeName("Allson's"));
+        assertEquals("SM City Cebu · North Wing Parking",by.get("c").placeName("SM City Cebu"));
+        assertEquals("SM City Cebu Parking",by.get("d").placeName("SM City Cebu"));
+        assertEquals("Allson's private parking",by.get("e").placeName("Allson's"));
+        assertEquals("Parking lot for customers",by.get("a").placeName(null));
+        assertEquals("Allson's parking for customers",Lots.renamed("Parking lot for customers · Allson's"));
+        assertEquals("Chowking",Lots.renamed("Chowking"));
+        assertEquals("SM City Cebu · North Wing Parking",Lots.renamed("SM City Cebu · North Wing Parking"));}
 }

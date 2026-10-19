@@ -4,25 +4,18 @@ import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.location.*;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Looper;
 import android.os.SystemClock;
-import androidx.core.location.LocationListenerCompat;
 import androidx.core.location.LocationManagerCompat;
-import androidx.core.location.LocationRequestCompat;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Where the rider is while the map is on screen, the way Google Maps finds you: the phone's last known spot at once,
- * then live fixes from every source Android allows (Wi-Fi and cell towers, GPS, and Android 12+'s fused location).
+ * then live fixes from Google's fused location (Wi-Fi, cell towers, GPS and motion sensors), see {@link LocationFeed}.
  * Rough fixes still place the dot, drawn with a circle showing how sure it is. During a ride, NavService owns location.
  */
-final class Here implements LocationListenerCompat {
-    private final Context c; private final NavSession s; private LocationManager lm; private boolean on;
+final class Here {
+    private final Context c; private final NavSession s; private final LocationFeed feed; private LocationManager lm;
 
-    Here(Context c, NavSession s) { this.c = c.getApplicationContext(); this.s = s; }
+    Here(Context c, NavSession s) { this.c = c.getApplicationContext(); this.s = s; feed = new LocationFeed(c, this::feed, false); }
 
     /**
      * Clear the phone's saved GPS assistance (satellite almanac, last position and time) and fetch fresh copies, like the
@@ -44,43 +37,25 @@ final class Here implements LocationListenerCompat {
     private void manager() { if (lm == null) lm = c.getSystemService(LocationManager.class); }
 
     void start() {
-        if (on || !allowed(c)) return;
-        manager(); if (lm == null) return;
-        Location best = null;
-        try { for (String p : lm.getProviders(true)) { Location l = lm.getLastKnownLocation(p); if (l != null && (best == null || l.getElapsedRealtimeNanos() > best.getElapsedRealtimeNanos())) best = l; } } catch (SecurityException ignored) {}
-        if (best != null && ageMillis(best) < 30 * 60_000L) feed(best);
-        // With Location switched off there is nothing to listen to yet; the next start() (locate, reopening the app) tries again.
-        for (String p : providers()) {
-            try { LocationManagerCompat.requestLocationUpdates(lm, p, request(), this, Looper.getMainLooper()); on = true; } catch (SecurityException | IllegalArgumentException ignored) {}
-        }
+        if (feed.running() || !allowed(c)) return;
+        // The phone's last known spot shows at once while the first live fix comes in. An old one is drawn as rough
+        // (a wide circle), since the rider may have moved since; live fixes replace it.
+        Location last = LocationFeed.lastKnown(c);
+        if (last != null && ageMillis(last) < 30 * 60_000L) feed(last, ageMillis(last) > 60_000 ? Math.max(last.getAccuracy(), 150) : last.getAccuracy());
+        feed.start();
     }
-    /** Removing updates needs no permission; the compat API is annotated as if it did. */
-    @android.annotation.SuppressLint("MissingPermission")
-    void stop() { if (!on) return; on = false; try { LocationManagerCompat.removeUpdates(lm, this); } catch (Exception ignored) {} }
-    /** Every second at high accuracy: without it Android's fused location settles for Wi-Fi and cell towers and leaves GPS off. */
-    static LocationRequestCompat request() { return new LocationRequestCompat.Builder(1000).setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY).setMinUpdateIntervalMillis(500).build(); }
+    void stop() { feed.stop(); }
 
-    /** Network gives a fix indoors within seconds, GPS gives the precise one outside, fused blends both when present. */
-    private List<String> providers() {
-        ArrayList<String> out = new ArrayList<>();
-        // Fused already blends GPS, Wi-Fi and cell; listening to all three as well only made the dot jump 2-3 times a second.
-        if (Build.VERSION.SDK_INT >= 31 && lm.hasProvider(LocationManager.FUSED_PROVIDER)) { out.add(LocationManager.FUSED_PROVIDER); return out; }
-        if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) out.add(LocationManager.NETWORK_PROVIDER);
-        if (precise(c) && lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) out.add(LocationManager.GPS_PROVIDER);
-        return out;
-    }
-
-    public void onLocationChanged(Location l) { feed(l); }
-
-    private void feed(Location l) {
+    private void feed(Location l) { feed(l, l.getAccuracy()); }
+    private void feed(Location l, float acc) {
         if (s.active) return;
         long at = SystemClock.elapsedRealtime() - ageMillis(l);
-        if (!better(l.getAccuracy(), at, s.accuracy, s.fixAt, SystemClock.elapsedRealtime())) return;
+        if (!better(acc, at, s.accuracy, s.fixAt, SystemClock.elapsedRealtime())) return;
         // Lying still: the same spot again doesn't wake the screen or redraw the map; a fresh fix every 15 s keeps it current.
-        if (s.fixAt > 0 && at - s.fixAt < 15_000 && Math.abs(l.getAccuracy() - s.accuracy) < 3
-            && GeoMath.distance(s.lat, s.lon, l.getLatitude(), l.getLongitude()) < Math.max(1.5, l.getAccuracy() * 0.1)) return;
+        if (s.fixAt > 0 && at - s.fixAt < 15_000 && Math.abs(acc - s.accuracy) < 3
+            && GeoMath.distance(s.lat, s.lon, l.getLatitude(), l.getLongitude()) < Math.max(1.5, acc * 0.1)) return;
         boolean moving = l.hasBearing() && (!l.hasSpeed() || l.getSpeed() > 1.4f);
-        s.update(l.getLatitude(), l.getLongitude(), l.getAccuracy(), moving ? l.getBearing() : s.bearing, false, at);
+        s.update(l.getLatitude(), l.getLongitude(), acc, moving ? l.getBearing() : s.bearing, false, at);
     }
     private static long ageMillis(Location l) { return l.getElapsedRealtimeNanos() > 0 ? Math.max(0, (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1_000_000L) : 0; }
 
