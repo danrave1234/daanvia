@@ -11,6 +11,7 @@ import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 import java.io.*;
+import java.util.*;
 import java.nio.charset.StandardCharsets;
 
 import static net.drave.atrdiagnostics.Gabi.Role.*;
@@ -19,6 +20,8 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
 public final class SettingsActivity extends Activity implements DashboardLink.Host {
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k; private DashboardLink link;
     private TftPreview preview; private TextView modelText, statusText, primary, liveChip, fitNote, licenseText; private LinearLayout permissionBanner, fitControls, scanRow; private View progress; private ValueAnimator progressAnim;
+    private LinearLayout mapList; private AreaStore.Catalog catalog; private String confirmRemove;
+    private final AreaStore.Listener areaListener = st -> paintMaps();
     private TextView adjust; private boolean fitting; private float[] old; private String oldLayout;
     private final BroadcastReceiver changes = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { if (preview != null) preview.invalidate(); paint(); } };
 
@@ -77,6 +80,15 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         look.addView(k.text("Auto switches to the night map after sunset where you are riding, and back at sunrise.", 12.5f, 500, MUTED));
         c.addView(look);
 
+        // ---- downloaded maps
+        LinearLayout maps = GabiPage.card(k);
+        LinearLayout mapsHead = k.row(4); mapsHead.addView(k.label("Maps"), new LinearLayout.LayoutParams(0, -2, 1));
+        mapsHead.addView(k.info("Downloaded areas live on your phone, so the map, search and directions work without signal. Download the places you ride. Remove ones you no longer need to free up space."));
+        maps.addView(mapsHead);
+        mapList = k.column(0); maps.addView(mapList);
+        maps.addView(k.ghost("Download another area", () -> { startActivity(new Intent(this, HomeActivity.class).putExtra("select_area", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }));
+        c.addView(maps);
+
         // ---- testing
         LinearLayout test = GabiPage.card(k); test.setPadding(k.dp(16), k.dp(12), k.dp(16), k.dp(6));
         test.addView(k.label("Testing"));
@@ -100,8 +112,10 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         paint();
     }
 
-    protected void onStart() { super.onStart(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }
-    protected void onStop() { try { unregisterReceiver(changes); } catch (Exception ignored) {} super.onStop(); }
+    protected void onStart() {
+        super.onStart(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps();
+        new Thread(() -> { try { AreaStore.Catalog fresh = AreaStore.fetch(this); runOnUiThread(() -> { catalog = fresh; paintMaps(); }); } catch (Exception ignored) {} }).start(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }
+    protected void onStop() { AreaStore.unlisten(areaListener); try { unregisterReceiver(changes); } catch (Exception ignored) {} super.onStop(); }
     protected void onDestroy() { if (fitting) cancelFit(); progressAnim.cancel(); link.destroy(); super.onDestroy(); }
     public void finish() { super.finish(); overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out); }
 
@@ -162,6 +176,38 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     private void cancelFit() { s.insetLeft = old[0]; s.insetTop = old[1]; s.insetRight = old[2]; s.insetBottom = old[3]; s.textScale = old[4]; s.layout = oldLayout; endFit(); }
     private void endFit() { fitting = false; s.calibration = false; fitControls.setVisibility(View.GONE); s.signal(); paint(); }
 
+    /** Downloaded areas with size, km and update/remove, plus the download in progress. */
+    private void paintMaps() {
+        if (mapList == null) return;
+        mapList.removeAllViews();
+        AreaStore.State st = AreaStore.state();
+        if (st != null && st.running) {
+            LinearLayout r = k.listRow(IconDrawable.DOWNLOAD, "Downloading " + st.name, st.progressLabel(), null, null);
+            TextView cancel = k.text("Cancel", 13.5f, 700, ACCENT); cancel.setPadding(k.dp(12), k.dp(8), 0, k.dp(8)); Gabi.press(cancel, AreaStore::cancel); r.addView(cancel);
+            mapList.addView(r);
+        }
+        List<AreaStore.Area> list = AreaStore.installed(this);
+        for (AreaStore.Area a : list) {
+            boolean update = a.outdated(catalog), confirming = a.id.equals(confirmRemove);
+            String sub = a.kmLabel() + " · " + Math.max(1, Math.round(a.diskBytes() / 1048576.0)) + " MB" + (update ? " · update available" : "");
+            LinearLayout r = k.listRow(IconDrawable.MAP, a.name, sub, null, null);
+            if (update) { TextView u = k.text("Update", 13.5f, 700, ACCENT); u.setPadding(k.dp(12), k.dp(8), k.dp(6), k.dp(8)); Gabi.press(u, () -> updateArea(a)); r.addView(u); }
+            TextView del = k.text(confirming ? "Remove?" : "Remove", 13.5f, 700, confirming ? DANGER : MUTED); del.setPadding(k.dp(12), k.dp(8), 0, k.dp(8));
+            Gabi.press(del, () -> {
+                if (s.active) { Gabi.shake(del); return; }
+                if (!confirming) { confirmRemove = a.id; paintMaps(); return; }
+                confirmRemove = null; AreaStore.remove(this, a); paintMaps();
+            });
+            r.addView(del); mapList.addView(r);
+        }
+        if (list.isEmpty() && (st == null || !st.running)) mapList.addView(k.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
+    }
+    private void updateArea(AreaStore.Area a) {
+        ArrayList<AreaStore.Cell> cells = new ArrayList<>();
+        for (AreaStore.Cell c : catalog.cells) if (a.cells.contains(c.id)) cells.add(c);
+        if (cells.isEmpty()) return;
+        AreaStore.download(this, catalog, cells, a.name, null, a);
+    }
     private void toggleLicenses() {
         if (licenseText.getVisibility() == View.VISIBLE) { licenseText.setVisibility(View.GONE); return; }
         StringBuilder b = new StringBuilder("Map data © OpenStreetMap contributors, ODbL 1.0. https://www.openstreetmap.org/copyright\n\n");

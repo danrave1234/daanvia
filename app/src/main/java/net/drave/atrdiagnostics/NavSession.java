@@ -12,7 +12,7 @@ public final class NavSession {
     public static synchronized NavSession get(Context c){if(instance==null)instance=new NavSession(c.getApplicationContext());return instance;}
     public final Context context;
     public final ExecutorService worker=Executors.newSingleThreadExecutor();
-    public volatile boolean ready,active,simulation,calibration,routing;
+    public volatile boolean ready,active,simulation,calibration,routing,noMap;
     public volatile String status="Preparing offline maps…",instruction="Choose a destination",destination="";
     public volatile double lat=10.3157,lon=123.8854,destLat,destLon,remaining,seconds,distanceToTurn;
     public volatile float accuracy=999,bearing;
@@ -60,7 +60,7 @@ public final class NavSession {
     /** Packs unpacked in app storage (downloaded, or copied from a Play asset pack), then packs copied over USB to Android/data/…/files/regions, then the APK's own. The first copy of an id wins. */
     private List<Region> discover(){ArrayList<Region> list=new ArrayList<>();HashSet<String> ids=new HashSet<>();
         for(File base:new File[]{new File(context.getFilesDir(),"regions"),context.getExternalFilesDir("regions")}){File[] dirs=base==null?null:base.listFiles();if(dirs==null)continue;Arrays.sort(dirs);
-            for(File d:dirs)try{if(new File(d,"valhalla_tiles.tar").isFile())add(list,ids,region(new JSONObject(read(new FileInputStream(new File(d,"region.json")))),null,d));}catch(Exception e){android.util.Log.w("Daanvia","Skipping offline pack "+d.getName(),e);}}
+            for(File d:dirs)try{if(new File(d,"valhalla_tiles.tar").isFile()||new File(d,"valhalla").isDirectory())add(list,ids,region(new JSONObject(read(new FileInputStream(new File(d,"region.json")))),null,d));}catch(Exception e){android.util.Log.w("Daanvia","Skipping offline pack "+d.getName(),e);}}
         try{String[] bundled=context.getAssets().list("regions");if(bundled!=null){Arrays.sort(bundled);for(String n:bundled)add(list,ids,region(new JSONObject(asset("regions/"+n+"/region.json")),"regions/"+n,null));}}catch(Exception e){android.util.Log.w("Daanvia","Bundled packs unreadable",e);}
         try{add(list,ids,region(new JSONObject(asset("cebu/region.json")),"cebu",null));}catch(Exception ignored){}
         return list;}
@@ -96,11 +96,23 @@ public final class NavSession {
         File tiles=r.asset==null?new File(r.dir,"valhalla_tiles.tar"):new File(dir,"valhalla_tiles.tar");
         if(r.asset!=null){JSONObject files=new JSONObject(text(r,"region.json")).optJSONObject("files");JSONObject spec=files==null?null:files.optJSONObject("valhalla_tiles.tar");long want=spec==null?-1:spec.optLong("bytes",-1);
             if(!tiles.exists()||want>0&&tiles.length()!=want){File temp=new File(dir,"tiles.part");try(InputStream in=context.getAssets().open(r.asset+"/valhalla_tiles.tar");FileOutputStream out=new FileOutputStream(temp)){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)out.write(b,0,n);out.getFD().sync();}if(tiles.exists()&&!tiles.delete()||!temp.renameTo(tiles))throw new IOException("Cannot install region");}}
-        JSONObject cfg=new JSONObject(text(r,"valhalla-template.json"));cfg.getJSONObject("mjolnir").put("tile_extract",tiles.getAbsolutePath()).put("tile_dir",dir.getAbsolutePath()).remove("tile_url");
+        String template;try{template=text(r,"valhalla-template.json");}catch(FileNotFoundException missing){template=asset("valhalla-template.json");}
+        JSONObject cfg=new JSONObject(template);
+        // A downloaded area is a folder of individual graph tiles merged from its cells; packs are a single tar.
+        File tileDir=r.asset==null?new File(r.dir,"valhalla"):null;
+        if(tileDir!=null&&tileDir.isDirectory()&&!tiles.isFile())cfg.getJSONObject("mjolnir").put("tile_dir",tileDir.getAbsolutePath()).remove("tile_extract");
+        else cfg.getJSONObject("mjolnir").put("tile_extract",tiles.getAbsolutePath()).put("tile_dir",dir.getAbsolutePath());
+        cfg.getJSONObject("mjolnir").remove("tile_url");
         File config=new File(dir,"valhalla.json");try(FileOutputStream out=new FileOutputStream(config)){out.write(cfg.toString().getBytes("UTF-8"));}
         e=new Valhalla(config.getAbsolutePath());engines.put(r.id,e);return e;}
+    /** Look for installed packs again, after a download or removal. A ride in progress keeps its pack. */
+    public void reload(){worker.execute(()->{if(active)return;load();});}
+    /** Drop a removed pack's routing engine so its files are no longer held. Worker thread. */
+    public void forget(String id){worker.execute(()->engines.remove(id));}
     private void load(){try{
-        List<Region> found=discover();if(found.isEmpty())throw new IOException("No offline region installed");regions=Collections.unmodifiableList(found);
+        List<Region> found=discover();regions=Collections.unmodifiableList(found);
+        if(found.isEmpty()){ready=false;noMap=true;shown=null;regionId="";regionVersion++;roads=Collections.emptyList();places=new JSONArray();parking=new JSONArray();roadsJson="{\"type\":\"FeatureCollection\",\"features\":[]}";message("No map installed");return;}
+        noMap=false;
         Region first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");
     }catch(Throwable e){message("Offline region could not load: "+e.getClass().getSimpleName()+". Open Support.");android.util.Log.e("Daanvia","Offline load failed",e);}}
     public boolean inRegion(double a,double b){for(Region r:regions)if(r.contains(a,b))return true;return false;}

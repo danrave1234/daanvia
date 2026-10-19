@@ -21,7 +21,7 @@ import static org.maplibre.android.style.layers.PropertyFactory.*;
 final class MapStyle {
     private MapStyle() {}
 
-    static final String LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking", PUCK = "puck";
+    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking", PUCK = "puck";
 
     static String base(Gabi.Palette p) {
         return "{\"version\":8,\"sources\":{},\"layers\":[{\"id\":\"background\",\"type\":\"background\",\"paint\":{\"background-color\":\"" + hex(p.bg) + "\"}}]}";
@@ -46,7 +46,12 @@ final class MapStyle {
     static final String[] PRIMARY = {"primary", "primary_link", "trunk", "trunk_link", "motorway", "motorway_link"};
 
     static void install(Context c, Style st, String roadsJson) {
-        // Coastline: land polygons over a sea-coloured background, then lakes and rivers. Empty until a pack provides them.
+        // Country overview (bundled): land and main roads, so riders can find their area before any map is downloaded.
+        st.addSource(new GeoJsonSource(OVERVIEW));
+        st.addLayer(new FillLayer("overview-land", OVERVIEW).withFilter(eq(get("kind"), literal("land"))).withProperties(fillAntialias(true)));
+        st.addLayer(new LineLayer("overview-roads", OVERVIEW).withFilter(match(get("kind"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true)))
+            .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(5, 0.6f, 9, 1.4f, 13, 2.6f))));
+        // Coastline: land polygons over a sea-coloured background, then lakes and rivers. Empty until an area provides them.
         st.addSource(new GeoJsonSource(LAND)); st.addSource(new GeoJsonSource(WATER));
         st.addLayer(new FillLayer("land", LAND).withProperties(fillAntialias(true)));
         st.addLayer(new FillLayer("water-area", WATER).withProperties(fillAntialias(true)));
@@ -71,6 +76,10 @@ final class MapStyle {
         st.addLayer(new SymbolLayer("dest", DEST).withProperties(iconImage("dest"), iconAllowOverlap(true), iconIgnorePlacement(true), iconAnchor(Property.ICON_ANCHOR_CENTER)));
         st.addLayer(new SymbolLayer("drop", DROP).withProperties(iconImage("drop"), iconAllowOverlap(true), iconIgnorePlacement(true), iconAnchor(Property.ICON_ANCHOR_BOTTOM)));
 
+        // Squares an area download would include, while the rider frames one.
+        st.addSource(new GeoJsonSource(CELLS));
+        st.addLayer(new FillLayer("cells-fill", CELLS).withProperties(fillOpacity(0.16f)));
+        st.addLayer(new LineLayer("cells-line", CELLS).withProperties(lineWidth(1.4f), lineOpacity(0.7f), lineDasharray(new Float[]{2f, 2f})));
         st.addSource(new GeoJsonSource(PUCK));
         st.addLayer(new CircleLayer("puck-pulse", PUCK).withProperties(circleRadius(8f), circleOpacity(0f), circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP)));
         st.addLayer(new SymbolLayer("puck", PUCK).withProperties(iconImage(get("icon")), iconRotate(get("bearing")), iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP), iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
@@ -93,6 +102,10 @@ final class MapStyle {
         int sea = n ? 0xFF0A1A26 : 0xFFBCD9E4;
         Layer bg = st.getLayer("background"); if (bg != null) bg.setProperties(backgroundColor(coastline ? sea : p.bg));
         Layer land = st.getLayer("land"); if (land != null) land.setProperties(fillColor(p.bg), fillOutlineColor(p.bg));
+        Layer oland = st.getLayer("overview-land"); if (oland != null) oland.setProperties(fillColor(p.bg), fillOutlineColor(p.bg));
+        line(st, "overview-roads", n ? 0xFF2E3B49 : 0xFFE3D6B4, 1f);
+        Layer cf = st.getLayer("cells-fill"); if (cf != null) cf.setProperties(fillColor(p.accent));
+        Layer cl = st.getLayer("cells-line"); if (cl != null) cl.setProperties(lineColor(p.accent));
         Layer water = st.getLayer("water-area"); if (water != null) water.setProperties(fillColor(sea), fillOutlineColor(sea));
         line(st, "road-path", n ? 0xFF223040 : 0xFFCFC9B9, 1f);
         line(st, "road-minor-case", n ? 0xFF0A1016 : 0xFFDDD8CB, 1f);
@@ -112,6 +125,13 @@ final class MapStyle {
     private static void line(Style st, String id, int color, float opacity) { Layer l = st.getLayer(id); if (l != null) l.setProperties(lineColor(color), lineOpacity(opacity)); }
 
     // ---------------------------------------------------------------- data helpers
+    /** Cell boxes as polygons for the selection highlight. */
+    static FeatureCollection boxes(List<double[]> boxes) {
+        ArrayList<Feature> out = new ArrayList<>();
+        for (double[] b : boxes) out.add(Feature.fromGeometry(Polygon.fromLngLats(Collections.singletonList(Arrays.asList(
+            Point.fromLngLat(b[0], b[1]), Point.fromLngLat(b[2], b[1]), Point.fromLngLat(b[2], b[3]), Point.fromLngLat(b[0], b[3]), Point.fromLngLat(b[0], b[1]))))));
+        return FeatureCollection.fromFeatures(out);
+    }
     static Feature point(double lat, double lon) { return Feature.fromGeometry(Point.fromLngLat(lon, lat)); }
     static FeatureCollection empty() { return FeatureCollection.fromFeatures(new Feature[0]); }
     static LineString line(List<double[]> latLon, int from, int to, double[] head) {
