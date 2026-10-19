@@ -818,6 +818,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (status == null) return "";
         if (status.startsWith("Outside")) return s.regions.size() > 1 ? "That place isn’t covered by the maps on your phone yet." : "That place is outside " + s.regionName + " for now.";
         if (status.startsWith("Start and destination")) return "That trip crosses into another map area. Choose a destination in the same area.";
+        if (status.contains("unconnected")) return "Your destination isn’t in your downloaded areas. Download the area that includes it in Settings › Maps.";
         if (status.startsWith("No offline route")) return "Couldn’t find a route there. Try a spot on a nearby road.";
         if (status.startsWith("Wait")) return "Getting the map ready…";
         return "";

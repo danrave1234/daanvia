@@ -22,6 +22,12 @@ import java.util.zip.ZipInputStream;
  */
 public final class AreaStore {
     public static final String BASE = "https://github.com/danrave1234/daanvia/releases/latest/download/";
+    /** Where maps come from. Debug builds may point at a local test server (prefs "areas"/"base"); release builds always use the GitHub release. */
+    static String base(Context c) {
+        boolean debuggable = (c.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        String o = debuggable ? c.getSharedPreferences("areas", 0).getString("base", "") : "";
+        return o.isEmpty() ? BASE : o;
+    }
     /** Above this much raw road data the merged area would not fit comfortably in a phone's memory. */
     public static final long MAX_ROADS = 60L * 1024 * 1024;
 
@@ -72,7 +78,7 @@ public final class AreaStore {
 
     // ---------------------------------------------------------------- catalog
     public static Catalog fetch(Context c) throws Exception {
-        String json = new String(get(BASE + "areas-index.json", null, null, null), StandardCharsets.UTF_8);
+        String json = new String(get(base(c) + "areas-index.json", null, null, null), StandardCharsets.UTF_8);
         Catalog cat = parse(json); c.getSharedPreferences("areas", 0).edit().putString("index", json).apply(); return cat;
     }
     public static Catalog cached(Context c) {
@@ -140,10 +146,11 @@ public final class AreaStore {
             try {
                 delete(tmp); cache.mkdirs(); if (!tmp.mkdirs()) throw new IOException("Not enough storage");
                 Merger merge = new Merger(tmp);
-                for (String n : needs) { Base b = cat.base.get(n); if (b == null) continue; File z = fetch(new File(cache, b.file), b.file, b.sha256, done, all, name); merge.add(z); z.delete(); }
+                String from = base(c);
+                for (String n : needs) { Base b = cat.base.get(n); if (b == null) continue; File z = fetch(from, new File(cache, b.file), b.file, b.sha256, done, all, name); merge.add(z); z.delete(); }
                 double[] bounds = {180, 90, -180, -90}; JSONArray areas = new JSONArray(), ids = new JSONArray();
                 for (Cell x : cells) {
-                    File z = fetch(new File(cache, x.file), x.file, x.sha256, done, all, name); merge.add(z); z.delete();
+                    File z = fetch(from, new File(cache, x.file), x.file, x.sha256, done, all, name); merge.add(z); z.delete();
                     bounds[0] = Math.min(bounds[0], x.box[0]); bounds[1] = Math.min(bounds[1], x.box[1]); bounds[2] = Math.max(bounds[2], x.box[2]); bounds[3] = Math.max(bounds[3], x.box[3]);
                     areas.put(new JSONArray().put(x.box[0]).put(x.box[1]).put(x.box[2]).put(x.box[3])); ids.put(x.id);
                 }
@@ -167,10 +174,10 @@ public final class AreaStore {
         }, "daanvia-area").start();
     }
 
-    private static File fetch(File to, String file, String sha256, long[] done, long total, String name) throws Exception {
+    private static File fetch(String from, File to, String file, String sha256, long[] done, long total, String name) throws Exception {
         MessageDigest sha = MessageDigest.getInstance("SHA-256"); long start = done[0];
         try (OutputStream out = new BufferedOutputStream(new FileOutputStream(to), 1 << 16)) {
-            get(BASE + file, out, sha, (d, t) -> { done[0] = start + d; post(new State(name, done[0], total, true, false, null)); });
+            get(from + file, out, sha, (d, t) -> { done[0] = start + d; post(new State(name, done[0], total, true, false, null)); });
         }
         if (!sha256.isEmpty() && !sha256.equalsIgnoreCase(hex(sha.digest()))) { to.delete(); throw new IOException("The download was damaged. Try again."); }
         return to;
