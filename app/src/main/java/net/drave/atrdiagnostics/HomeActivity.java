@@ -71,7 +71,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private double destLat, destLon; private String destName; private boolean pendingPlan, demoTrip;
     private boolean routeCleared; private List<double[]> drawnShape; private List<JSONObject> drawnParking; private Gabi.Palette drawnParkingPalette; private ValueAnimator routeAnim;
     private boolean follow = true, haveShown; private double shownLat, shownLon; private float shownBearing; private ValueAnimator puckAnim, pulse; private long lastFix = -1;
-    private long themeCheckedAt; private boolean centeredOnRegion;
+    private long themeCheckedAt; private boolean centeredOnRegion, coastline; private int shownRegion = -1;
 
     private final BroadcastReceiver changes = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { refresh(); } };
 
@@ -154,9 +154,29 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     private void installLayers() {
         if (layersReady || style == null || !s.ready) return;
-        MapStyle.install(this, style, s.roadsJson); MapStyle.paint(style, theme.palette); layersReady = true;
+        MapStyle.install(this, style, s.roadsJson); MapStyle.paint(style, theme.palette, coastline); layersReady = true; shownRegion = s.regionVersion; loadLandcover();
         if (s.fixAt == 0 && !s.active && !centeredOnRegion) { centeredOnRegion = true; map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(s.homeLat(), s.homeLon()), 13.2), 1200); }
         index(); paintRecents();
+    }
+    /** The active pack changed (a trip into another map area): swap roads, coastline, search and parking to it. */
+    private void regionChanged() {
+        if (!layersReady || shownRegion == s.regionVersion) return;
+        shownRegion = s.regionVersion;
+        src(MapStyle.ROADS).setGeoJson(s.roadsJson); index = null; lots = null; index(); loadLandcover();
+    }
+    private void loadLandcover() {
+        worker.execute(() -> {
+            String land = null, water = null;
+            try { land = s.regionText("land.geojson"); } catch (Exception ignored) {}
+            try { water = s.regionText("water.geojson"); } catch (Exception ignored) {}
+            String l = land, w = water;
+            ui.post(() -> {
+                if (style == null || !layersReady) return;
+                src(MapStyle.LAND).setGeoJson(l == null ? MapStyle.empty() : FeatureCollection.fromJson(l));
+                src(MapStyle.WATER).setGeoJson(w == null ? MapStyle.empty() : FeatureCollection.fromJson(w));
+                coastline = l != null; MapStyle.paint(style, theme.palette, coastline);
+            });
+        });
     }
     private GeoJsonSource src(String id) { return style == null ? null : (GeoJsonSource)style.getSource(id); }
 
@@ -313,7 +333,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             for (int i = 0; i < n; i++) { JSONObject p = places.optJSONObject(i); names.add(p == null ? null : p.optString("name", null)); lat[i] = p == null ? 0 : p.optDouble("lat"); lon[i] = p == null ? 0 : p.optDouble("lon"); }
             SearchIndex built = new SearchIndex(names, lat, lon);
             Lots parking = null;
-            try (java.io.InputStream in = getAssets().open("cebu/lots.json")) { java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream(); byte[] b = new byte[16384]; int r; while ((r = in.read(b)) > 0) o.write(b, 0, r); parking = new Lots(o.toString("UTF-8")); } catch (Exception ignored) {}
+            try { parking = new Lots(s.regionText("lots.json")); } catch (Exception ignored) {}
             Lots loaded = parking;
             ui.post(() -> { index = built; lots = loaded; if (mode == Mode.SEARCH) runSearch.run(); });
         });
@@ -342,19 +362,17 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         } else {
             // Sub-places ("SM City Cebu PUJ Terminal") belong to the main place they are named after, so the
             // main place lists all of their parking once and the sub-places don't repeat it.
-            int[] parent = new int[hits.length]; Arrays.fill(parent, -1);
-            for (int n = 0; n < hits.length; n++) for (int m = 0; m < n; m++) {
-                if (parent[m] != -1) continue;
-                String a = index.names[hits[m]].toLowerCase(Locale.ROOT), b = index.names[hits[n]].toLowerCase(Locale.ROOT);
-                if ((b.startsWith(a + " ") || b.endsWith(" " + a)) && GeoMath.distance(index.lat[hits[m]], index.lon[hits[m]], index.lat[hits[n]], index.lon[hits[n]]) < 800) { parent[n] = m; break; }
-            }
-            for (int n = 0; n < hits.length; n++) {
+            String[] hn = new String[hits.length]; double[] hla = new double[hits.length], hlo = new double[hits.length];
+            for (int n = 0; n < hits.length; n++) { hn[n] = index.names[hits[n]]; hla[n] = index.lat[hits[n]]; hlo[n] = index.lon[hits[n]]; }
+            int[] parent = SearchIndex.parents(hn, hla, hlo), order = SearchIndex.grouped(parent);
+            int roots = 0;
+            for (int n : order) {
                 int h = hits[n]; String name = index.names[h]; double la = index.lat[h], lo = index.lon[h];
                 List<Lots.Lot> near = new ArrayList<>();
-                if (lots != null && parent[n] == -1 && n < 12) {
+                if (lots != null && parent[n] == -1 && roots++ < 12) {
                     LinkedHashMap<String, Lots.Lot> all = new LinkedHashMap<>();
                     for (Lots.Lot l : lots.near(la, lo, 300)) all.put(l.id, l);
-                    for (int c = n + 1; c < hits.length; c++) if (parent[c] == n) for (Lots.Lot l : lots.near(index.lat[hits[c]], index.lon[hits[c]], 300)) all.putIfAbsent(l.id, l);
+                    for (int c = 0; c < hits.length; c++) if (parent[c] == n) for (Lots.Lot l : lots.near(index.lat[hits[c]], index.lon[hits[c]], 300)) all.putIfAbsent(l.id, l);
                     near.addAll(all.values()); Lots.rank(near, la, lo);
                 }
                 String sub = parent[n] != -1 ? "Part of " + index.names[hits[parent[n]]] : near.isEmpty() ? null : near.size() + " parking nearby";
@@ -591,7 +609,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** Turn engine status lines into plain words for the route card. */
     private String friendly(String status) {
         if (status == null) return "";
-        if (status.startsWith("Outside")) return "That place is outside " + s.regionName + " for now.";
+        if (status.startsWith("Outside")) return s.regions.size() > 1 ? "That place isn’t covered by the maps on your phone yet." : "That place is outside " + s.regionName + " for now.";
+        if (status.startsWith("Start and destination")) return "That trip crosses into another map area. Choose a destination in the same area.";
         if (status.startsWith("No offline route")) return "Couldn’t find a route there. Try a spot on a nearby road.";
         if (status.startsWith("Wait")) return "Getting the map ready…";
         return "";
@@ -784,7 +803,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (isDestroyed() || root == null) return;
         long now = SystemClock.elapsedRealtime();
         if (now - themeCheckedAt > 60000) { themeCheckedAt = now; applyTheme(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)); }
-        installLayers();
+        installLayers(); regionChanged();
         if (!s.ready) dotChip(regionChip, "Getting the map ready…", MUTED);
         else dotChip(regionChip, s.regionName, OK);
         String model = savedModel();
@@ -807,7 +826,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     private void applyTheme(Gabi.Palette p) {
         if (!theme.set(p)) return;
-        if (style != null) { MapStyle.paint(style, p); drawnParking = null; }
+        if (style != null) { MapStyle.paint(style, p, coastline); drawnParking = null; }
         paintRecents();
     }
 

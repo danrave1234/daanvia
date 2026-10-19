@@ -23,6 +23,37 @@ public final class SearchIndex {
         return n.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9 ]+", " ").replaceAll(" +", " ").trim();
     }
 
+    /**
+     * For each result, the result it is part of: a place whose name it starts or ends with ("SM City Cebu PUJ
+     * Terminal", "Botejyu SM City Cebu" → "SM City Cebu") within 800 m. The shortest such name wins; -1 for main places.
+     */
+    public static int[] parents(String[] names, double[] lat, double[] lon) {
+        int[] parent = new int[names.length]; Arrays.fill(parent, -1);
+        Integer[] byLength = new Integer[names.length]; for (int i = 0; i < names.length; i++) byLength[i] = i;
+        Arrays.sort(byLength, (a, b) -> Integer.compare(names[a].length(), names[b].length()));
+        for (int n = 0; n < names.length; n++) {
+            String b = names[n].toLowerCase(Locale.ROOT);
+            for (int m : byLength) {
+                if (m == n || parent[m] != -1 || names[m].length() >= names[n].length()) continue;
+                String a = names[m].toLowerCase(Locale.ROOT);
+                if ((b.startsWith(a + " ") || b.endsWith(" " + a)) && GeoMath.distance(lat[m], lon[m], lat[n], lon[n]) < 800) { parent[n] = m; break; }
+            }
+        }
+        for (int n = 0; n < names.length; n++) if (parent[n] != -1 && parent[parent[n]] != -1) parent[n] = parent[parent[n]];
+        return parent;
+    }
+    /** Display order: each main place where its best-ranked member first appears, followed by its parts in rank order. */
+    public static int[] grouped(int[] parent) {
+        int[] out = new int[parent.length]; boolean[] done = new boolean[parent.length]; int k = 0;
+        for (int n = 0; n < parent.length; n++) {
+            int root = parent[n] == -1 ? n : parent[n];
+            if (done[root]) continue;
+            done[root] = true; out[k++] = root;
+            for (int c = 0; c < parent.length; c++) if (parent[c] == root && !done[c]) { done[c] = true; out[k++] = c; }
+        }
+        return out;
+    }
+
     /** Returns indexes into {@link #names}, best first. */
     public int[] query(String text, double fromLat, double fromLon, int limit) {
         String q = fold(text); if (q.isEmpty()) return new int[0];

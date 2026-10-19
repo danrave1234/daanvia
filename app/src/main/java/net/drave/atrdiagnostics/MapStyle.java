@@ -21,7 +21,7 @@ import static org.maplibre.android.style.layers.PropertyFactory.*;
 final class MapStyle {
     private MapStyle() {}
 
-    static final String ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking", PUCK = "puck";
+    static final String LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking", PUCK = "puck";
 
     static String base(Gabi.Palette p) {
         return "{\"version\":8,\"sources\":{},\"layers\":[{\"id\":\"background\",\"type\":\"background\",\"paint\":{\"background-color\":\"" + hex(p.bg) + "\"}}]}";
@@ -46,6 +46,10 @@ final class MapStyle {
     static final String[] PRIMARY = {"primary", "primary_link", "trunk", "trunk_link", "motorway", "motorway_link"};
 
     static void install(Context c, Style st, String roadsJson) {
+        // Coastline: land polygons over a sea-coloured background, then lakes and rivers. Empty until a pack provides them.
+        st.addSource(new GeoJsonSource(LAND)); st.addSource(new GeoJsonSource(WATER));
+        st.addLayer(new FillLayer("land", LAND).withProperties(fillAntialias(true)));
+        st.addLayer(new FillLayer("water-area", WATER).withProperties(fillAntialias(true)));
         st.addSource(new GeoJsonSource(ROADS, roadsJson));
         LineLayer path = new LineLayer("road-path", ROADS).withFilter(kinds(PATHS)).withProperties(lineWidth(width(15, 0.8f, 18, 2.4f)), lineDasharray(new Float[]{1.2f, 1.6f}));
         path.setMinZoom(15);
@@ -84,9 +88,12 @@ final class MapStyle {
     }
 
     /** Recolor every layer in place; MapLibre crossfades paint changes, so a theme switch is a soft dissolve. */
-    static void paint(Style st, Gabi.Palette p) {
+    static void paint(Style st, Gabi.Palette p, boolean coastline) {
         boolean n = p.night;
-        Layer bg = st.getLayer("background"); if (bg != null) bg.setProperties(backgroundColor(p.bg));
+        int sea = n ? 0xFF0A1A26 : 0xFFBCD9E4;
+        Layer bg = st.getLayer("background"); if (bg != null) bg.setProperties(backgroundColor(coastline ? sea : p.bg));
+        Layer land = st.getLayer("land"); if (land != null) land.setProperties(fillColor(p.bg), fillOutlineColor(p.bg));
+        Layer water = st.getLayer("water-area"); if (water != null) water.setProperties(fillColor(sea), fillOutlineColor(sea));
         line(st, "road-path", n ? 0xFF223040 : 0xFFCFC9B9, 1f);
         line(st, "road-minor-case", n ? 0xFF0A1016 : 0xFFDDD8CB, 1f);
         line(st, "road-minor", n ? 0xFF1C2733 : 0xFFFFFFFF, 1f);

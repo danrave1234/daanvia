@@ -20,4 +20,8 @@ public class ParkingSearchTest {
         LiveCheck.Result r=LiveCheck.parse("{\"elements\":[{\"type\":\"way\",\"id\":1,\"timestamp\":\"2024-03-02T10:00:00Z\",\"tags\":{\"amenity\":\"parking\",\"opening_hours\":\"24/7\"}}]}");
         assertTrue(r.exists);assertEquals("2024-03-02",r.edited);assertEquals("24/7",Lots.Lot.fromTags("w1",10,123,r.tags).hours);
         assertFalse(LiveCheck.parse("{\"elements\":[]}").exists);}
+    @Test public void subPlacesGroupUnderTheMallEvenWhenRankedFirst(){
+        String[] n={"SM City Cebu PUJ Terminal","Ayala Center Cebu","SM City Cebu","Botejyu SM City Cebu"};double[] la={10.3106,10.318,10.3127,10.3120},lo={123.9181,123.905,123.9165,123.9170};
+        int[] parent=SearchIndex.parents(n,la,lo);assertEquals(2,parent[0]);assertEquals(-1,parent[1]);assertEquals(-1,parent[2]);assertEquals(2,parent[3]);
+        assertArrayEquals(new int[]{2,0,3,1},SearchIndex.grouped(parent));}
 }

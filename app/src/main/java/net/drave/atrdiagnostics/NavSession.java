@@ -24,27 +24,58 @@ public final class NavSession {
     public volatile JSONArray maneuvers=new JSONArray();
     public volatile int maneuver,progress;
     public volatile double[] cumulative=new double[0];private double routeMeters,routeSeconds;
-    private Valhalla engine;private long lastReroute;private int offRoute,requestId;
+    private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute;private int offRoute,requestId;
+    /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */
+    public volatile List<Region> regions=Collections.emptyList();public volatile String regionId="";public volatile int regionVersion;
     public volatile String roadsJson="{\"type\":\"FeatureCollection\",\"features\":[]}";
     public double minLat,maxLat,minLon,maxLon;
     public volatile String regionName="Offline region";public volatile double[] demoFrom={10.3157,123.8854},demoTo={10.2934,123.9019};public volatile String demoName="Sample route";
     public volatile double[] home;public double homeLat(){return home!=null?home[0]:ready?(minLat+maxLat)/2:lat;}public double homeLon(){return home!=null?home[1]:ready?(minLon+maxLon)/2:lon;}
     public float insetLeft,insetTop,insetRight,insetBottom,textScale=1;public String layout="Map focus";
     public static final class Road {public final double[][] points;public final String name,kind;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;Road(double[][] p,String n,String k){points=p;name=n;kind=k;for(double[] a:p){minLat=Math.min(minLat,a[0]);maxLat=Math.max(maxLat,a[0]);minLon=Math.min(minLon,a[1]);maxLon=Math.max(maxLon,a[1]);}}}
+    /** One offline pack: region.json plus its graph and data, either bundled under assets/ or unpacked in a directory. Areas are [minLon,minLat,maxLon,maxLat] boxes. */
+    public static final class Region {
+        public final String id,name;public final double[] bounds;public final double[][] areas;final String asset;final File dir;
+        Region(String id,String name,double[] bounds,double[][] areas,String asset,File dir){this.id=id;this.name=name;this.bounds=bounds;this.areas=areas==null||areas.length==0?new double[][]{bounds}:areas;this.asset=asset;this.dir=dir;}
+        public boolean contains(double lat,double lon){for(double[] a:areas)if(lon>=a[0]&&lon<=a[2]&&lat>=a[1]&&lat<=a[3])return true;return false;}
+        double size(){double s=0;for(double[] a:areas)s+=(a[2]-a[0])*(a[3]-a[1]);return s;}
+        /** The smallest pack holding both points (a city pack beats its island pack), or null when no single pack can route between them. */
+        public static Region pick(List<Region> list,double aLat,double aLon,double bLat,double bLon){Region best=null;for(Region r:list)if(r.contains(aLat,aLon)&&r.contains(bLat,bLon)&&(best==null||r.size()<best.size()))best=r;return best;}
+        public static Region at(List<Region> list,double lat,double lon){return pick(list,lat,lon,lat,lon);}
+    }
     private NavSession(Context c){context=c;loadFit();worker.execute(this::load);}
     public void signal(){context.sendBroadcast(new Intent(EVENT).setPackage(context.getPackageName()));}
     private final ArrayDeque<String> logs=new ArrayDeque<>();
     public void message(String text){status=text;String clean=destination.isEmpty()?text:text.replace(destination,"[destination]");clean=clean.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}","[coordinate]");synchronized(logs){if(logs.size()>=150)logs.removeFirst();logs.addLast(new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+clean);}signal();}
-    public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia "+BuildInfo.VERSION).put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("layout",layout).put("location_and_identifiers","omitted");synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
-    private String asset(String p)throws Exception{try(InputStream in=context.getAssets().open(p)){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}}
-    private void load(){try{
-        File dir=new File(context.getFilesDir(),"cebu-v1");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Cannot create offline storage");
-        File tiles=new File(dir,"valhalla_tiles.tar");
-        if(!tiles.exists()){File temp=new File(dir,"tiles.part");try(InputStream in=context.getAssets().open("cebu/valhalla_tiles.tar");FileOutputStream out=new FileOutputStream(temp)){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)out.write(b,0,n);out.getFD().sync();}if(!temp.renameTo(tiles))throw new IOException("Cannot install region");}
-        JSONObject region=new JSONObject(asset("cebu/region.json"));JSONArray box=region.getJSONArray("bounds");minLon=box.getDouble(0);minLat=box.getDouble(1);maxLon=box.getDouble(2);maxLat=box.getDouble(3);
-        regionName=region.optString("display_name",region.optString("name",regionName));JSONObject demo=region.optJSONObject("demo");if(demo!=null){JSONArray f=demo.getJSONArray("from"),t=demo.getJSONArray("to");demoFrom=new double[]{f.getDouble(0),f.getDouble(1)};demoTo=new double[]{t.getDouble(0),t.getDouble(1)};demoName=demo.optString("name",demoName);}JSONArray hc=region.optJSONArray("home");if(hc!=null)home=new double[]{hc.getDouble(0),hc.getDouble(1)};
-        roadsJson=asset("cebu/roads.geojson");ArrayList<Road> list=new ArrayList<>();
-        try(android.util.JsonReader reader=new android.util.JsonReader(new StringReader(roadsJson))){
+    public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia "+BuildInfo.VERSION).put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("offline_region",regionId).put("installed_regions",regions.size()).put("layout",layout).put("location_and_identifiers","omitted");synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
+    private String asset(String p)throws Exception{return read(context.getAssets().open(p));}
+    private static String read(InputStream stream)throws IOException{try(InputStream in=stream){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}}
+    private String text(Region r,String file)throws Exception{return r.asset!=null?asset(r.asset+"/"+file):read(new FileInputStream(new File(r.dir,file)));}
+    /** Reads a data file such as "lots.json" from the pack now shown ({@link #regionId}); FileNotFoundException when that pack has none. Off the UI thread; reload when {@link #regionVersion} changes. */
+    public String regionText(String file)throws Exception{Region r=shown;if(r==null)throw new FileNotFoundException(file);return text(r,file);}
+    private static Region region(JSONObject j,String asset,File dir)throws JSONException{
+        JSONArray b=j.getJSONArray("bounds");double[] bounds={b.getDouble(0),b.getDouble(1),b.getDouble(2),b.getDouble(3)};JSONArray a=j.optJSONArray("areas");double[][] areas=null;
+        if(a!=null){areas=new double[a.length()][];for(int i=0;i<a.length();i++){JSONArray x=a.getJSONArray(i);areas[i]=new double[]{x.getDouble(0),x.getDouble(1),x.getDouble(2),x.getDouble(3)};}}
+        return new Region(j.getString("id"),j.optString("display_name",j.optString("name",j.getString("id"))),bounds,areas,asset,dir);}
+    /** Packs unpacked in app storage (downloaded, or copied from a Play asset pack), then packs copied over USB to Android/data/…/files/regions, then the APK's own. The first copy of an id wins. */
+    private List<Region> discover(){ArrayList<Region> list=new ArrayList<>();HashSet<String> ids=new HashSet<>();
+        for(File base:new File[]{new File(context.getFilesDir(),"regions"),context.getExternalFilesDir("regions")}){File[] dirs=base==null?null:base.listFiles();if(dirs==null)continue;Arrays.sort(dirs);
+            for(File d:dirs)try{if(new File(d,"valhalla_tiles.tar").isFile())add(list,ids,region(new JSONObject(read(new FileInputStream(new File(d,"region.json")))),null,d));}catch(Exception e){android.util.Log.w("Daanvia","Skipping offline pack "+d.getName(),e);}}
+        try{String[] bundled=context.getAssets().list("regions");if(bundled!=null){Arrays.sort(bundled);for(String n:bundled)add(list,ids,region(new JSONObject(asset("regions/"+n+"/region.json")),"regions/"+n,null));}}catch(Exception e){android.util.Log.w("Daanvia","Bundled packs unreadable",e);}
+        try{add(list,ids,region(new JSONObject(asset("cebu/region.json")),"cebu",null));}catch(Exception ignored){}
+        return list;}
+    private static void add(List<Region> list,Set<String> ids,Region r){if(ids.add(r.id))list.add(r);}
+    /** Opens on the pack the phone was last located in, else the one shown last time, else the first. */
+    private Region choose(List<Region> list){
+        try{if(context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==android.content.pm.PackageManager.PERMISSION_GRANTED||context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==android.content.pm.PackageManager.PERMISSION_GRANTED){
+            android.location.LocationManager m=(android.location.LocationManager)context.getSystemService(Context.LOCATION_SERVICE);android.location.Location best=null;
+            for(String p:m.getProviders(true)){android.location.Location l=m.getLastKnownLocation(p);if(l!=null&&(best==null||l.getTime()>best.getTime()))best=l;}
+            if(best!=null){Region r=Region.at(list,best.getLatitude(),best.getLongitude());if(r!=null)return r;}}}catch(RuntimeException ignored){}
+        String last=context.getSharedPreferences("offline-region",0).getString("shown","");for(Region r:list)if(r.id.equals(last))return r;return list.get(0);}
+    /** Loads a pack's map, search and parking data as the shown region. Worker thread only. */
+    private void display(Region r)throws Exception{
+        JSONObject region=new JSONObject(text(r,"region.json"));String json=text(r,"roads.geojson");ArrayList<Road> list=new ArrayList<>();
+        try(android.util.JsonReader reader=new android.util.JsonReader(new StringReader(json))){
             reader.beginObject();while(reader.hasNext()){String key=reader.nextName();if(!"features".equals(key)){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){
                 String name="",kind="";ArrayList<double[]> points=new ArrayList<>();reader.beginObject();while(reader.hasNext()){String field=reader.nextName();
                     if("properties".equals(field)){reader.beginObject();while(reader.hasNext()){String property=reader.nextName();if("name".equals(property))name=reader.nextString();else if("kind".equals(property))kind=reader.nextString();else reader.skipValue();}reader.endObject();}
@@ -53,24 +84,41 @@ public final class NavSession {
                 }reader.endObject();list.add(new Road(points.toArray(new double[0][]),name,kind));
             }reader.endArray();}reader.endObject();
         }
-        roads=Collections.unmodifiableList(list);places=new JSONArray(asset("cebu/places.json"));parking=new JSONArray(asset("cebu/parking.json"));mergeSavedParking();
-        JSONObject cfg=new JSONObject(asset("cebu/valhalla-template.json"));cfg.getJSONObject("mjolnir").put("tile_extract",tiles.getAbsolutePath()).put("tile_dir",dir.getAbsolutePath()).remove("tile_url");
+        JSONArray placeList=new JSONArray(text(r,"places.json")),parkingList=new JSONArray(text(r,"parking.json"));
+        minLon=r.bounds[0];minLat=r.bounds[1];maxLon=r.bounds[2];maxLat=r.bounds[3];regionName=r.name;
+        JSONObject demo=region.optJSONObject("demo");if(demo!=null){JSONArray f=demo.getJSONArray("from"),t=demo.getJSONArray("to");demoFrom=new double[]{f.getDouble(0),f.getDouble(1)};demoTo=new double[]{t.getDouble(0),t.getDouble(1)};demoName=demo.optString("name",demoName);}JSONArray hc=region.optJSONArray("home");home=hc!=null?new double[]{hc.getDouble(0),hc.getDouble(1)}:null;
+        roadsJson=json;roads=Collections.unmodifiableList(list);places=placeList;parking=parkingList;mergeSavedParking();
+        shown=r;regionId=r.id;regionVersion++;context.getSharedPreferences("offline-region",0).edit().putString("shown",r.id).apply();
+    }
+    /** Worker thread only. A bundled graph is copied out of the APK once (again when its bundled size changes); an unpacked pack's graph is read in place. */
+    private Valhalla engine(Region r)throws Exception{Valhalla e=engines.get(r.id);if(e!=null)return e;
+        File dir=new File(context.getFilesDir(),r.asset==null?"engines/"+r.id:"cebu".equals(r.asset)?"cebu-v1":"region-"+r.id);if(!dir.exists()&&!dir.mkdirs())throw new IOException("Cannot create offline storage");
+        File tiles=r.asset==null?new File(r.dir,"valhalla_tiles.tar"):new File(dir,"valhalla_tiles.tar");
+        if(r.asset!=null){JSONObject files=new JSONObject(text(r,"region.json")).optJSONObject("files");JSONObject spec=files==null?null:files.optJSONObject("valhalla_tiles.tar");long want=spec==null?-1:spec.optLong("bytes",-1);
+            if(!tiles.exists()||want>0&&tiles.length()!=want){File temp=new File(dir,"tiles.part");try(InputStream in=context.getAssets().open(r.asset+"/valhalla_tiles.tar");FileOutputStream out=new FileOutputStream(temp)){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)out.write(b,0,n);out.getFD().sync();}if(tiles.exists()&&!tiles.delete()||!temp.renameTo(tiles))throw new IOException("Cannot install region");}}
+        JSONObject cfg=new JSONObject(text(r,"valhalla-template.json"));cfg.getJSONObject("mjolnir").put("tile_extract",tiles.getAbsolutePath()).put("tile_dir",dir.getAbsolutePath()).remove("tile_url");
         File config=new File(dir,"valhalla.json");try(FileOutputStream out=new FileOutputStream(config)){out.write(cfg.toString().getBytes("UTF-8"));}
-        engine=new Valhalla(config.getAbsolutePath());ready=true;message(regionName+" offline · choose a destination");
+        e=new Valhalla(config.getAbsolutePath());engines.put(r.id,e);return e;}
+    private void load(){try{
+        List<Region> found=discover();if(found.isEmpty())throw new IOException("No offline region installed");regions=Collections.unmodifiableList(found);
+        Region first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");
     }catch(Throwable e){message("Offline region could not load: "+e.getClass().getSimpleName()+". Open Support.");android.util.Log.e("Daanvia","Offline load failed",e);}}
-    public boolean inRegion(double a,double b){return a>=minLat&&a<=maxLat&&b>=minLon&&b<=maxLon;}
+    public boolean inRegion(double a,double b){for(Region r:regions)if(r.contains(a,b))return true;return false;}
     public void plan(double a,double b,String name,boolean demo){
         if(!ready){message("Wait for the offline region to finish loading");return;}
         if(routing){message("Route calculation in progress · wait before changing destination");return;}
-        if(!inRegion(a,b)||!inRegion(lat,lon)){message("Outside the installed offline region ("+regionName+")");return;}
-        simulation=demo;destLat=a;destLon=b;destination=name;refreshParking();route();
+        final Region r=Region.pick(regions,lat,lon,a,b);
+        if(r==null){message(inRegion(a,b)&&inRegion(lat,lon)?"Start and destination are in different offline regions":regions.size()>1?"Outside the installed offline regions":"Outside the installed offline region ("+regionName+")");return;}
+        simulation=demo;destLat=a;destLon=b;destination=name;routeRegion=r;
+        if(r!=shown)worker.execute(()->{try{display(r);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();});else refreshParking();
+        route();
     }
-    private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;
+    private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;final Region region=routeRegion;
         worker.execute(()->{try{
             JSONObject req=new JSONObject().put("locations",new JSONArray().put(new JSONObject().put("lat",a).put("lon",b)).put(new JSONObject().put("lat",c).put("lon",d)))
                 .put("costing","motor_scooter").put("units","kilometers").put("language","en-US")
                 .put("costing_options",new JSONObject().put("motor_scooter",new JSONObject().put("use_highways",0).put("use_tolls",0).put("top_speed",80)));
-            JSONObject response=new JSONObject(engine.routeRaw(req.toString()));JSONObject trip=response.getJSONObject("trip");JSONArray legs=trip.getJSONArray("legs");JSONObject leg=legs.getJSONObject(0);
+            JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));JSONObject trip=response.getJSONObject("trip");JSONArray legs=trip.getJSONArray("legs");JSONObject leg=legs.getJSONObject(0);
             List<double[]> route=GeoMath.decode(leg.getString("shape"));if(route.size()<2)throw new IOException("Empty route");
             synchronized(this){if(token!=requestId)return;shape=Collections.unmodifiableList(route);maneuvers=leg.getJSONArray("maneuvers");maneuver=0;progress=0;double[] prefix=new double[route.size()];for(int j=1;j<route.size();j++)prefix[j]=prefix[j-1]+GeoMath.distance(route.get(j-1)[0],route.get(j-1)[1],route.get(j)[0],route.get(j)[1]);cumulative=prefix;routeMeters=prefix[prefix.length-1];remaining=routeMeters;routeSeconds=trip.getJSONObject("summary").getDouble("time");seconds=routeSeconds;instruction="Route ready";}
             message((simulation?"SIMULATION · ":"Offline route ready · ")+destination);

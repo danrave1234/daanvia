@@ -10,7 +10,7 @@
   "built": "2026-10-19T06:48:37.978925+00:00",
   "source": "OpenStreetMap / Geofabrik",
   "license": "ODbL-1.0",
-  "attribution": "\u00a9 OpenStreetMap contributors",
+  "attribution": "© OpenStreetMap contributors",
   "roads": 61375,
   "places": 18282,
   "parking": 1067,
@@ -35,6 +35,18 @@
     "places.json": {
       "bytes": 1148241,
       "sha256": "534734df71c746bbe0ecd62df5f7b1e262632fb1ac456eb461e7183c5c958505"
+    },
+    "land.geojson": {
+      "bytes": 169504,
+      "sha256": "8471bbed575d1f1c048eb7245a59f897d2b1387619ff5c4b5fbe4d677358635e"
+    },
+    "water.geojson": {
+      "bytes": 300996,
+      "sha256": "a6730f41feb09f0b6ad9df09743e4b4090af07b3faecb047584437de4fb640c8"
+    },
+    "lots.json": {
+      "bytes": 82797,
+      "sha256": "bd2546e8d8a6966b807ee7122dfd9d3bad3aad73db9273e09d0d090460dc32c6"
     }
   },
   "display_name": "Metro Cebu",
@@ -52,5 +64,10 @@
   "home": [
     10.3075,
     123.8935
-  ]
+  ],
+  "landcover": {
+    "land.geojson": "Land polygons assembled from OSM natural=coastline (sea is everything else); ~3 m simplification",
+    "water.geojson": "Lakes, reservoirs and river areas over ~20 m x 20 m",
+    "source": "Geofabrik philippines-261018.osm.pbf"
+  }
 }

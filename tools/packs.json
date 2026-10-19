@@ -1,0 +1,53 @@
+{
+  "_comment": "Offline region packs cut from one country PBF. areas are [minLon,minLat,maxLon,maxLat] boxes; bounds is their envelope. Packs may overlap; the app routes inside one pack at a time.",
+  "packs": [
+    {
+      "id": "ph-cebu-metro",
+      "name": "Metro Cebu",
+      "display_name": "Metro Cebu",
+      "areas": [[123.60, 10.10, 124.08, 10.62]],
+      "home": [10.3075, 123.8935],
+      "demo": {"name": "Cebu sample route", "from": [10.3157, 123.8854], "to": [10.2934, 123.9019]}
+    },
+    {
+      "id": "ph-ncr",
+      "name": "Metro Manila",
+      "display_name": "Metro Manila",
+      "areas": [[120.85, 14.25, 121.25, 14.85]],
+      "home": [14.5995, 120.9842],
+      "demo": {"name": "Manila sample route", "from": [14.5826, 120.9787], "to": [14.5547, 121.0244]}
+    },
+    {
+      "id": "ph-luzon",
+      "name": "Luzon",
+      "display_name": "Luzon",
+      "areas": [[119.50, 12.10, 124.50, 21.30], [116.90, 7.50, 121.20, 12.50], [122.60, 11.70, 124.30, 12.60]],
+      "home": [14.5995, 120.9842],
+      "demo": {"name": "Manila sample route", "from": [14.5826, 120.9787], "to": [14.6514, 121.0493]}
+    },
+    {
+      "id": "ph-visayas",
+      "name": "Visayas",
+      "display_name": "Visayas",
+      "areas": [[121.70, 9.00, 126.20, 12.70]],
+      "home": [10.3075, 123.8935],
+      "demo": {"name": "Cebu sample route", "from": [10.3157, 123.8854], "to": [10.2934, 123.9019]}
+    },
+    {
+      "id": "ph-mindanao",
+      "name": "Mindanao",
+      "display_name": "Mindanao",
+      "areas": [[119.20, 4.40, 126.70, 9.95], [125.30, 9.90, 126.30, 10.60]],
+      "home": [7.0731, 125.6128],
+      "demo": {"name": "Davao sample route", "from": [7.0646, 125.6080], "to": [7.0997, 125.6311]}
+    },
+    {
+      "id": "ph-all",
+      "name": "Philippines",
+      "display_name": "Philippines",
+      "areas": [[116.90, 4.40, 126.70, 21.30]],
+      "home": [14.5995, 120.9842],
+      "demo": {"name": "Manila sample route", "from": [14.5826, 120.9787], "to": [14.5547, 121.0244]}
+    }
+  ]
+}
