@@ -26,10 +26,14 @@ Both build types are signed with `signing/prototype.p12`, a public prototype TES
 
 ## Releases
 
-A release carries the APKs and the downloadable map areas. The app reads both from `releases/latest/download/`:
+App releases (`vX.Y.Z`) carry only the APKs, one per CPU type. The app checks `releases/latest` for updates.
+
+The downloadable map areas live in a separate release tagged `maps`, which the app reads from `releases/download/maps/`:
 
 - `areas-index.json`: the catalog of area cells with sizes and sha256
 - `cell_*.zip` and `base_*.zip`: map, search, parking and routing data per cell
+
+Publish the `maps` release with `--latest=false` so it never becomes the latest app release. Replacing its files updates maps for everyone without an app update.
 
 To rebuild the areas from a fresh Geofabrik extract, run `tools/build_grid.py`, then `tools/split_grid.py --towns app/src/main/assets/overview/towns.json`, then `tools/verify_grid.py`. Output goes to `dist/areas/`. Sizes and coverage notes are in `docs/offline-coverage.md`.
 

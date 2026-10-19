@@ -21,7 +21,8 @@ import java.util.zip.ZipInputStream;
  * the rider asks.
  */
 public final class AreaStore {
-    public static final String BASE = "https://github.com/danrave1234/daanvia/releases/latest/download/";
+    /** Map areas live in their own "maps" release, so app releases carry only the APKs. */
+    public static final String BASE = "https://github.com/danrave1234/daanvia/releases/download/maps/";
     /** Where maps come from. Debug builds may point at a local test server (prefs "areas"/"base"); release builds always use the GitHub release. */
     static String base(Context c) {
         boolean debuggable = (c.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
