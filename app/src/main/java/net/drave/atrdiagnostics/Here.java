@@ -75,6 +75,9 @@ final class Here implements LocationListenerCompat {
         if (s.active) return;
         long at = SystemClock.elapsedRealtime() - ageMillis(l);
         if (!better(l.getAccuracy(), at, s.accuracy, s.fixAt, SystemClock.elapsedRealtime())) return;
+        // Lying still: the same spot again doesn't wake the screen or redraw the map; a fresh fix every 15 s keeps it current.
+        if (s.fixAt > 0 && at - s.fixAt < 15_000 && Math.abs(l.getAccuracy() - s.accuracy) < 3
+            && GeoMath.distance(s.lat, s.lon, l.getLatitude(), l.getLongitude()) < Math.max(1.5, l.getAccuracy() * 0.1)) return;
         boolean moving = l.hasBearing() && (!l.hasSpeed() || l.getSpeed() > 1.4f);
         s.update(l.getLatitude(), l.getLongitude(), l.getAccuracy(), moving ? l.getBearing() : s.bearing, false, at);
     }

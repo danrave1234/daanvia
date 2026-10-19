@@ -199,6 +199,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         map.addOnMapClickListener(p -> { if (mode == Mode.PIN) { go(Mode.EXPLORE); return true; } return false; });
         map.addOnCameraMoveListener(() -> { if (mode == Mode.SELECT) { ui.removeCallbacks(reselect); ui.postDelayed(reselect, 90); } });
         map.addOnCameraIdleListener(() -> {
+            updateNearRoads();
             if (mode == Mode.SELECT) { reselect.run(); return; }
             if (mode == Mode.EXPLORE || mode == Mode.PIN) { LatLng t = map.getCameraPosition().target; s.showAt(t.getLatitude(), t.getLongitude()); }
         });
@@ -233,7 +234,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void regionChanged() {
         if (!layersReady || shownRegion == s.regionVersion) return;
         shownRegion = s.regionVersion;
-        MapStyle.roads(src(MapStyle.ROADS), s.roadsUri); index = null; lots = null; index(); loadLandcover(); paintRecents();
+        MapStyle.roads(src(MapStyle.ROADS), s.roadsUri); shownRoads = s.roadsVersion; nearKey = ""; updateNearRoads(); index = null; lots = null; index(); loadLandcover(); paintRecents();
         if (s.ready) centerOnArea();
     }
     private void loadLandcover() {
@@ -1113,6 +1114,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             case RIDE: sheet.hide(); follow = true; shownManeuver = -1; lastFix = -1; break;
         }
         if (!riding && bikeMode) leaveBikeMode();
+        // During a ride the ride service follows GPS; the map's own listener would only duplicate it.
+        if (riding) here.stop(); else if (started) here.start();
         if (riding && !bikeMode) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (riding) armBikeMode();
         if (prev == Mode.RIDE && !riding && map != null) map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder(map.getCameraPosition()).tilt(0).bearing(0).zoom(14.5).padding(0, 0, 0, 0).build()), 900);
@@ -1146,6 +1149,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (mode == Mode.ROUTE) paintRoute();
         if (mode == Mode.RIDE) paintRide();
         if (bikeMode) paintBikeMode();
+        if (layersReady && shownRoads != s.roadsVersion) { shownRoads = s.roadsVersion; MapStyle.roads(src(MapStyle.ROADS), s.roadsUri); nearKey = ""; updateNearRoads(); }
         paintMap();
         followFirstFix();
     }
@@ -1236,6 +1240,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!haveShown) { haveShown = true; shownLat = toLat; shownLon = toLon; shownBearing = toBearing; }
         double fromLat = shownLat, fromLon = shownLon; float fromBearing = shownBearing;
         float turn = ((toBearing - fromBearing + 540) % 360) - 180;
+        if (GeoMath.distance(fromLat, fromLon, toLat, toLon) < 0.5 && Math.abs(turn) < 1 && haveShown && puckAnim != null) return;
         if (puckAnim != null) puckAnim.cancel();
         puckAnim = ValueAnimator.ofFloat(0, 1); puckAnim.setDuration(mode == Mode.RIDE ? 950 : 600); puckAnim.setInterpolator(new LinearInterpolator());
         puckAnim.addUpdateListener(a -> {
@@ -1272,6 +1277,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                     feature.addStringProperty("icon", "puck-arrow"); feature.addNumberProperty("bearing", shownBearing); feature.addNumberProperty("r0", 0);
                     puck.setGeoJson(feature); puckOnMap = true;
                 }
+                if (now - nearAt > 1000) { nearAt = now; updateNearRoads(); }
                 // The route line starts at the arrow, four times a second; the arrow covers the few metres in between.
                 List<double[]> shape = s.shape;
                 if (now - routeSplitAt > 250 && shape.size() > 1) {
@@ -1349,6 +1355,25 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         bikeStreet.setText(arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : streetOf(m, s.instruction));
         bikeEta.setText(Gabi.minutes(s.seconds) + " · " + Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
         if (!endArmed) bikeEnd.setText(arriving ? "Finish" : "End");
+    }
+
+    // ================================================================ street squares
+    // Only the streets on screen go to the map (see RoadTiles): the squares under the view plus a margin, swapped as the
+    // rider pans or rides. Below zoom 13.5 small streets aren't drawn, so none are loaded.
+    private String nearKey = ""; private long nearAt; private int shownRoads = -1;
+    private void updateNearRoads() {
+        if (map == null || !layersReady) return;
+        GeoJsonSource near = src(MapStyle.ROADS_NEAR); java.io.File tiles = s.roadTiles; if (near == null) return;
+        if (tiles == null || map.getCameraPosition().zoom < 13.5) { if (!nearKey.equals("none")) { nearKey = "none"; near.setGeoJson(MapStyle.empty()); } return; }
+        LatLngBounds b = map.getProjection().getVisibleRegion().latLngBounds;
+        double padLat = (b.getLatNorth() - b.getLatSouth()) * 0.25, padLon = (b.getLonEast() - b.getLonWest()) * 0.25;
+        double s0 = b.getLatSouth() - padLat, n0 = b.getLatNorth() + padLat, w0 = b.getLonWest() - padLon, e0 = b.getLonEast() + padLon;
+        String key = tiles.getPath() + "|" + RoadTiles.cell(w0) + "," + RoadTiles.cell(s0) + "," + RoadTiles.cell(e0) + "," + RoadTiles.cell(n0);
+        if (key.equals(nearKey)) return; nearKey = key;
+        worker.execute(() -> {
+            String json = RoadTiles.collection(tiles, s0, w0, n0, e0, 120);
+            ui.post(() -> { if (key.equals(nearKey) && json != null && !isDestroyed()) { GeoJsonSource src = src(MapStyle.ROADS_NEAR); if (src != null) src.setGeoJson(json); } });
+        });
     }
 
     private void follow() {

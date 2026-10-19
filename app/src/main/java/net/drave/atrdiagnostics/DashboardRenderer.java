@@ -182,6 +182,9 @@ public final class DashboardRenderer {
     }
 
     // ---------------------------------------------------------------- map
+    private final Path[] layers = {new Path(), new Path(), new Path(), new Path()};
+    /** Drawing order: small streets, tertiary, secondary, then main roads on top. */
+    private static int layer(String kind) { return kind.contains("primary") || kind.contains("trunk") || kind.contains("motorway") ? 3 : kind.contains("secondary") ? 2 : kind.contains("tertiary") ? 1 : 0; }
     private float cx, cy, cos, sin, tilt; private double clat, clon, mpp = 3, coslat; private long lastFrame;
     private final android.graphics.Camera lens = new android.graphics.Camera(); private final Matrix tiltMatrix = new Matrix();
     /** Metres per pixel: close like Google Maps, a little wider at speed, closer for a turn and when arriving. */
@@ -213,20 +216,27 @@ public final class DashboardRenderer {
         // Tilt the map away from the rider like the phone's 3D view: the road ahead recedes towards the horizon.
         lens.save(); lens.setLocation(0, 0, -10); lens.rotateX(tilt); lens.getMatrix(tiltMatrix); lens.restore();
         tiltMatrix.preTranslate(-cx, -cy); tiltMatrix.postTranslate(cx, cy);
-        double reach = Math.hypot(w, h) * mpp * (tilt > 5 ? 3.2 : 1.2), dLat = reach / 111195, dLon = reach / (111195 * coslat);
+        // How far the map reaches on screen: flat, the screen's corners; tilted, about 1,100 px ahead of the arrow before the
+        // horizon squeezes everything (worked out from the lens: tilt 48-58 degrees, camera 10 inches away).
+        double reach = Math.max(Math.hypot(w, h) * 1.05, tilt > 5 ? 1150 : 0) * mpp, dLat = reach / 111195, dLon = reach / (111195 * coslat);
         float[] pt = new float[2];
         c.save(); c.concat(tiltMatrix);
         p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
         float roadScale = (float)Math.max(0.6, Math.min(1.8, 2.0 / mpp));
-        for (int pass = 0; pass < 2; pass++) for (NavSession.Road road : s.roads) {
+        // Every road of one kind goes into one path and is drawn in a single call: thousands of separate draws per frame
+        // were most of the cost. Roads shorter than about two pixels are skipped.
+        List<NavSession.Road> nearby = s.roadIndex.near(clat - dLat, clon - dLon, clat + dLat, clon + dLon);
+        for (Path l : layers) l.reset();
+        double tiny = 2 * mpp / 111195;
+        for (NavSession.Road road : nearby) {
             if (road.size() < 2 || path(road.kind)) continue;
-            boolean major = road.kind.contains("primary") || road.kind.contains("trunk") || road.kind.contains("motorway") || road.kind.contains("secondary");
-            if ((pass == 1) != major) continue;
+            if (road.maxLat - road.minLat < tiny && road.maxLon - road.minLon < tiny) continue;
             if (road.maxLat < clat - dLat || road.minLat > clat + dLat || road.maxLon < clon - dLon || road.minLon > clon + dLon) continue;
-            path.reset();
-            for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); if (j == 0) path.moveTo(pt[0], pt[1]); else path.lineTo(pt[0], pt[1]); }
-            p.setColor(road(road.kind)); p.setStrokeWidth(roadWidth(road.kind) * roadScale); c.drawPath(path, p);
+            Path l = layers[layer(road.kind)];
+            for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); if (j == 0) l.moveTo(pt[0], pt[1]); else l.lineTo(pt[0], pt[1]); }
         }
+        String[] kinds = {"residential", "tertiary", "secondary", "primary"};
+        for (int i = 0; i < layers.length; i++) { p.setColor(road(kinds[i])); p.setStrokeWidth(roadWidth(kinds[i]) * roadScale); c.drawPath(layers[i], p); }
         if (route.size() > 1) {
             int from = s.active ? Math.max(0, Math.min(motion.routeFrom, route.size() - 1)) : 0;
             path.reset();

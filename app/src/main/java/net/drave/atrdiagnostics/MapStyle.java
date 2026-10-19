@@ -27,6 +27,8 @@ final class MapStyle {
     /** OpenFreeMap: free OpenStreetMap vector tiles and fonts, no account or key. */
     static final String ONLINE = "online", ONLINE_TILES = "https://tiles.openfreemap.org/planet", GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
     static final String[] FONT = {"Noto Sans Regular"}, FONT_BOLD = {"Noto Sans Bold"};
+    /** The streets on screen, swapped in square by square (see RoadTiles). */
+    static final String ROADS_NEAR = "roads-near";
     static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking", PUCK = "puck";
 
     static String base(Gabi.Palette p) {
@@ -74,10 +76,11 @@ final class MapStyle {
         // A downloaded area's roads are tens of megabytes: tile them only up to zoom 14 and let MapLibre stretch those tiles
         // when zoomed in, instead of re-cutting the whole file at every zoom while the rider pans.
         GeoJsonSource roads = new GeoJsonSource(ROADS, new GeoJsonOptions().withMaxZoom(14).withTolerance(0.45f)); st.addSource(roads); roads(roads, roadsUri);
-        LineLayer path = new LineLayer("road-path", ROADS).withFilter(kinds(PATHS)).withProperties(lineWidth(width(15, 0.8f, 18, 2.4f)), lineDasharray(new Float[]{1.2f, 1.6f}));
+        st.addSource(new GeoJsonSource(ROADS_NEAR, new GeoJsonOptions().withMaxZoom(15).withTolerance(0.45f)));
+        LineLayer path = new LineLayer("road-path", ROADS_NEAR).withFilter(kinds(PATHS)).withProperties(lineWidth(width(15, 0.8f, 18, 2.4f)), lineDasharray(new Float[]{1.2f, 1.6f}));
         path.setMinZoom(15);
         st.addLayer(path);
-        addRoad(st, "minor", MINOR, width(11, 0.3f, 14, 2.2f, 16, 6, 18, 15), width(13, 0.6f, 14, 3.4f, 16, 8, 18, 18), 13);
+        addRoad(st, "minor", MINOR, width(11, 0.3f, 14, 2.2f, 16, 6, 18, 15), width(13, 0.6f, 14, 3.4f, 16, 8, 18, 18), 13, ROADS_NEAR);
         addRoad(st, "tertiary", TERTIARY, width(10, 0.5f, 14, 3.4f, 16, 8, 18, 19), width(10, 0.9f, 14, 5, 16, 10.5f, 18, 23), 0);
         addRoad(st, "secondary", SECONDARY, width(9, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23), width(9, 1.2f, 14, 6, 16, 12.5f, 18, 27), 0);
         addRoad(st, "primary", PRIMARY, width(7, 0.9f, 14, 5.2f, 16, 11.5f, 18, 27), width(7, 1.4f, 14, 7.4f, 16, 14.5f, 18, 31), 0);
@@ -139,11 +142,12 @@ final class MapStyle {
     /** Pixels at zoom 0 for a circle of {@code meters} at this latitude (512 px world, like MapLibre). */
     static double accuracyAtZoom0(double meters, double lat) { return meters / (78271.517 * Math.cos(Math.toRadians(lat))); }
 
-    private static void addRoad(Style st, String id, String[] kinds, Expression fill, Expression casing, float caseMinZoom) {
-        LineLayer cs = new LineLayer("road-" + id + "-case", ROADS).withFilter(kinds(kinds)).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(casing));
+    private static void addRoad(Style st, String id, String[] kinds, Expression fill, Expression casing, float caseMinZoom) { addRoad(st, id, kinds, fill, casing, caseMinZoom, ROADS); }
+    private static void addRoad(Style st, String id, String[] kinds, Expression fill, Expression casing, float caseMinZoom, String source) {
+        LineLayer cs = new LineLayer("road-" + id + "-case", source).withFilter(kinds(kinds)).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(casing));
         if (caseMinZoom > 0) cs.setMinZoom(caseMinZoom);
         st.addLayer(cs);
-        st.addLayer(new LineLayer("road-" + id, ROADS).withFilter(kinds(kinds)).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(fill)));
+        st.addLayer(new LineLayer("road-" + id, source).withFilter(kinds(kinds)).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(fill)));
     }
 
     /** Recolor every layer in place; MapLibre crossfades paint changes, so a theme switch is a soft dissolve. */
