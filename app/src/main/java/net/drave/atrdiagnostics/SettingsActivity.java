@@ -57,6 +57,10 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         boolean auto = getSharedPreferences("ui", 0).getBoolean("autoconnect", true);
         bike.addView(k.segmented(new String[]{"On", "Off"}, auto ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("autoconnect", i == 0).apply()));
         bike.addView(k.text("While the app is open, Daanvia keeps looking for the saved dashboard and connects as soon as its QR screen is waiting.", 12.5f, 500, MUTED));
+        bike.addView(k.text("Rest the phone while riding", 14, 650, INK));
+        boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
+        bike.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
+        bike.addView(k.text("When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn and may turn off, to save battery. Tap it to bring the map back. The moon button on the ride screen does it right away.", 12.5f, 500, MUTED));
         permissionBanner = k.column(10); permissionBanner.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(permissionBanner, 16, DANGER_SOFT); permissionBanner.setVisibility(View.GONE);
         permissionBanner.addView(k.text("Android needs Nearby devices and precise location for the Wi-Fi connection. Daanvia does not collect GPS positions for this.", 13, 550, INK));
         permissionBanner.addView(k.ghost("Open app settings", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))));

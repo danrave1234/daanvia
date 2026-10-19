@@ -49,7 +49,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     private MapView mapView; private MapLibreMap map; private org.maplibre.android.maps.Style style; private boolean layersReady;
     private FrameLayout root; private LinearLayout top, chips, fabs; private TextView regionChip, bikeChip, attribution, notice;
-    private FrameLayout fabLocate, fabTft, fabVoice; private ImageView fabIcon; private SheetView sheet;
+    private FrameLayout fabLocate, fabTft, fabVoice, fabBike; private ImageView fabIcon; private SheetView sheet;
     private int insetTop, insetBottom, insetIme;
 
     // search
@@ -100,7 +100,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
         root = new FrameLayout(this); theme.add(p -> root.setBackgroundColor(p.bg));
         mapView = new MapView(this); mapView.onCreate(state); root.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
-        buildTop(); buildFabs(); buildRide();
+        // While the camera follows a ride the rider is always at the camera's focal point, so the arrow is drawn there
+        // on screen: no lag behind the map, which updates its own layers a little later.
+        rideArrow = new ImageView(this); rideArrow.setImageBitmap(MapStyle.puck(this, true)); rideArrow.setVisibility(View.GONE);
+        root.addView(rideArrow, new FrameLayout.LayoutParams(-2, -2));
+        buildTop(); buildFabs(); buildRide(); buildBikeMode();
         sheet = new SheetView(this, k);
         FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); sp.leftMargin = sp.rightMargin = k.dp(8);
         root.addView(sheet, sp);
@@ -158,7 +162,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             getSharedPreferences("ui", 0).edit().putFloat("cam_lat", (float)c.target.getLatitude()).putFloat("cam_lon", (float)c.target.getLongitude()).putFloat("cam_zoom", (float)c.zoom).apply(); }
         mapView.onPause(); super.onPause();
     }
-    protected void onStop() { here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     protected void onDestroy() { ui.removeCallbacksAndMessages(null); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
@@ -275,6 +279,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         fabs.addView(fabLocate);
         fabVoice = k.circle(IconDrawable.VOICE, 50, GLASS, INK, this::toggleVoice); fabVoice.setVisibility(View.GONE); fabs.addView(fabVoice);
         fabTft = k.circle(IconDrawable.TFT, 50, GLASS, INK, this::openSettings); fabTft.setVisibility(View.GONE); fabs.addView(fabTft);
+        fabBike = k.circle(IconDrawable.MOON, 50, GLASS, INK, this::enterBikeMode); fabBike.setVisibility(View.GONE); fabs.addView(fabBike);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END); lp.rightMargin = k.dp(16);
         root.addView(fabs, lp);
         attribution = k.text("© OpenStreetMap contributors", 10.5f, 500, MUTED);
@@ -284,7 +289,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void paintLocateFab() {
         boolean recenter = mode == Mode.RIDE && !follow;
         ((IconDrawable)fabIcon.getDrawable()).setColor(recenter ? theme.palette.ink : theme.palette.accent);
-        Gabi.show(fabTft, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabVoice, mode == Mode.RIDE, k.dp(10)); paintVoice();
+        Gabi.show(fabTft, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabVoice, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabBike, mode == Mode.RIDE, k.dp(10)); paintVoice();
         if (mode == Mode.RIDE) Gabi.show(fabLocate, recenter, k.dp(10)); else Gabi.show(fabLocate, mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.SAVE || mode == Mode.SELECT, k.dp(10));
     }
     private boolean voiceOn() { return getSharedPreferences("ui", 0).getBoolean("voice", true); }
@@ -1100,7 +1105,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             case SEARCH: sheet.hide(); break;
             case RIDE: sheet.hide(); follow = true; shownManeuver = -1; lastFix = -1; break;
         }
-        if (riding) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (!riding && bikeMode) leaveBikeMode();
+        if (riding && !bikeMode) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (riding) armBikeMode();
         if (prev == Mode.RIDE && !riding && map != null) map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder(map.getCameraPosition()).tilt(0).bearing(0).zoom(14.5).padding(0, 0, 0, 0).build()), 900);
         layoutInsets(); paintLocateFab(); paintMap();
     }
@@ -1131,6 +1138,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else if (!s.active && mode == Mode.RIDE) { destName = null; demoTrip = false; go(Mode.EXPLORE); }
         if (mode == Mode.ROUTE) paintRoute();
         if (mode == Mode.RIDE) paintRide();
+        if (bikeMode) paintBikeMode();
         paintMap();
         followFirstFix();
     }
@@ -1237,20 +1245,25 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     // During a ride the arrow moves every frame along the road at the rider's speed (the same motion as the bike
     // display), so it never trails a second behind the real position.
-    private RideMotion rideMotion; private boolean rideFrames; private long rideFrameAt, routeSplitAt;
+    private RideMotion rideMotion; private boolean rideFrames, puckOnMap = true; private long rideFrameAt, routeSplitAt; private ImageView rideArrow;
     private final android.view.Choreographer.FrameCallback rideFrame = new android.view.Choreographer.FrameCallback() {
         public void doFrame(long nanos) {
             if (!rideFrames || isDestroyed()) return;
-            if (mode != Mode.RIDE || !s.active) { rideFrames = false; return; }
+            if (mode != Mode.RIDE || !s.active) { rideFrames = false; placeRideArrow(false); puckOnMap = true; lastFix = -1; return; }
             GeoJsonSource puck = src(MapStyle.PUCK);
             long now = SystemClock.elapsedRealtime(); float gap = rideFrameAt == 0 ? 16f : Math.min(1000f, now - rideFrameAt); rideFrameAt = now;
             rideMotion.update(now, gap);
             if (puck != null && rideMotion.lat != 0) {
                 shownLat = rideMotion.lat; shownLon = rideMotion.lon; shownBearing = rideMotion.bearing; haveShown = true;
-                Feature feature = MapStyle.point(shownLat, shownLon);
-                feature.addStringProperty("icon", "puck-arrow"); feature.addNumberProperty("bearing", shownBearing); feature.addNumberProperty("r0", 0);
-                puck.setGeoJson(feature);
-                if (follow) follow();
+                if (follow) {
+                    if (puckOnMap) { puck.setGeoJson(MapStyle.empty()); puckOnMap = false; }
+                    follow(); placeRideArrow(true);
+                } else {
+                    placeRideArrow(false);
+                    Feature feature = MapStyle.point(shownLat, shownLon);
+                    feature.addStringProperty("icon", "puck-arrow"); feature.addNumberProperty("bearing", shownBearing); feature.addNumberProperty("r0", 0);
+                    puck.setGeoJson(feature); puckOnMap = true;
+                }
                 // The route line starts at the arrow, ten times a second.
                 List<double[]> shape = s.shape;
                 if (now - routeSplitAt > 100 && shape.size() > 1) {
@@ -1263,7 +1276,72 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             android.view.Choreographer.getInstance().postFrameCallback(this);
         }
     };
-    private void startRideFrames() { if (rideFrames) return; rideFrames = true; rideFrameAt = 0; android.view.Choreographer.getInstance().postFrameCallback(rideFrame); }
+    /** The ride arrow sits where follow() puts the rider: the middle of the map below the top padding. */
+    private void placeRideArrow(boolean show) {
+        if (!show || bikeMode) { if (rideArrow.getVisibility() != View.GONE) rideArrow.setVisibility(View.GONE); return; }
+        int w = mapView.getWidth(), h = mapView.getHeight(); float left = landscape ? panelW : 0, top = landscape ? h * 0.3f : h * 0.42f;
+        float x = left + (w - left) / 2f, y = top + (h - top) / 2f;
+        rideArrow.setX(x - rideArrow.getWidth() / 2f); rideArrow.setY(y - rideArrow.getHeight() / 2f); rideArrow.setRotationX(38);
+        if (rideArrow.getVisibility() != View.VISIBLE) rideArrow.setVisibility(View.VISIBLE);
+    }
+    private void startRideFrames() { if (rideFrames || bikeMode) return; rideFrames = true; rideFrameAt = 0; android.view.Choreographer.getInstance().postFrameCallback(rideFrame); }
+
+    // ================================================================ bike mode
+    // While the bike display shows the directions, the phone can rest: a plain dark screen with the next turn, the
+    // phone map hidden so it stops drawing, the screen dimmed and allowed to sleep. Tap to bring the map back.
+    private FrameLayout bikeView; private ImageView bikeIcon; private TextView bikeDist, bikeStreet, bikeEta, bikeEnd; private boolean bikeMode; private float savedBrightness = -1;
+    private final Runnable autoBikeMode = () -> { if (mode == Mode.RIDE && s.active && StreamService.navigationActive && getSharedPreferences("ui", 0).getBoolean("bikemode", true)) enterBikeMode(); };
+    /** Fall asleep 15 s after the last touch, once the bike display is live. */
+    private void armBikeMode() { ui.removeCallbacks(autoBikeMode); if (!bikeMode) ui.postDelayed(autoBikeMode, 15000); }
+    public void onUserInteraction() { super.onUserInteraction(); if (mode == Mode.RIDE && !bikeMode) armBikeMode(); }
+    private void buildBikeMode() {
+        bikeView = new FrameLayout(this); bikeView.setBackgroundColor(0xFF000000); bikeView.setVisibility(View.GONE); bikeView.setElevation(k.dp(60));
+        LinearLayout col = k.column(10); col.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView head = k.text("Directions are on your bike display", 14, 650, MUTED); head.setGravity(Gravity.CENTER); col.addView(head);
+        FrameLayout tile = new FrameLayout(this); k.fill(tile, 26, ACCENT);
+        bikeIcon = k.icon(IconDrawable.STRAIGHT, 64, ON_ACCENT); tile.addView(bikeIcon, new FrameLayout.LayoutParams(k.dp(64), k.dp(64), Gravity.CENTER));
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(k.dp(108), k.dp(108)); tp.topMargin = k.dp(18); col.addView(tile, tp);
+        bikeDist = k.num("", 44, 800, INK); bikeDist.setGravity(Gravity.CENTER); col.addView(bikeDist);
+        bikeStreet = k.text("", 18, 650, INK_SOFT); bikeStreet.setGravity(Gravity.CENTER); bikeStreet.setMaxLines(2); col.addView(bikeStreet);
+        bikeEta = k.num("", 15, 600, MUTED); bikeEta.setGravity(Gravity.CENTER); col.addView(bikeEta);
+        FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER); cl.leftMargin = cl.rightMargin = k.dp(24);
+        bikeView.addView(col, cl);
+        LinearLayout actions = k.row(10);
+        TextView show = k.ghost("Show map", this::leaveBikeMode); actions.addView(show, new LinearLayout.LayoutParams(0, -2, 1));
+        bikeEnd = k.text("End", 15, 800, WHITE); bikeEnd.setGravity(Gravity.CENTER); bikeEnd.setMinHeight(k.dp(52)); bikeEnd.setBackground(Gabi.round(0xFF5A1B1E, k.dp(26)));
+        Gabi.press(bikeEnd, () -> { onEnd(); bikeEnd.setText(endBtn.getText()); });
+        actions.addView(bikeEnd, new LinearLayout.LayoutParams(0, -2, 1));
+        FrameLayout.LayoutParams al = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); al.leftMargin = al.rightMargin = k.dp(20); al.bottomMargin = k.dp(28);
+        bikeView.addView(actions, al);
+        bikeView.setOnClickListener(v -> leaveBikeMode());
+        Gabi.insets(bikeView, (l, t, r, b, ime) -> { al.bottomMargin = b + k.dp(20); actions.requestLayout(); });
+        root.addView(bikeView, new FrameLayout.LayoutParams(-1, -1));
+    }
+    private void enterBikeMode() {
+        if (bikeMode || mode != Mode.RIDE || !s.active) return;
+        bikeMode = true; ui.removeCallbacks(autoBikeMode); rideFrames = false; stopPulse(); if (puckAnim != null) puckAnim.cancel(); placeRideArrow(false);
+        paintBikeMode();
+        bikeView.setAlpha(0f); bikeView.setVisibility(View.VISIBLE); bikeView.animate().alpha(1f).setDuration(400).withEndAction(() -> { if (bikeMode) mapView.setVisibility(View.INVISIBLE); }).start();
+        WindowManager.LayoutParams lp = getWindow().getAttributes(); savedBrightness = lp.screenBrightness; lp.screenBrightness = 0.05f; getWindow().setAttributes(lp);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+    private void leaveBikeMode() {
+        if (!bikeMode) return;
+        bikeMode = false; mapView.setVisibility(View.VISIBLE);
+        bikeView.animate().alpha(0f).setDuration(250).withEndAction(() -> { if (!bikeMode) bikeView.setVisibility(View.GONE); }).start();
+        WindowManager.LayoutParams lp = getWindow().getAttributes(); lp.screenBrightness = savedBrightness; getWindow().setAttributes(lp);
+        if (mode == Mode.RIDE && s.active) { getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); lastFix = -1; startRideFrames(); armBikeMode(); }
+    }
+    private void paintBikeMode() {
+        JSONObject m = s.maneuvers.optJSONObject(s.maneuver);
+        boolean arriving = "Destination nearby".equals(s.instruction);
+        int type = arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
+        bikeIcon.setImageDrawable(iconFor(Maneuvers.icon(type), theme.palette.onAccent, 2.6f));
+        bikeDist.setText(arriving ? "Arriving" : Gabi.distance(s.distanceToTurn));
+        bikeStreet.setText(arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : streetOf(m, s.instruction));
+        bikeEta.setText(Gabi.minutes(s.seconds) + " · " + Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
+        if (!endArmed) bikeEnd.setText(arriving ? "Finish" : "End");
+    }
 
     private void follow() {
         int h = mapView.getHeight();
@@ -1354,5 +1432,5 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (started && link != null && !link.searching() && !StreamService.navigationActive) { ui.removeCallbacks(retryConnect); ui.postDelayed(retryConnect, 15000); }
     }
     public void onPermissionsMissing() { notice("Allow Nearby devices and location so Daanvia can find your bike"); }
-    public void onNavigationStarted() { link.settle(); notice("Connected. Daanvia is on the bike display."); refresh(); }
+    public void onNavigationStarted() { link.settle(); notice("Connected. Daanvia is on the bike display."); refresh(); if (mode == Mode.RIDE) armBikeMode(); }
 }
