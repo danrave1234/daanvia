@@ -2,3 +2,5 @@
 app/build/
 build/
 local.properties
+tools/__pycache__/
+dist/

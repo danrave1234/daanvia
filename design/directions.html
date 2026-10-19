@@ -1,0 +1,715 @@
+<title>Daanvia Phone Directions</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&family=Hanken+Grotesk:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: quiet review page; each direction is a band holding a scrollable strip of five live phone screens. */
+:root{
+  --bg:#F3F4F1; --panel:#FFFFFF; --ink:#16201D; --muted:#5E6A66; --line:#DCE0DB; --accent:#0B6E58;
+  --display:"Figtree",system-ui,sans-serif; --body:"Hanken Grotesk",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#101513;--panel:#171D1B;--ink:#E8ECEA;--muted:#9AA6A1;--line:#2A3330;--accent:#4FC3A1;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#101513;--panel:#171D1B;--ink:#E8ECEA;--muted:#9AA6A1;--line:#2A3330;--accent:#4FC3A1;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:1680px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+header.page{display:grid;gap:10px;max-width:860px;margin-bottom:28px}
+.eyebrow{font:600 12px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+h1{font:800 clamp(28px,4vw,44px)/1.05 var(--display);margin:0;text-wrap:balance;letter-spacing:-.02em}
+header.page p{margin:0;color:var(--muted);max-width:68ch}
+.keeps{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.keeps span{font-size:13px;border:1px solid var(--line);border-radius:999px;padding:4px 11px;color:var(--muted);background:var(--panel)}
+section.dir{border-top:1px solid var(--line);padding-block:30px 10px}
+.dirhead{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:baseline;margin-bottom:18px}
+.dirhead .letter{font:900 54px/0.9 var(--display);color:var(--accent);grid-row:span 2}
+.dirhead h2{font:800 26px/1.1 var(--display);margin:0;letter-spacing:-.01em}
+.dirhead p{margin:0;color:var(--muted);max-width:80ch;min-width:0}
+.traits{display:flex;flex-wrap:wrap;gap:6px;grid-column:2}
+.traits b{font-weight:600;font-size:12.5px;padding:3px 10px;border-radius:6px;background:var(--panel);border:1px solid var(--line)}
+.strip{display:flex;gap:26px;overflow-x:auto;padding:6px 4px 22px;scroll-snap-type:x proximity}
+figure{margin:0;display:grid;gap:10px;scroll-snap-align:start;flex:0 0 auto;width:300px}
+figcaption{font-size:13px;color:var(--muted)}
+figcaption strong{display:block;color:var(--ink);font:700 14px/1.3 var(--display)}
+.note{font-size:13.5px;color:var(--muted);max-width:90ch;margin:4px 0 0}
+footer{margin-top:34px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px}
+
+/* ---------- phone shell ---------- */
+.phone{width:300px;height:650px;border-radius:46px;padding:9px;background:#0B0D0C;box-shadow:0 1px 0 #2a2e2c inset,0 24px 50px -24px rgba(0,0,0,.45)}
+.screen{position:relative;width:282px;height:632px;border-radius:38px;overflow:hidden;isolation:isolate}
+.screen svg.map{position:absolute;inset:0;width:100%;height:100%;display:block}
+.sb{position:absolute;top:0;left:0;right:0;height:34px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font:600 12px var(--body);z-index:20}
+.sb i{display:inline-block;width:16px;height:9px;border-radius:2px;border:1.5px solid currentColor;margin-left:5px;position:relative;font-style:normal}
+.sb i::after{content:"";position:absolute;inset:1px 4px 1px 1px;background:currentColor;border-radius:1px}
+.ic{width:18px;height:18px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.abs{position:absolute;z-index:10}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- shared motion ---------- */
+@keyframes pulse{0%{r:7;opacity:.55}100%{r:26;opacity:0}}
+.pulse{animation:pulse 2.2s cubic-bezier(.2,.7,.2,1) infinite}
+@keyframes sheetUp{0%{transform:translateY(46px);opacity:.2}14%,100%{transform:none;opacity:1}}
+.sheet-anim{animation:sheetUp 7s cubic-bezier(.16,1,.3,1) infinite}
+@keyframes stagger{0%{transform:translateY(14px);opacity:0}9%,100%{transform:none;opacity:1}}
+.stag>*{animation:stagger 7s cubic-bezier(.16,1,.3,1) infinite}
+.stag>*:nth-child(2){animation-delay:.06s}.stag>*:nth-child(3){animation-delay:.12s}.stag>*:nth-child(4){animation-delay:.18s}.stag>*:nth-child(5){animation-delay:.24s}.stag>*:nth-child(6){animation-delay:.3s}
+@keyframes pinDrop{0%{transform:translateY(-26px) scale(.6);opacity:0}10%{transform:translateY(2px) scale(1.05);opacity:1}14%,100%{transform:none;opacity:1}}
+.pin{transform-box:fill-box;transform-origin:50% 100%;animation:pinDrop 7s cubic-bezier(.34,1.56,.64,1) infinite}
+.pin:nth-of-type(2){animation-delay:.12s}.pin:nth-of-type(3){animation-delay:.24s}
+@keyframes hold{0%,20%{width:0}70%{width:100%}100%{width:100%}}
+@keyframes blink{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ===================== A · GABI (night glass) ===================== */
+.dA{--m-land:#0E151C;--m-park:#11211D;--m-water:#08202E;--m-minor:#1B2530;--m-sec:#26323F;--m-pri:#33414F;--m-case:#0B1117;--m-label:#6E8092;--route:#FFB020;--route-case:#3A2A05;
+  background:#0E151C;color:#F2F4F6;font-family:"Figtree",sans-serif}
+.dA .glass{background:rgba(20,28,37,.62);backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}
+.dA .search{top:44px;left:14px;right:14px;height:50px;border-radius:25px;display:flex;align-items:center;gap:10px;padding:0 8px 0 18px;font-size:15.5px;color:#A9B6C3}
+.dA .search .avatar{margin-left:auto;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:rgba(255,176,32,.14);color:#FFB020}
+.dA .chipline{top:104px;left:14px;display:flex;gap:6px}
+.dA .chip{font-size:11.5px;font-weight:600;border-radius:999px;padding:5px 10px;display:flex;align-items:center;gap:6px}
+.dA .dot{width:7px;height:7px;border-radius:50%;background:#3DDC97;box-shadow:0 0 0 3px rgba(61,220,151,.18)}
+.dA .dot.off{background:#7A8794;box-shadow:none}
+.dA .fabs{right:14px;bottom:226px;display:grid;gap:10px}
+.dA .fab{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:#FFB020}
+.dA .sheet{left:8px;right:8px;bottom:8px;border-radius:30px;padding:10px 16px 16px}
+.dA .grab{width:38px;height:4px;border-radius:2px;background:rgba(255,255,255,.22);margin:0 auto 12px}
+.dA h3{margin:0 0 10px;font:700 17px/1.2 "Figtree";letter-spacing:-.01em}
+.dA .quick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.dA .q{border-radius:18px;background:rgba(255,255,255,.05);padding:11px 10px;display:grid;gap:8px;font-size:12px;font-weight:600;color:#C9D3DC}
+.dA .q .ic{color:#FFB020}
+.dA .recent{margin-top:12px;display:grid;gap:2px}
+.dA .row{display:flex;align-items:center;gap:12px;padding:9px 2px}
+.dA .row .bub{width:34px;height:34px;border-radius:12px;background:rgba(255,255,255,.06);display:grid;place-items:center;color:#9FB0C0}
+.dA .row small{display:block;color:#8494A4;font-size:11.5px}
+.dA .row .d{margin-left:auto;font:600 12px var(--mono);color:#8494A4}
+.dA .full{inset:0;padding:44px 14px 0;background:rgba(10,15,20,.76);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+.dA .field{height:50px;border-radius:25px;background:rgba(255,255,255,.07);border:1px solid rgba(255,176,32,.55);display:flex;align-items:center;gap:10px;padding:0 16px;font-size:15.5px;margin-bottom:14px}
+.dA .caret{width:2px;height:20px;background:#FFB020;animation:blink 1s steps(1) infinite}
+.dA .seg{font:700 11px var(--body);letter-spacing:.1em;text-transform:uppercase;color:#6E8092;margin:6px 2px}
+.dA .hl{color:#FFB020}
+.dA .big{font:800 40px/1 "Figtree";letter-spacing:-.03em}
+.dA .tags{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.dA .tag{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.06);color:#C9D3DC}
+.dA .btn{height:54px;border-radius:27px;display:flex;align-items:center;justify-content:center;gap:8px;font:800 16px "Figtree";background:#FFB020;color:#1A1203}
+.dA .btn.ghost{background:rgba(255,255,255,.07);color:#E5EAEE;width:54px;flex:0 0 54px}
+.dA .park{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:rgba(255,176,32,.08);font-size:12.5px;color:#E9D6AE}
+.dA .man{top:42px;left:10px;right:10px;border-radius:26px;padding:14px 16px;display:flex;gap:14px;align-items:center}
+.dA .man .arrow{width:58px;height:58px;border-radius:18px;background:#FFB020;color:#1A1203;display:grid;place-items:center}
+.dA .man .arrow .ic{width:34px;height:34px;stroke-width:2.6}
+.dA .man .dist{font:800 30px/1 "Figtree";letter-spacing:-.02em}
+.dA .man .street{font-size:14px;color:#C9D3DC;margin-top:3px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.dA .then{top:146px;left:22px;border-radius:0 0 14px 14px;padding:6px 12px;font-size:12px;color:#C9D3DC;display:flex;gap:6px;align-items:center}
+.dA .eta{left:10px;right:10px;bottom:10px;border-radius:28px;padding:12px 12px 12px 20px;display:flex;align-items:center;gap:14px}
+.dA .eta .t{font:800 24px/1 "Figtree"}
+.dA .eta small{display:block;color:#8494A4;font-size:11.5px;font-weight:600;margin-top:3px}
+.dA .end{margin-left:auto;width:50px;height:50px;border-radius:50%;background:#E5484D;display:grid;place-items:center;color:#fff}
+.dA .live{top:186px;right:14px;font-size:11px}
+.dA .tftcard{border-radius:22px;padding:12px;margin-top:6px}
+.dA .slider{display:grid;grid-template-columns:90px 1fr 34px;align-items:center;gap:10px;font-size:12px;color:#C9D3DC;padding:7px 0}
+.dA .track{height:4px;border-radius:2px;background:rgba(255,255,255,.12);position:relative}
+.dA .track b{position:absolute;inset:0 auto 0 0;border-radius:2px;background:#FFB020}
+.dA .track b::after{content:"";position:absolute;right:-8px;top:-6px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+
+/* ===================== B · DAYLIGHT (soft sheets) ===================== */
+.dB{--m-land:#F0EFE8;--m-park:#D8EAD2;--m-water:#BCD9E4;--m-minor:#FFFFFF;--m-sec:#FFFFFF;--m-pri:#FFF4D6;--m-case:#DCD5C0;--m-label:#7D8378;--route:#0B6E58;--route-case:#064234;
+  background:#F0EFE8;color:#15211E;font-family:"Hanken Grotesk",sans-serif}
+.dB .card{background:#fff;box-shadow:0 1px 2px rgba(20,40,30,.08),0 12px 32px -14px rgba(20,40,30,.28)}
+.dB .sheet{left:0;right:0;bottom:0;border-radius:30px 30px 0 0;padding:10px 18px 22px}
+.dB .grab{width:40px;height:5px;border-radius:3px;background:#D8DDD7;margin:0 auto 14px}
+.dB .hello{font:800 30px/1.02 "Hanken Grotesk";letter-spacing:-.03em;margin:0}
+.dB .hello span{color:#0B6E58}
+.dB .sub{color:#66716C;font-size:13px;margin:4px 0 14px}
+.dB .field{height:52px;border-radius:16px;background:#F2F3EF;display:flex;align-items:center;gap:10px;padding:0 16px;color:#7A847F;font-size:15px}
+.dB .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.dB .tile{border-radius:20px;padding:14px;background:#F6F7F3;display:grid;gap:18px;font-weight:700;font-size:13.5px}
+.dB .tile.hero{background:#0B6E58;color:#fff;grid-row:span 2;align-content:space-between}
+.dB .tile small{display:block;font-weight:500;font-size:11.5px;color:#6E7A74;margin-top:2px}
+.dB .tile.hero small{color:#BFE6DA}
+.dB .tile .ic{width:22px;height:22px}
+.dB .topchip{top:44px;left:14px;right:14px;display:flex;justify-content:space-between}
+.dB .pill{border-radius:999px;padding:8px 12px;font-size:12px;font-weight:700;display:flex;gap:7px;align-items:center}
+.dB .gdot{width:8px;height:8px;border-radius:50%;background:#18A574}
+.dB .loc{right:14px;bottom:356px;width:48px;height:48px;border-radius:16px;display:grid;place-items:center;color:#0B6E58}
+.dB .res{display:flex;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid #EEF0EC}
+.dB .res .sq{width:40px;height:40px;border-radius:14px;background:#E7F3EE;color:#0B6E58;display:grid;place-items:center}
+.dB .res small{display:block;color:#6E7A74;font-size:12px}
+.dB .res .d{margin-left:auto;font-weight:700;font-size:13px;color:#33403B}
+.dB mark{background:none;color:#0B6E58;font-weight:800}
+.dB .timeline{display:grid;grid-template-columns:18px 1fr;gap:4px 12px;align-items:center;font-size:13.5px;margin:4px 0 14px}
+.dB .timeline .a{width:10px;height:10px;border-radius:50%;border:2.5px solid #0B6E58;justify-self:center}
+.dB .timeline .b{width:12px;height:12px;border-radius:4px;background:#0B6E58;justify-self:center}
+.dB .timeline .v{width:2px;height:14px;background:repeating-linear-gradient(#B9C6C0 0 3px,transparent 3px 6px);justify-self:center}
+.dB .eta{display:flex;align-items:baseline;gap:10px}
+.dB .eta .big{font:800 38px/1 "Hanken Grotesk";letter-spacing:-.03em;color:#0B6E58}
+.dB .meta{color:#5D6964;font-size:13px}
+.dB .opts{display:flex;gap:6px;margin:12px 0}
+.dB .opt{font-size:12px;font-weight:700;border-radius:10px;padding:6px 10px;background:#F2F3EF;color:#3B4843;display:flex;gap:5px;align-items:center}
+.dB .opt .ic{width:14px;height:14px}
+.dB .btn{height:56px;border-radius:18px;background:#0B6E58;color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;font:800 16px "Hanken Grotesk"}
+.dB .btn2{height:46px;border-radius:14px;background:#EEF4F1;color:#0B6E58;display:flex;align-items:center;justify-content:center;font:700 14px "Hanken Grotesk";margin-top:8px}
+.dB .man{top:0;left:0;right:0;padding:42px 18px 16px;background:#0B6E58;color:#fff;border-radius:0 0 28px 28px;display:flex;gap:14px;align-items:center}
+.dB .man .ic{width:44px;height:44px;stroke-width:2.6}
+.dB .man .dist{font:800 32px/1 "Hanken Grotesk";letter-spacing:-.02em}
+.dB .man .street{font-size:15px;font-weight:600;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+.dB .then{top:150px;left:18px;background:#064234;color:#D4EFE6;border-radius:0 0 14px 14px;padding:6px 12px;font-size:12px;font-weight:700;display:flex;gap:6px;align-items:center}
+.dB .bottom{left:0;right:0;bottom:0;background:#fff;border-radius:28px 28px 0 0;padding:16px 18px 22px;display:flex;align-items:center;gap:12px}
+.dB .bottom .t{font:800 24px/1 "Hanken Grotesk";color:#0B6E58}
+.dB .bottom small{display:block;color:#66716C;font-size:12px;margin-top:4px}
+.dB .end{margin-left:auto;height:46px;padding:0 18px;border-radius:14px;background:#FCE8E6;color:#B42318;display:flex;align-items:center;font-weight:800}
+.dB .steps{display:grid;gap:10px;margin-top:4px}
+.dB .step{display:flex;gap:12px;align-items:center;padding:12px;border-radius:18px;background:#F6F7F3;font-size:13.5px;font-weight:700}
+.dB .step .n{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;background:#0B6E58;color:#fff}
+.dB .step.todo .n{background:#fff;color:#0B6E58;border:2px solid #0B6E58}
+.dB .step small{display:block;font-weight:500;color:#6E7A74;font-size:12px}
+.dB .step .go{margin-left:auto;color:#0B6E58}
+
+/* ===================== C · COCKPIT (glove-ready console) ===================== */
+.dC{--m-land:#DEDFDA;--m-park:#CBD2C3;--m-water:#9DB3BC;--m-minor:#F4F4F0;--m-sec:#FFFFFF;--m-pri:#FFFFFF;--m-case:#AEB1AA;--m-label:#4E5354;--route:#FF5A1F;--route-case:#1A1A1A;
+  background:#DEDFDA;color:#111;font-family:"Figtree",sans-serif}
+.dC .cstat{position:absolute;top:34px;left:10px;right:10px;height:30px;border-radius:9px;background:#111;color:#E8E8E3;display:flex;align-items:center;gap:10px;padding:0 10px;font:700 10.5px var(--mono);letter-spacing:.04em;z-index:10;overflow:visible}
+.dC .cstat .on{color:#7CF29A}.dC .cstat .warn{color:#FF8A5B}
+.dC .console{left:0;right:0;bottom:0;background:#111;color:#F2F2EE;border-radius:26px 26px 0 0;padding:14px 12px 18px}
+.dC .where{height:62px;border-radius:16px;background:#FF5A1F;color:#140600;display:flex;align-items:center;gap:12px;padding:0 18px;font:900 19px "Figtree";letter-spacing:.01em;text-transform:uppercase}
+.dC .where .ic{width:24px;height:24px;stroke-width:2.8}
+.dC .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.dC .tile{height:70px;border-radius:14px;background:#1E1E1D;padding:11px 12px;display:flex;flex-direction:column;justify-content:space-between;font:800 13px "Figtree";text-transform:uppercase;letter-spacing:.03em}
+.dC .tile small{font:600 10.5px var(--mono);color:#9A9A94;text-transform:none;letter-spacing:0}
+.dC .tile .ic{color:#FF5A1F;width:20px;height:20px}
+.dC .panel{inset:0;background:#111;color:#F2F2EE;padding:44px 12px 0}
+.dC .field{height:62px;border-radius:16px;background:#1E1E1D;border:2px solid #FF5A1F;display:flex;align-items:center;gap:12px;padding:0 16px;font:800 19px "Figtree"}
+.dC .caret{width:3px;height:24px;background:#FF5A1F;animation:blink 1s steps(1) infinite}
+.dC .rowc{height:64px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #262624;padding:0 4px}
+.dC .rowc b{font:800 15.5px "Figtree";display:block}
+.dC .rowc small{font:500 11px var(--mono);color:#8E8E88}
+.dC .rowc .d{margin-left:auto;font:700 15px var(--mono);color:#FF5A1F}
+.dC .rowc .k{width:36px;height:36px;border-radius:10px;background:#1E1E1D;display:grid;place-items:center;color:#D7D7D0}
+.dC .bignum{display:flex;align-items:flex-end;gap:16px}
+.dC .bignum .n{font:900 70px/0.82 "Figtree";letter-spacing:-.04em}
+.dC .bignum .u{font:700 11px var(--mono);color:#9A9A94;text-transform:uppercase}
+.dC .bignum .v{font:800 22px/1 "Figtree"}
+.dC .holdbtn{position:relative;height:62px;border-radius:16px;background:#2A2A28;overflow:hidden;display:grid;place-items:center;font:900 16px "Figtree";letter-spacing:.06em;text-transform:uppercase;margin-top:12px}
+.dC .holdbtn::before{content:"";position:absolute;inset:0 auto 0 0;background:#FF5A1F;animation:hold 4.5s cubic-bezier(.4,0,.2,1) infinite}
+.dC .holdbtn span{position:relative;color:#fff}
+.dC .chips{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+.dC .chips span{font:700 10.5px var(--mono);padding:5px 8px;border-radius:7px;background:#1E1E1D;color:#CFCFC8}
+.dC .turn{top:72px;left:10px;right:10px;border-radius:18px;background:#111;color:#fff;padding:12px;display:flex;gap:12px;align-items:center}
+.dC .turn .box{width:74px;height:74px;border-radius:14px;background:#FF5A1F;color:#140600;display:grid;place-items:center}
+.dC .turn .box .ic{width:46px;height:46px;stroke-width:3}
+.dC .turn .dist{font:900 40px/0.9 "Figtree";letter-spacing:-.03em}
+.dC .turn .street{font:700 13px "Figtree";color:#CFCFC8;margin-top:6px;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.dC .gauges{left:0;right:0;bottom:0;background:#111;color:#F2F2EE;border-radius:26px 26px 0 0;padding:12px;display:grid;grid-template-columns:1fr 1fr 1fr 60px;gap:8px}
+.dC .g{border-radius:14px;background:#1E1E1D;padding:10px}
+.dC .g .v{font:900 22px/1 "Figtree"}
+.dC .g .u{font:600 10px var(--mono);color:#8E8E88;margin-top:5px}
+.dC .stop{border-radius:14px;background:#3A1712;color:#FF8A5B;display:grid;place-items:center;font:900 11px "Figtree";letter-spacing:.06em}
+.dC .tft{border-radius:16px;overflow:hidden;background:#000;position:relative}
+.dC .handles .h{position:absolute;width:20px;height:20px;border-radius:6px;background:#FF5A1F;border:3px solid #111}
+.dC .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.dC .seg span{height:44px;border-radius:12px;background:#1E1E1D;display:grid;place-items:center;font:800 12.5px "Figtree";text-transform:uppercase}
+.dC .seg span.on{background:#F2F2EE;color:#111}
+.dC .stepper{display:grid;grid-template-columns:44px 1fr 44px;gap:6px;align-items:center;margin-top:8px}
+.dC .stepper span{height:44px;border-radius:12px;background:#1E1E1D;display:grid;place-items:center;font:800 18px "Figtree"}
+.dC .stepper div{text-align:center;font:700 12px var(--mono);color:#CFCFC8}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <clipPath id="landclip"><path d="M-300 -300 L640 -300 C 630 300, 662 520, 612 760 C 582 900, 602 1100, 572 1600 L-300 1600 Z"/></clipPath>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+    <symbol id="i-loc" viewBox="0 0 24 24"><path d="M12 2l7 19-7-4-7 4z"/></symbol>
+    <symbol id="i-bike" viewBox="0 0 24 24"><circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5l4-6h5l4 6M14.5 10.5l-2-4h3"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M7 21v-8a4 4 0 0 1 4-4h8M15 5l4 4-4 4"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M17 21v-8a4 4 0 0 0-4-4H5M9 5L5 9l4 4"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 21V4M6 10l6-6 6 6"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4h11l-2 4 2 4H5"/></symbol>
+    <symbol id="i-p" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M10 17V7h3a3 3 0 0 1 0 6h-3"/></symbol>
+    <symbol id="i-tft" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="12" rx="2"/><path d="M8 21h8"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7"/></symbol>
+    <symbol id="i-road" viewBox="0 0 24 24"><path d="M8 3L4 21M16 3l4 18M12 4v3M12 11v3M12 18v2"/></symbol>
+
+    <!-- The world: a stylised slice of Cebu City, built once and reused by every phone -->
+    <symbol id="world" viewBox="0 0 800 1300" overflow="visible">
+      <rect x="-400" y="-400" width="1600" height="2100" style="fill:var(--m-land)"/>
+      <path style="fill:var(--m-water)" d="M640 -400 C 630 300, 662 520, 612 760 C 582 900, 602 1100, 572 1700 L1300 1700 L1300 -400 Z"/>
+      <path style="fill:var(--m-land)" d="M760 470 C 820 440, 900 500, 920 600 L 930 980 C 860 990, 760 860, 748 720 C 740 620, 730 520, 760 470 Z"/>
+      <path style="fill:var(--m-park)" d="M262 470 q40 -16 70 8 q14 40 -16 64 q-44 10 -60 -22 z"/>
+      <path style="fill:var(--m-park)" d="M80 760 q60 -20 96 14 q-8 60 -60 56 q-40 -20 -36 -70 z"/>
+      <path style="fill:var(--m-park)" d="M430 980 q50 -10 70 30 q-20 40 -70 20 z"/>
+      <g id="minor" clip-path="url(#landclip)" style="stroke:var(--m-minor)" stroke-width="3.2" stroke-linecap="round" fill="none"></g>
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <g style="stroke:var(--m-case)" stroke-width="10">
+          <path d="M-60 980 C 200 960, 380 940, 600 905"/>
+          <path d="M-20 300 C 200 380, 330 420, 520 400"/>
+          <path d="M240 -200 C 230 200, 200 500, 120 900 S 60 1300, 40 1600"/>
+          <path d="M140 1180 C 300 1150, 420 1100, 590 1040"/>
+        </g>
+        <g style="stroke:var(--m-sec)" stroke-width="7">
+          <path d="M-60 980 C 200 960, 380 940, 600 905"/>
+          <path d="M-20 300 C 200 380, 330 420, 520 400"/>
+          <path d="M240 -200 C 230 200, 200 500, 120 900 S 60 1300, 40 1600"/>
+          <path d="M140 1180 C 300 1150, 420 1100, 590 1040"/>
+        </g>
+        <g style="stroke:var(--m-case)" stroke-width="15">
+          <path id="p-osmena" d="M60 1600 L160 1120 C 200 1000, 260 800, 330 600 S 420 250, 470 -300"/>
+          <path id="p-gorordo" d="M330 600 C 420 560, 500 510, 540 470 S 600 420, 640 400"/>
+          <path d="M630 -300 C 618 300, 645 520, 598 760 C 568 900, 588 1100, 560 1600"/>
+          <path d="M600 760 C 660 740, 700 730, 760 720"/>
+        </g>
+        <g style="stroke:var(--m-pri)" stroke-width="11">
+          <path d="M60 1600 L160 1120 C 200 1000, 260 800, 330 600 S 420 250, 470 -300"/>
+          <path d="M330 600 C 420 560, 500 510, 540 470 S 600 420, 640 400"/>
+          <path d="M630 -300 C 618 300, 645 520, 598 760 C 568 900, 588 1100, 560 1600"/>
+          <path d="M600 760 C 660 740, 700 730, 760 720"/>
+        </g>
+      </g>
+      <g style="fill:var(--m-label)" font-family="Figtree, sans-serif" font-size="13" font-weight="600" letter-spacing=".3">
+        <text><textPath href="#p-osmena" startOffset="44%">Osmeña Boulevard</textPath></text>
+        <text><textPath href="#p-gorordo" startOffset="8%">Gorordo Avenue</textPath></text>
+        <text x="40" y="970" transform="rotate(-3 40 970)">N. Bacalso Avenue</text>
+        <text x="20" y="318" transform="rotate(16 20 318)">M.J. Cuenco Avenue</text>
+        <text x="660" y="300" font-size="12" font-style="italic" style="fill:var(--m-label)" opacity=".8">Mactan Channel</text>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+<header class="page">
+  <div class="eyebrow">Daanvia 0.5 · phone app redesign</div>
+  <h1>Three directions for the new Daanvia phone app</h1>
+  <p>Each direction is a full rebuild of every phone screen: explore, search, route preview, riding and bike setup. The engine underneath stays exactly as it is today. The screens below are live mockups: routes draw in, the riding view follows the bike with a tilted camera, and sheets and lists animate the way they would on the phone.</p>
+  <div class="keeps"><span>Offline Metro Cebu map and search</span><span>Valhalla scooter routing, no highways or tolls</span><span>Re-route after 3 off-route fixes</span><span>Voice turns under 250 m</span><span>Parking pins with owner rates only</span><span>TFT scene, fit and per-bike insets</span><span>Wi-Fi Direct dashboard transport</span></div>
+</header>
+
+<!-- ============================ A ============================ -->
+<section class="dir" id="a">
+  <div class="dirhead">
+    <div class="letter">A</div>
+    <h2>Gabi · night glass</h2>
+    <p>Dark map by default, so the phone does not glare on the handlebar at night. Controls float on frosted glass over a full-bleed map. The route is a glowing amber line, taken from road-sign yellow. It is calm, premium and cinematic.</p>
+    <div class="traits"><b>Figtree</b><b>Dark-first, with a light map for daytime</b><b>Floating glass panels</b><b>3D tilted camera while riding</b><b>Spring sheets</b></div>
+  </div>
+  <div class="strip">
+    <figure>
+      <div class="phone"><div class="screen dA">
+        <svg class="map" viewBox="120 300 400 867" preserveAspectRatio="xMidYMid slice"><use href="#world"/>
+          <circle cx="182" cy="1040" r="7" fill="#FFB020" class="pulse"/><circle cx="182" cy="1040" r="7" fill="#FFB020" stroke="#fff" stroke-width="3"/></svg>
+        <div class="sb"><span>10:24</span><span>5G <i></i></span></div>
+        <div class="abs glass search"><svg class="ic"><use href="#i-search"/></svg>Where to in Metro Cebu?<span class="avatar"><svg class="ic"><use href="#i-bike"/></svg></span></div>
+        <div class="abs chipline"><span class="chip glass"><span class="dot"></span>Offline map ready</span><span class="chip glass"><span class="dot off"></span>Bike not connected</span></div>
+        <div class="abs fabs"><span class="fab glass"><svg class="ic"><use href="#i-loc"/></svg></span></div>
+        <div class="abs glass sheet sheet-anim">
+          <div class="grab"></div>
+          <h3>Ride somewhere</h3>
+          <div class="quick"><div class="q"><svg class="ic"><use href="#i-play"/></svg>Demo ride</div><div class="q"><svg class="ic"><use href="#i-p"/></svg>Add parking</div><div class="q"><svg class="ic"><use href="#i-tft"/></svg>Bike &amp; fit</div></div>
+          <div class="recent">
+            <div class="row"><span class="bub"><svg class="ic"><use href="#i-clock"/></svg></span><div>Ayala Center Cebu<small>Cebu Business Park</small></div><span class="d">4.8 km</span></div>
+            <div class="row"><span class="bub"><svg class="ic"><use href="#i-clock"/></svg></span><div>Carbon Market<small>Downtown</small></div><span class="d">2.1 km</span></div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption><strong>Explore</strong>The map fills the screen. One glass sheet holds the three things you actually do: ride, save parking, set up the bike.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dA">
+        <svg class="map" viewBox="120 300 400 867" preserveAspectRatio="xMidYMid slice"><use href="#world"/></svg>
+        <div class="abs full">
+          <div class="field"><svg class="ic"><use href="#i-search"/></svg>Aya<span class="caret"></span><svg class="ic" style="margin-left:auto;color:#8494A4"><use href="#i-x"/></svg></div>
+          <div class="seg">Places on this phone</div>
+          <div class="stag">
+            <div class="row"><span class="bub"><svg class="ic"><use href="#i-pin"/></svg></span><div><span class="hl">Aya</span>la Center Cebu<small>Mall · Cebu Business Park</small></div><span class="d">4.8 km</span></div>
+            <div class="row"><span class="bub"><svg class="ic"><use href="#i-pin"/></svg></span><div><span class="hl">Aya</span>la Malls Central Bloc Cinema<small>IT Park</small></div><span class="d">5.9 km</span></div>
+            <div class="row"><span class="bub"><svg class="ic"><use href="#i-pin"/></svg></span><div>Seda <span class="hl">Aya</span>la Malls Central Bloc<small>Hotel · IT Park</small></div><span class="d">5.9 km</span></div>
+            <div class="row"><span class="bub"><svg class="ic"><use href="#i-pin"/></svg></span><div>Wealthbank <span class="hl">Aya</span>la<small>Bank</small></div><span class="d">4.7 km</span></div>
+          </div>
+          <div class="seg" style="margin-top:14px">Or drop a pin</div>
+          <div class="row"><span class="bub"><svg class="ic"><use href="#i-loc"/></svg></span><div>Long-press the map<small>Set a destination or save parking there</small></div></div>
+        </div>
+      </div></div>
+      <figcaption><strong>Search</strong>The map blurs behind the list. Results fill in with a short stagger and show distance from you. Matched letters are highlighted.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dA">
+        <svg class="map" viewBox="110 300 470 1018" preserveAspectRatio="xMidYMid slice"><use href="#world"/>
+          <path class="route-draw" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#FFB020" stroke-width="18" stroke-linecap="round" opacity=".18"/>
+          <path class="route-draw" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#FFB020" stroke-width="8" stroke-linecap="round"/>
+          <circle cx="160" cy="1120" r="9" fill="#0E151C" stroke="#FFB020" stroke-width="4"/>
+          <g><g class="pin"><circle cx="540" cy="470" r="15" fill="#FFB020"/><circle cx="540" cy="470" r="5" fill="#1A1203"/></g></g>
+          <g font-family="Figtree" font-weight="800" font-size="13"><g class="pin"><rect x="552" y="420" width="70" height="26" rx="8" fill="#1B2530" stroke="#FFB020"/><text x="562" y="438" fill="#FFB020">P ₱20/hr</text></g><g class="pin"><rect x="478" y="502" width="26" height="26" rx="8" fill="#1B2530" stroke="#5B6B7B"/><text x="486" y="520" fill="#C9D3DC">P</text></g></g>
+        </svg>
+        <div class="sb"><span>10:24</span><span>5G <i></i></span></div>
+        <div class="abs glass search" style="height:44px"><svg class="ic"><use href="#i-x"/></svg><span style="color:#E8EDF1;font-weight:600">Ayala Center Cebu</span></div>
+        <div class="abs glass sheet sheet-anim" style="padding-bottom:14px">
+          <div class="grab"></div>
+          <div style="display:flex;align-items:flex-end;gap:10px"><span class="big num">16 min</span><span style="color:#8494A4;font-weight:600;padding-bottom:4px" class="num">4.8 km · arrive 10:40</span></div>
+          <div style="color:#C9D3DC;font-size:13px;margin-top:4px">Via Osmeña Boulevard and Gorordo Avenue</div>
+          <div class="tags"><span class="tag">Scooter route</span><span class="tag">No highways</span><span class="tag">No tolls</span><span class="tag">Offline</span></div>
+          <div class="park"><svg class="ic" style="color:#FFB020"><use href="#i-p"/></svg>3 parking spots near arrival · 1 with a rate you saved</div>
+          <div style="display:flex;gap:8px;margin-top:12px"><div class="btn ghost"><svg class="ic"><use href="#i-play"/></svg></div><div class="btn" style="flex:1">Start ride</div></div>
+        </div>
+      </div></div>
+      <figcaption><strong>Route preview</strong>The route draws itself from you to the destination, then parking pins drop near the end. The small play button runs the simulation.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dA">
+        <div class="tiltwrap" data-tilt="44" style="position:absolute;inset:0">
+          <svg class="map ride" viewBox="0 0 282 632" data-scale="1.9" data-cy="440" data-speed="52000"><g class="cam"><use href="#world" width="800" height="1300"/>
+            <path class="ref" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#FFB020" stroke-width="16" stroke-linecap="round" opacity=".16"/>
+            <path class="ahead" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#FFB020" stroke-width="7" stroke-linecap="round"/>
+            <g class="pinS"><rect x="552" y="420" width="70" height="26" rx="8" fill="#1B2530" stroke="#FFB020"/><text x="562" y="438" fill="#FFB020" font-family="Figtree" font-weight="800" font-size="13">P ₱20/hr</text></g>
+            <circle cx="540" cy="470" r="12" fill="#FFB020"/></g>
+            <g class="puck"><circle r="22" fill="#FFB020" opacity=".18"/><path d="M0 -14 L11 12 L0 6 L-11 12 Z" fill="#fff" stroke="#0E151C" stroke-width="2"/></g>
+          </svg>
+        </div>
+        <div class="sb"><span>10:27</span><span>5G <i></i></span></div>
+        <div class="abs glass man"><div class="arrow"><svg class="ic" data-arrow><use href="#i-right"/></svg></div><div><div class="dist num" data-dist>350 m</div><div class="street" data-street>Gorordo Avenue</div></div></div>
+        <div class="abs glass chip live"><span class="dot"></span>TFT live</div>
+        <div class="abs glass eta"><div><div class="t num" data-eta>12 min</div><small class="num" data-meta>3.6 km · 10:40</small></div><div class="end"><svg class="ic"><use href="#i-x"/></svg></div></div>
+      </div></div>
+      <figcaption><strong>Riding</strong>The camera follows the bike and tilts in 3D. The road you have already ridden fades out. The turn card counts down live.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dA">
+        <div class="abs full" style="background:#0E151C">
+          <div style="display:flex;align-items:center;gap:10px;margin:6px 0 14px"><svg class="ic"><use href="#i-x"/></svg><h3 style="margin:0">Bike &amp; display</h3></div>
+          <div class="glass tftcard">
+            <div class="row" style="padding-top:0"><span class="bub" style="color:#3DDC97"><svg class="ic"><use href="#i-bike"/></svg></span><div>ATR 160<small>Saved bike · connected</small></div><span class="chip" style="margin-left:auto;background:rgba(61,220,151,.12);color:#3DDC97"><span class="dot"></span>Live</span></div>
+            <svg viewBox="0 0 800 480" style="width:100%;border-radius:12px;display:block;background:#000">
+              <rect x="40" y="24" width="720" height="406" fill="#F9F7F0"/>
+              <svg x="40" y="118" width="720" height="312" viewBox="230 470 300 130" preserveAspectRatio="xMidYMid slice" style="--m-land:#E9E7DE;--m-park:#DCE6D2;--m-water:#C8DCE2;--m-minor:#fff;--m-sec:#fff;--m-pri:#fff;--m-case:#D6D2C4;--m-label:#8A8F86"><use href="#world" width="800" height="1300"/><path d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#074238" stroke-width="6"/></svg>
+              <path d="M80 98 v-34 a12 12 0 0 1 12-12 h30 M112 38 l14 14 -14 14" fill="none" stroke="#074238" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+              <text x="150" y="70" font-family="Figtree" font-weight="800" font-size="40" fill="#074238">350 m</text>
+              <text x="150" y="102" font-family="Figtree" font-weight="700" font-size="24" fill="#074238">Turn right onto Gorordo Avenue</text>
+              <rect x="40" y="24" width="720" height="406" fill="none" stroke="#FFB020" stroke-width="4" stroke-dasharray="14 10"/>
+              <text x="56" y="420" font-family="Figtree" font-size="13" fill="#074238">© OpenStreetMap contributors</text>
+            </svg>
+            <div style="font-size:11.5px;color:#8494A4;margin-top:8px">Dashed line is the safe area. The bike footer sits below it.</div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="slider"><span>Left / right</span><div class="track"><b style="width:18%"></b></div><span class="num">5%</span></div>
+            <div class="slider"><span>Top</span><div class="track"><b style="width:12%"></b></div><span class="num">5%</span></div>
+            <div class="slider"><span>Bike footer</span><div class="track"><b style="width:46%"></b></div><span class="num">10%</span></div>
+            <div class="slider"><span>Text size</span><div class="track"><b style="width:30%"></b></div><span class="num">112%</span></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px"><div class="btn ghost" style="flex:1;width:auto">Large turns</div><div class="btn" style="flex:1">Save for ATR 160</div></div>
+        </div>
+      </div></div>
+      <figcaption><strong>Bike &amp; display</strong>A live preview of what the TFT shows. Drag the sliders and the safe area moves. Scanning the QR and support tools sit one level down.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ B ============================ -->
+<section class="dir" id="b">
+  <div class="dirhead">
+    <div class="letter">B</div>
+    <h2>Daylight · soft sheets</h2>
+    <p>Bright and friendly, in the style of current Apple and Google Maps, and readable in Cebu noon sun. It keeps Daanvia’s green as the brand and route colour. Big rounded sheets carry the content, and the greeting is in Cebuano: “Asa ta?” means “Where are we going?”</p>
+    <div class="traits"><b>Hanken Grotesk</b><b>Light-first, with a dark mode at night</b><b>Bottom sheets that hand off to each other</b><b>Flat heading-up camera</b><b>Big tap targets</b></div>
+  </div>
+  <div class="strip">
+    <figure>
+      <div class="phone"><div class="screen dB">
+        <svg class="map" viewBox="100 520 420 910" preserveAspectRatio="xMidYMin slice"><use href="#world"/>
+          <circle cx="182" cy="1040" r="7" fill="#0B6E58" class="pulse"/><circle cx="182" cy="1040" r="8" fill="#0B6E58" stroke="#fff" stroke-width="3"/></svg>
+        <div class="sb"><span>10:24</span><span>5G <i></i></span></div>
+        <div class="abs topchip"><span class="pill card"><span class="gdot"></span>Metro Cebu · offline</span><span class="pill card"><svg class="ic" style="width:15px;height:15px"><use href="#i-bike"/></svg>Connect bike</span></div>
+        <div class="abs card loc"><svg class="ic"><use href="#i-loc"/></svg></div>
+        <div class="abs card sheet sheet-anim">
+          <div class="grab"></div>
+          <p class="hello">Asa <span>ta?</span></p>
+          <p class="sub">Where are we going? Maps and routes work without data.</p>
+          <div class="field"><svg class="ic"><use href="#i-search"/></svg>Search places in Metro Cebu</div>
+          <div class="tiles">
+            <div class="tile hero"><svg class="ic"><use href="#i-play"/></svg><div>Try a demo ride<small>Simulated, safe to watch parked</small></div></div>
+            <div class="tile"><svg class="ic" style="color:#0B6E58"><use href="#i-p"/></svg><div>Save parking<small>Add a rate you checked</small></div></div>
+            <div class="tile"><svg class="ic" style="color:#0B6E58"><use href="#i-tft"/></svg><div>Bike &amp; fit<small>ATR 160</small></div></div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption><strong>Explore</strong>A greeting sheet with one search field and three large tiles. The map stays visible above it, centred on you.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dB">
+        <svg class="map" viewBox="100 520 420 910" preserveAspectRatio="xMidYMin slice"><use href="#world"/></svg>
+        <div class="abs card sheet" style="top:40px;border-radius:30px 30px 0 0">
+          <div class="grab"></div>
+          <div class="field" style="background:#fff;border:2px solid #0B6E58;color:#15211E"><svg class="ic" style="color:#0B6E58"><use href="#i-search"/></svg>SM Sea<span style="width:2px;height:20px;background:#0B6E58;animation:blink 1s steps(1) infinite"></span></div>
+          <div class="stag" style="margin-top:6px">
+            <div class="res"><span class="sq"><svg class="ic"><use href="#i-pin"/></svg></span><div><mark>SM Sea</mark>side City Cebu<small>Mall · South Road Properties</small></div><span class="d">6.2 km</span></div>
+            <div class="res"><span class="sq"><svg class="ic"><use href="#i-pin"/></svg></span><div>Gateway Motors <mark>SM Sea</mark>side<small>Car dealer · SRP</small></div><span class="d">6.4 km</span></div>
+            <div class="res"><span class="sq"><svg class="ic"><use href="#i-pin"/></svg></span><div>Suzuki auto <mark>SM Sea</mark>side<small>Dealer · SRP</small></div><span class="d">6.4 km</span></div>
+            <div class="res" style="border:0"><span class="sq" style="background:#F2F3EF;color:#5D6964"><svg class="ic"><use href="#i-loc"/></svg></span><div>Choose on the map<small>Long-press anywhere</small></div></div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption><strong>Search</strong>The sheet slides up to full height, and results ease in one by one. Tapping a result morphs the row into the route card.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dB">
+        <svg class="map" viewBox="110 330 470 1018" preserveAspectRatio="xMidYMin slice"><use href="#world"/>
+          <path class="route-draw" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#064234" stroke-width="14" stroke-linecap="round"/>
+          <path class="route-draw" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#18A574" stroke-width="8" stroke-linecap="round"/>
+          <circle cx="160" cy="1120" r="9" fill="#fff" stroke="#0B6E58" stroke-width="5"/>
+          <g class="pin"><path d="M540 486 c-14 -14 -20 -22 -20 -32 a20 20 0 0 1 40 0 c0 10 -6 18 -20 32z" fill="#0B6E58"/><circle cx="540" cy="454" r="7" fill="#fff"/></g>
+          <g font-family="Hanken Grotesk" font-weight="800" font-size="13"><g class="pin"><rect x="556" y="404" width="70" height="26" rx="13" fill="#fff" stroke="#0B6E58" stroke-width="2"/><text x="566" y="422" fill="#0B6E58">P ₱20/hr</text></g><g class="pin"><circle cx="492" cy="512" r="13" fill="#fff" stroke="#0B6E58" stroke-width="2"/><text x="487" y="517" fill="#0B6E58">P</text></g></g>
+        </svg>
+        <div class="sb"><span>10:24</span><span>5G <i></i></span></div>
+        <div class="abs card sheet sheet-anim">
+          <div class="grab"></div>
+          <div class="timeline"><span class="a"></span><span>My location · GPS ±6 m</span><span class="v"></span><span></span><span class="b"></span><b>Ayala Center Cebu</b></div>
+          <div class="eta"><span class="big num">16 min</span><span class="meta num">4.8 km · arrive 10:40</span></div>
+          <div class="opts"><span class="opt"><svg class="ic"><use href="#i-bike"/></svg>Scooter</span><span class="opt"><svg class="ic"><use href="#i-road"/></svg>No highways</span><span class="opt">No tolls</span></div>
+          <div class="btn"><svg class="ic"><use href="#i-loc"/></svg>Start offline ride</div>
+          <div class="btn2">Preview as simulation</div>
+        </div>
+      </div></div>
+      <figcaption><strong>Route preview</strong>A from-to timeline makes the trip obvious at a glance. The route animates in with a dark casing so it reads well in sunlight.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dB">
+        <div class="tiltwrap" data-tilt="22" style="position:absolute;inset:0">
+          <svg class="map ride" viewBox="0 0 282 632" data-scale="1.7" data-cy="420" data-speed="52000"><g class="cam"><use href="#world" width="800" height="1300"/>
+            <path class="ref" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#B9C6C0" stroke-width="9" stroke-linecap="round"/>
+            <path class="ahead" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#0B6E58" stroke-width="10" stroke-linecap="round"/>
+            <g><rect x="556" y="404" width="70" height="26" rx="13" fill="#fff" stroke="#0B6E58" stroke-width="2"/><text x="566" y="422" fill="#0B6E58" font-family="Hanken Grotesk" font-weight="800" font-size="13">P ₱20/hr</text></g>
+            <circle cx="540" cy="470" r="11" fill="#0B6E58" stroke="#fff" stroke-width="3"/></g>
+            <g class="puck"><circle r="20" fill="#0B6E58" opacity=".16"/><circle r="11" fill="#fff"/><path d="M0 -8 L7 7 L0 3 L-7 7 Z" fill="#0B6E58"/></g>
+          </svg>
+        </div>
+        <div class="abs man"><svg class="ic" data-arrow><use href="#i-right"/></svg><div><div class="dist num" data-dist>350 m</div><div class="street" data-street>Gorordo Avenue</div></div></div>
+        <div class="abs then">Then <svg class="ic" style="width:14px;height:14px"><use href="#i-flag"/></svg> Ayala Center Cebu</div>
+        <div class="abs bottom card"><div><div class="t num" data-eta>12 min</div><small class="num" data-meta>3.6 km · 10:40</small></div><div class="end">End</div></div>
+      </div></div>
+      <figcaption><strong>Riding</strong>A solid green turn banner on top, like the maps people already know. The camera stays flat with a gentle tilt and follows the bike's heading.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dB" style="background:#fff">
+        <div class="sb"><span>10:24</span><span>5G <i></i></span></div>
+        <div class="abs" style="inset:44px 18px 0">
+          <p class="hello" style="font-size:26px">Your bike</p>
+          <p class="sub">Three steps, done once. Re-fit any time you change bikes.</p>
+          <div class="steps">
+            <div class="step"><span class="n">✓</span><div>Scan dashboard QR<small>ATR 160 saved on this phone</small></div></div>
+            <div class="step"><span class="n">✓</span><div>Send Daanvia to dashboard<small>Connected over Wi-Fi Direct</small></div></div>
+            <div class="step todo"><span class="n">3</span><div>Fit my TFT<small>Move the edges until all four corners show</small></div><svg class="ic go"><use href="#i-chev"/></svg></div>
+          </div>
+          <div style="margin-top:14px;border-radius:18px;overflow:hidden;background:#000">
+            <svg viewBox="0 0 800 480" style="width:100%;display:block">
+              <rect x="30" y="20" width="740" height="420" fill="#F9F7F0"/>
+              <g stroke="#BECFC7" stroke-width="1.5">
+                <path d="M70 20V440M110 20V440M150 20V440M190 20V440M230 20V440M270 20V440M310 20V440M350 20V440M390 20V440M430 20V440M470 20V440M510 20V440M550 20V440M590 20V440M630 20V440M670 20V440M710 20V440M750 20V440"/>
+                <path d="M30 60H770M30 100H770M30 140H770M30 180H770M30 220H770M30 260H770M30 300H770M30 340H770M30 380H770M30 420H770"/>
+              </g>
+              <rect x="34" y="24" width="732" height="412" fill="none" stroke="#074238" stroke-width="6"/>
+              <circle cx="400" cy="230" r="60" fill="none" stroke="#074238" stroke-width="6"/>
+              <text x="54" y="70" font-family="Hanken Grotesk" font-weight="800" font-size="30" fill="#074238">FIT MY TFT</text>
+            </svg>
+          </div>
+          <div class="btn2" style="margin-top:12px">Support and test tools</div>
+        </div>
+      </div></div>
+      <figcaption><strong>Bike setup</strong>A three-step checklist replaces the old menu dialog. The fit grid is shown inline, the same pattern drawn on the TFT.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ C ============================ -->
+<section class="dir" id="c">
+  <div class="dirhead">
+    <div class="letter">C</div>
+    <h2>Cockpit · glove-ready console</h2>
+    <p>Built like an instrument cluster. The map sits on top and a heavy black console holds the controls at thumb height, with tiles at least 64 dp tall for riding gloves. Starting and ending a ride use press-and-hold, so a bump in a phone mount can't trigger them. Safety orange, monospace readouts, big numerals.</p>
+    <div class="traits"><b>Figtree Black + JetBrains Mono</b><b>Light map with a black console</b><b>Press-and-hold to start and end</b><b>North-up or heading-up</b><b>Gauge-style readouts</b></div>
+  </div>
+  <div class="strip">
+    <figure>
+      <div class="phone"><div class="screen dC">
+        <svg class="map" viewBox="110 680 420 910" preserveAspectRatio="xMidYMin slice"><use href="#world"/>
+          <circle cx="182" cy="1040" r="7" fill="#FF5A1F" class="pulse"/><rect x="174" y="1032" width="16" height="16" rx="4" fill="#FF5A1F" stroke="#111" stroke-width="3"/></svg>
+        <div class="sb" style="color:#111"><span>10:24</span><span>5G <i></i></span></div>
+        <div class="cstat"><span class="on">● OFFLINE</span><span>METRO CEBU</span><span>GPS ±6 M</span><span class="warn" style="margin-left:auto">BIKE ○</span></div>
+        <div class="abs console sheet-anim">
+          <div class="where"><svg class="ic"><use href="#i-search"/></svg>Where to?</div>
+          <div class="grid">
+            <div class="tile"><svg class="ic"><use href="#i-play"/></svg><div>Demo ride<br><small>Simulated route</small></div></div>
+            <div class="tile"><svg class="ic"><use href="#i-loc"/></svg><div>My location<br><small>Start GPS</small></div></div>
+            <div class="tile"><svg class="ic"><use href="#i-tft"/></svg><div>Bike &amp; fit<br><small>Not connected</small></div></div>
+            <div class="tile"><svg class="ic"><use href="#i-p"/></svg><div>Parking<br><small>12 saved rates</small></div></div>
+          </div>
+        </div>
+      </div></div>
+      <figcaption><strong>Explore</strong>A status strip shows offline, region, GPS accuracy and bike link at a glance. Every action is a large tile in the console.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dC">
+        <div class="abs panel">
+          <div class="field"><svg class="ic" style="width:24px;height:24px;color:#FF5A1F"><use href="#i-search"/></svg>CARB<span class="caret"></span></div>
+          <div class="stag" style="margin-top:6px">
+            <div class="rowc"><span class="k"><svg class="ic"><use href="#i-pin"/></svg></span><div><b>Carbon Market</b><small>downtown · 10.2934, 123.90</small></div><span class="d">2.1</span></div>
+            <div class="rowc"><span class="k"><svg class="ic"><use href="#i-pin"/></svg></span><div><b>Carbon Market Unit 3</b><small>market</small></div><span class="d">2.2</span></div>
+            <div class="rowc"><span class="k"><svg class="ic"><use href="#i-p"/></svg></span><div><b>Carbon Tourism Center Pay Parking</b><small>parking · no saved rate</small></div><span class="d">2.2</span></div>
+            <div class="rowc"><span class="k"><svg class="ic"><use href="#i-road"/></svg></span><div><b>Carbon Street</b><small>street</small></div><span class="d">2.3</span></div>
+          </div>
+          <div style="font:600 10.5px var(--mono);color:#8E8E88;margin:14px 4px">KM FROM YOU · 18,282 PLACES ON THIS PHONE</div>
+        </div>
+      </div></div>
+      <figcaption><strong>Search</strong>Rows are 64 dp tall with large type and distances in orange monospace. It is designed to be used parked, with gloves on.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dC">
+        <svg class="map" viewBox="110 400 470 1018" preserveAspectRatio="xMidYMin slice"><use href="#world"/>
+          <path class="route-draw" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#111" stroke-width="15" stroke-linecap="round"/>
+          <path class="route-draw" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#FF5A1F" stroke-width="8" stroke-linecap="round"/>
+          <rect x="150" y="1110" width="20" height="20" rx="5" fill="#FF5A1F" stroke="#111" stroke-width="4"/>
+          <g class="pin"><rect x="526" y="456" width="28" height="28" rx="6" fill="#111"/><path d="M533 478 v-16 l12 0 l-3 4 l3 4 h-12" fill="#FF5A1F"/></g>
+          <g font-family="JetBrains Mono" font-weight="700" font-size="13"><g class="pin"><rect x="562" y="410" width="78" height="26" rx="6" fill="#111"/><text x="570" y="428" fill="#fff">P ₱20/H</text></g><g class="pin"><rect x="478" y="500" width="26" height="26" rx="6" fill="#111"/><text x="486" y="518" fill="#fff">P</text></g></g>
+        </svg>
+        <div class="sb" style="color:#111"><span>10:24</span><span>5G <i></i></span></div>
+        <div class="cstat"><span>→ AYALA CENTER CEBU</span><span style="margin-left:auto" class="on">ROUTE OK</span></div>
+        <div class="abs console sheet-anim">
+          <div class="bignum"><div><div class="n num">16</div><div class="u">min</div></div><div><div class="v num">4.8</div><div class="u">km</div></div><div><div class="v num">10:40</div><div class="u">arrive</div></div></div>
+          <div class="chips"><span>SCOOTER</span><span>NO HWY</span><span>NO TOLL</span><span>P×3 NEAR END</span></div>
+          <div class="holdbtn"><span>Hold to start ride</span></div>
+          <div class="seg"><span>Simulate</span><span>Change</span></div>
+        </div>
+      </div></div>
+      <figcaption><strong>Route preview</strong>Big numerals: 16 min, 4.8 km, arrive 10:40. Holding the button fills it in orange before the ride starts.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dC">
+        <div class="tiltwrap" data-tilt="0" style="position:absolute;inset:0">
+          <svg class="map ride" viewBox="0 0 282 632" data-scale="2.1" data-cy="380" data-speed="52000"><g class="cam"><use href="#world" width="800" height="1300"/>
+            <path class="ref" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#8E918B" stroke-width="7" stroke-linecap="round" stroke-dasharray="2 10"/>
+            <path class="ahead" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round"/>
+            <path class="ahead" d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#FF5A1F" stroke-width="8" stroke-linecap="round"/>
+            <g><rect x="562" y="410" width="78" height="26" rx="6" fill="#111"/><text x="570" y="428" fill="#fff" font-family="JetBrains Mono" font-weight="700" font-size="13">P ₱20/H</text></g>
+            <rect x="528" y="458" width="24" height="24" rx="6" fill="#111"/></g>
+            <g class="puck"><path d="M0 -16 L13 13 L0 6 L-13 13 Z" fill="#FF5A1F" stroke="#111" stroke-width="3" stroke-linejoin="round"/></g>
+          </svg>
+        </div>
+        <div class="sb" style="color:#111"><span>10:27</span><span>5G <i></i></span></div>
+        <div class="cstat"><span class="on">● TFT LIVE</span><span>GPS ±4 M</span><span style="margin-left:auto">HEADING-UP</span></div>
+        <div class="abs turn"><div class="box"><svg class="ic" data-arrow><use href="#i-right"/></svg></div><div><div class="dist num" data-dist>350 m</div><div class="street" data-street>Gorordo Avenue</div></div></div>
+        <div class="abs gauges"><div class="g"><div class="v num" data-eta>12</div><div class="u">MIN</div></div><div class="g"><div class="v num" data-km>3.6</div><div class="u">KM</div></div><div class="g"><div class="v num" data-arr>10:40</div><div class="u">ARRIVE</div></div><div class="stop">HOLD<br>END</div></div>
+      </div></div>
+      <figcaption><strong>Riding</strong>A huge turn tile at the top and three gauges at the bottom. Ending the ride is press-and-hold too.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><div class="screen dC">
+        <div class="abs panel">
+          <div style="font:900 22px 'Figtree';text-transform:uppercase;margin:4px 2px 12px">Fit my TFT</div>
+          <div class="tft">
+            <svg viewBox="0 0 800 480" style="width:100%;display:block">
+              <rect x="44" y="30" width="712" height="380" fill="#F4F4F0"/>
+              <svg x="44" y="134" width="712" height="276" viewBox="230 470 300 116" preserveAspectRatio="xMidYMid slice"><use href="#world" width="800" height="1300"/><path d="M160 1120 C 200 1000, 260 800, 330 600 C 420 560, 500 510, 540 470" fill="none" stroke="#FF5A1F" stroke-width="6"/></svg>
+              <rect x="44" y="30" width="712" height="104" fill="#111"/>
+              <rect x="60" y="42" width="80" height="80" rx="12" fill="#FF5A1F"/>
+              <path d="M84 110 v-30 a10 10 0 0 1 10-10 h26 M112 58 l12 12 -12 12" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+              <text x="160" y="86" font-family="Figtree" font-weight="900" font-size="44" fill="#fff">350 m</text>
+              <text x="160" y="116" font-family="Figtree" font-weight="700" font-size="22" fill="#CFCFC8">GORORDO AVENUE</text>
+              <rect x="0" y="410" width="800" height="70" fill="#2a2a28" opacity=".85"/>
+              <text x="300" y="452" font-family="JetBrains Mono" font-size="20" fill="#9A9A94">BIKE FOOTER · 15%</text>
+            </svg>
+            <div class="handles"><span class="h" style="left:6px;top:46%"></span><span class="h" style="right:6px;top:46%"></span><span class="h" style="left:47%;top:4px"></span><span class="h" style="left:47%;bottom:22px"></span></div>
+          </div>
+          <div style="font:600 10.5px var(--mono);color:#8E8E88;margin:8px 2px">DRAG THE ORANGE HANDLES UNTIL ALL EDGES SHOW ON THE BIKE</div>
+          <div class="seg"><span class="on">Map focus</span><span>Large turns</span></div>
+          <div class="stepper"><span>−</span><div>TEXT 112%</div><span>+</span></div>
+          <div class="where" style="margin-top:10px;justify-content:center;height:56px;font-size:16px">Save for ATR 160</div>
+        </div>
+      </div></div>
+      <figcaption><strong>Fit my TFT</strong>Drag handles on a live TFT preview replace the five sliders. Text size has plus and minus buttons sized for gloves.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<p class="note">All three use the same structure: one map screen with sheets on top instead of separate pages and pop-up menus. Scanning the dashboard QR, testing the connection and the transport logs move under Bike › Support, so the main flow is just choose a place, check the route, ride. Place names and road names come from the bundled Metro Cebu data. The ₱20/hr rate is an example of an owner-saved rate. Spots without a saved price show no price, as they do today.</p>
+
+<footer>Daanvia design proposals · Map data © OpenStreetMap contributors · Mockups are illustrative. The real app renders the bundled offline roads with MapLibre.</footer>
+</div>
+
+<script>
+(function(){
+  // --- deterministic minor street grid ---
+  var g=document.getElementById('minor'); var seed=7;
+  function rnd(){seed=(seed*16807)%2147483647;return (seed-1)/2147483646;}
+  var NS='http://www.w3.org/2000/svg', d='';
+  var cos=Math.cos(.24), sin=Math.sin(.24);
+  function seg(x1,y1,x2,y2){var cx=400,cy=650;function r(x,y){var dx=x-cx,dy=y-cy;return (cx+dx*cos-dy*sin).toFixed(1)+' '+(cy+dx*sin+dy*cos).toFixed(1);}d+='M'+r(x1,y1)+'L'+r(x2,y2);}
+  for(var x=-300;x<1100;x+=30+rnd()*14){var y=-400;while(y<1700){var len=50+rnd()*170;if(rnd()>.28)seg(x+rnd()*4,y,x+rnd()*4,y+len);y+=len+rnd()*24;}}
+  for(var yy=-400;yy<1700;yy+=34+rnd()*16){var xx=-300;while(xx<1100){var l=40+rnd()*150;if(rnd()>.3)seg(xx,yy+rnd()*4,xx+l,yy+rnd()*4);xx+=l+rnd()*22;}}
+  var p=document.createElementNS(NS,'path');p.setAttribute('d',d);g.appendChild(p);
+
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // --- route draw-in loops ---
+  var draws=[].slice.call(document.querySelectorAll('.route-draw'));
+  draws.forEach(function(el){var L=el.getTotalLength();el.style.strokeDasharray=L+' '+L;el.style.strokeDashoffset=reduce?0:L;el._L=L;});
+  var t0=performance.now();
+  function ease(t){return 1-Math.pow(1-t,3);}
+
+  // --- riding cameras ---
+  var rides=[].slice.call(document.querySelectorAll('svg.ride')).map(function(svg){
+    var ref=svg.querySelector('.ref'), L=ref.getTotalLength();
+    var ahead=[].slice.call(svg.querySelectorAll('.ahead'));
+    ahead.forEach(function(a){a.style.strokeDasharray=L+' '+L;});
+    var screen=svg.closest('.screen');
+    var wrap=svg.parentNode, tilt=+wrap.dataset.tilt||0;
+    if(tilt){wrap.style.transformOrigin='50% 70%';wrap.style.transform='perspective(760px) rotateX('+tilt+'deg) scale('+(1+tilt/60)+')';}
+    // first leg length (turn point at the Gorordo junction, x=330,y=600)
+    var turnAt=0,best=1e9;for(var s=0;s<L;s+=2){var q=ref.getPointAtLength(s);var dd=(q.x-330)*(q.x-330)+(q.y-600)*(q.y-600);if(dd<best){best=dd;turnAt=s;}}
+    return {svg:svg,cam:svg.querySelector('.cam'),puck:svg.querySelector('.puck'),ahead:ahead,L:L,ref:ref,turnAt:turnAt,head:null,
+      scale:+svg.dataset.scale,cy:+svg.dataset.cy,speed:+svg.dataset.speed,
+      dist:screen.querySelector('[data-dist]'),street:screen.querySelector('[data-street]'),arrow:screen.querySelector('[data-arrow] use'),
+      eta:screen.querySelector('[data-eta]'),meta:screen.querySelector('[data-meta]'),km:screen.querySelector('[data-km]'),arr:screen.querySelector('[data-arr]'),
+      cockpit:screen.classList.contains('dC')};
+  });
+  var M_PER_UNIT=6.2;
+  function fmtDist(m){return m<1000?Math.max(10,Math.round(m/10)*10)+' m':(m/1000).toFixed(1)+' km';}
+  function frame(now){
+    var el=(now-t0);
+    var cyc=(el%7000)/7000, k=Math.min(1,cyc/0.32);
+    draws.forEach(function(p){p.style.strokeDashoffset=(p._L*(1-ease(k))).toFixed(1);});
+    rides.forEach(function(r){
+      var t=((el%r.speed)/r.speed)*0.94+0.02, s=t*r.L;
+      var a=r.ref.getPointAtLength(s), b=r.ref.getPointAtLength(Math.min(r.L,s+14));
+      var h=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI, target=-90-h;
+      if(r.head===null)r.head=target;var diff=((target-r.head+540)%360)-180;r.head+=diff*0.06;
+      r.cam.setAttribute('transform','translate(141 '+r.cy+') rotate('+r.head.toFixed(2)+') scale('+r.scale+') translate('+(-a.x).toFixed(2)+' '+(-a.y).toFixed(2)+')');
+      r.puck.setAttribute('transform','translate(141 '+r.cy+')');
+      r.ahead.forEach(function(p){p.style.strokeDashoffset=(-s).toFixed(1);});
+      var before=s<r.turnAt, toNext=(before?r.turnAt-s:r.L-s)*M_PER_UNIT, rem=(r.L-s)*M_PER_UNIT;
+      var mins=Math.max(1,Math.round(rem/1000/22*60)); var arrive=new Date(2026,9,19,10,27+mins);
+      var hm=arrive.getHours()+':'+String(arrive.getMinutes()).padStart(2,'0');
+      if(r.dist)r.dist.textContent=fmtDist(toNext);
+      if(r.street)r.street.textContent=before?'Gorordo Avenue':'Ayala Center Cebu';
+      if(r.arrow)r.arrow.setAttribute('href',before?'#i-right':'#i-flag');
+      if(r.eta)r.eta.textContent=r.cockpit?String(mins):mins+' min';
+      if(r.meta)r.meta.textContent=(rem/1000).toFixed(1)+' km · '+hm;
+      if(r.km)r.km.textContent=(rem/1000).toFixed(1);
+      if(r.arr)r.arr.textContent=hm;
+    });
+    if(!reduce)requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
