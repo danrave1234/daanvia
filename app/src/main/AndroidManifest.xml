@@ -31,7 +31,7 @@
         <activity android:name=".SettingsActivity" android:exported="false" android:configChanges="orientation|screenSize" android:windowSoftInputMode="adjustNothing" />
         <activity android:name=".SupportActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <service android:name=".NavService" android:exported="false" android:foregroundServiceType="location|connectedDevice" />
-        <activity android:name=".ScanActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".ScanActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <service android:name=".StreamService" android:exported="false" android:foregroundServiceType="connectedDevice|mediaProjection" />
         <receiver android:name=".AppUpdate$InstallReceiver" android:exported="false" />
         <provider android:name=".ReportProvider" android:authorities="net.drave.atrdiagnostics.report" android:exported="false" android:grantUriPermissions="true" />

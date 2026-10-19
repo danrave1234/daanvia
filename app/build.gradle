@@ -3,7 +3,7 @@ android {
     namespace 'net.drave.atrdiagnostics'
     compileSdk 36
     buildToolsVersion "35.0.0"
-    defaultConfig { applicationId 'net.drave.atrdiagnostics'; minSdk 29; targetSdk 35; versionCode 11; versionName '0.5.3'; ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' } }
+    defaultConfig { applicationId 'net.drave.atrdiagnostics'; minSdk 29; targetSdk 35; versionCode 12; versionName '0.5.4'; ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' } }
     signingConfigs { prototype { storeFile file('../signing/prototype.p12'); storePassword 'atr-local-test'; keyAlias 'atr'; keyPassword 'atr-local-test' } }
     // Release is signed with the same public prototype TEST key so it installs over earlier test builds. Not a production key.
     buildTypes { debug { signingConfig signingConfigs.prototype; ndk { abiFilters 'x86_64' } }; release { signingConfig signingConfigs.prototype; minifyEnabled false } }
@@ -15,6 +15,12 @@ android {
 dependencies {
     implementation "androidx.core:core:1.16.0"
     implementation "androidx.dynamicanimation:dynamicanimation:1.1.0"
+    // QR scanner: CameraX for focus and zoom, ML Kit (bundled, works offline without Google services) to read the code.
+    implementation "androidx.activity:activity:1.9.3"
+    implementation "androidx.camera:camera-camera2:1.4.2"
+    implementation "androidx.camera:camera-lifecycle:1.4.2"
+    implementation "androidx.camera:camera-view:1.4.2"
+    implementation "com.google.mlkit:barcode-scanning:17.3.0"
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
     implementation files('libs/zxing-core-3.5.3.jar')
