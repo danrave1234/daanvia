@@ -21,6 +21,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k; private DashboardLink link;
     private TftPreview preview; private TextView modelText, statusText, primary, liveChip, fitNote, licenseText; private LinearLayout permissionBanner, fitControls, scanRow; private View progress; private ValueAnimator progressAnim;
     private LinearLayout updateBox; private final AppUpdate.Listener updateListener = st -> paintUpdate();
+    private TextView storageText;
     private LinearLayout mapList; private AreaStore.Catalog catalog; private String confirmRemove;
     private final AreaStore.Listener areaListener = st -> paintMaps();
     private TextView adjust; private boolean fitting; private float[] old; private String oldLayout;
@@ -87,6 +88,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         mapsHead.addView(k.info("Downloaded areas live on your phone, so the map, search and directions work without signal. Download the places you ride. Remove ones you no longer need to free up space."));
         maps.addView(mapsHead);
         mapList = k.column(0); maps.addView(mapList);
+        storageText = k.text("", 12.5f, 500, MUTED); maps.addView(storageText);
+        maps.addView(k.ghost("Free up space", this::freeUp));
         maps.addView(k.ghost("Download another area", () -> { startActivity(new Intent(this, HomeActivity.class).putExtra("select_area", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }));
         c.addView(maps);
 
@@ -218,7 +221,19 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             });
             r.addView(del); mapList.addView(r);
         }
+        paintStorage();
         if (list.isEmpty() && (st == null || !st.running)) mapList.addView(k.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
+    }
+    private void paintStorage() {
+        new Thread(() -> { long[] u = Housekeeping.usage(this); runOnUiThread(() -> storageText.setText(u[1] < 1048576 ? "Daanvia uses " + mb(u[0]) + " on this phone, all of it maps." : "Daanvia uses " + mb(u[0] + u[1]) + " on this phone: " + mb(u[0]) + " of maps and " + mb(u[1]) + " for everything else.")); }).start();
+    }
+    private static String mb(long b) { return Math.max(0, Math.round(b / 1048576.0)) + " MB"; }
+    private void freeUp() {
+        AreaStore.State st = AreaStore.state();
+        if (s.active || (st != null && st.running)) { storageText.setText("Finish the ride or download first, then try again."); return; }
+        storageText.setText("Cleaning up…");
+        new Thread(() -> { long freed = Housekeeping.run(this, true); runOnUiThread(() -> { paintStorage();
+            android.widget.Toast.makeText(this, freed < 1048576 ? "Already tidy" : "Freed " + mb(freed), android.widget.Toast.LENGTH_SHORT).show(); }); }).start();
     }
     private void updateArea(AreaStore.Area a) {
         ArrayList<AreaStore.Cell> cells = new ArrayList<>();

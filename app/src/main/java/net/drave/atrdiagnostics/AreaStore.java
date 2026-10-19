@@ -165,7 +165,7 @@ public final class AreaStore {
                 NavSession.get(c).forget(id);
                 delete(target); if (!tmp.renameTo(target)) throw new IOException("Could not save the map");
                 post(new State(name, all, all, false, true, null));
-                NavSession.get(c).reload();
+                NavSession.get(c).reload(id);
             } catch (Exception e) {
                 delete(tmp);
                 String why = cancel.get() ? "Download cancelled" : e instanceof IOException && e.getMessage() != null && !e.getMessage().contains("://") ? e.getMessage() : "Download failed. Check your connection and try again.";

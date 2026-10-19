@@ -104,6 +104,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != laidW || b - t != laidH) { laidW = r - l; laidH = b - t; root.post(this::layoutInsets); } });
         sheet.swap(explore);
         mapView.getMapAsync(this::onMap);
+        worker.execute(() -> { if (!s.active && (AreaStore.state() == null || !AreaStore.state().running)) Housekeeping.run(this, false); });
         link = new DashboardLink(this, this); linkedQr = savedQr();
         handleIntent(getIntent());
     }
@@ -176,7 +177,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         map.addOnMapLongClickListener(p -> { onLongPress(p.getLatitude(), p.getLongitude()); return true; });
         map.addOnMapClickListener(p -> { if (mode == Mode.PIN) { go(Mode.EXPLORE); return true; } return false; });
         map.addOnCameraMoveListener(() -> { if (mode == Mode.SELECT) { ui.removeCallbacks(reselect); ui.postDelayed(reselect, 90); } });
-        map.addOnCameraIdleListener(() -> { if (mode == Mode.SELECT) reselect.run(); });
+        map.addOnCameraIdleListener(() -> {
+            if (mode == Mode.SELECT) { reselect.run(); return; }
+            if (mode == Mode.EXPLORE || mode == Mode.PIN) { LatLng t = map.getCameraPosition().target; s.showAt(t.getLatitude(), t.getLongitude()); }
+        });
         map.addOnCameraMoveStartedListener(reason -> {
             if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE && mode == Mode.RIDE && follow) { follow = false; paintLocateFab(); }
         });

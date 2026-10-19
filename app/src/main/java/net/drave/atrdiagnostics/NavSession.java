@@ -108,14 +108,20 @@ public final class NavSession {
         File config=new File(dir,"valhalla.json");try(FileOutputStream out=new FileOutputStream(config)){out.write(cfg.toString().getBytes("UTF-8"));}
         e=new Valhalla(config.getAbsolutePath());engines.put(r.id,e);return e;}
     /** Look for installed packs again, after a download or removal. A ride in progress keeps its pack. */
-    public void reload(){worker.execute(()->{if(active)return;load();});}
+    public void reload(){reload(null);}
+    /** Re-scan installed areas and show {@code prefer} if given (a fresh download), else the best one for where the rider is. */
+    public void reload(String prefer){worker.execute(()->{if(active)return;preferred=prefer;load();preferred=null;});}
+    private volatile String preferred;
+    /** Show the downloaded area at a map position the rider is looking at, so panning into another area swaps its roads, search and parking in. One area is held in memory at a time. */
+    public void showAt(double lat,double lon){if(!ready||active||routing)return;Region r=Region.at(regions,lat,lon);if(r==null||r==shown)return;
+        worker.execute(()->{if(active||r==shown)return;try{display(r);routeRegion=r;message(regionName+" offline · choose a destination");}catch(Throwable e){android.util.Log.e("Daanvia","Area switch failed",e);}});}
     /** Drop a removed pack's routing engine so its files are no longer held. Worker thread. */
     public void forget(String id){worker.execute(()->engines.remove(id));}
     private void load(){try{
         List<Region> found=discover();regions=Collections.unmodifiableList(found);
         if(found.isEmpty()){ready=false;noMap=true;shown=null;regionId="";regionVersion++;roads=Collections.emptyList();places=new JSONArray();parking=new JSONArray();roadsJson="{\"type\":\"FeatureCollection\",\"features\":[]}";message("No map installed");return;}
         noMap=false;
-        Region first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");
+        Region first=null;if(preferred!=null)for(Region r:found)if(r.id.equals(preferred))first=r;if(first==null){android.content.SharedPreferences cam=context.getSharedPreferences("ui",0);if(cam.contains("cam_lat"))first=Region.at(found,cam.getFloat("cam_lat",0),cam.getFloat("cam_lon",0));}if(first==null)first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");
     }catch(Throwable e){message("Offline region could not load: "+e.getClass().getSimpleName()+". Open Support.");android.util.Log.e("Daanvia","Offline load failed",e);}}
     public boolean inRegion(double a,double b){for(Region r:regions)if(r.contains(a,b))return true;return false;}
     public void plan(double a,double b,String name,boolean demo){
