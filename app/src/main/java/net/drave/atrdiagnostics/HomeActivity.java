@@ -60,6 +60,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private Frame frame; private LinearLayout selSheet, selTop, townResults; private EditText townField; private TextView selTitle, selKm, selSize, selBtn, selAlt; private View selBar; private FrameLayout selTrack;
     private AreaStore.Catalog catalog; private AreaStore.Selection selection; private SearchIndex towns; private boolean overview, suggestedOutside; private float sheetVisible; private String catalogError;
     private final AreaStore.Listener areas = this::onArea;
+    private final AppUpdate.Listener updates = this::onAppUpdate; private boolean updateOffered;
     // bike
     private DashboardLink link; private boolean started, askedLinkPermissions; private String linkedQr; private boolean pendingDemo;
     // pin
@@ -137,7 +138,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         super.onStart(); mapView.onStart(); started = true;
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
-        AreaStore.listen(areas);
+        AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
         refresh(); autoConnect();
     }
     protected void onResume() { super.onResume(); mapView.onResume(); themeCheckedAt = 0; refresh(); }
@@ -146,7 +147,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             getSharedPreferences("ui", 0).edit().putFloat("cam_lat", (float)c.target.getLatitude()).putFloat("cam_lon", (float)c.target.getLongitude()).putFloat("cam_zoom", (float)c.zoom).apply(); }
         mapView.onPause(); super.onPause();
     }
-    protected void onStop() { AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    protected void onStop() { AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     protected void onDestroy() { ui.removeCallbacksAndMessages(null); link.destroy(); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
@@ -444,6 +445,12 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (st.running) dotChip(regionChip, "Downloading · " + st.percent() + "%", ACCENT);
         else if (st.finished) { notice(st.name + " is ready to use offline"); refresh(); }
         else if (st.error != null) { notice(st.error); refresh(); }
+    }
+    /** A newer Daanvia is on GitHub: offer it once per launch, never mid-ride. */
+    private void onAppUpdate(AppUpdate.State st) {
+        if (updateOffered || st.release == null || !st.available() || st.downloading || s.active || mode == Mode.SELECT) return;
+        updateOffered = true;
+        notice("Daanvia " + st.release.version + " is available", "Update", this::openSettings);
     }
     /** Riding outside every downloaded area: offer to download where they are, once. */
     private void suggestOutside() {

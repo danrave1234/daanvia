@@ -20,6 +20,7 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
 public final class SettingsActivity extends Activity implements DashboardLink.Host {
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k; private DashboardLink link;
     private TftPreview preview; private TextView modelText, statusText, primary, liveChip, fitNote, licenseText; private LinearLayout permissionBanner, fitControls, scanRow; private View progress; private ValueAnimator progressAnim;
+    private LinearLayout updateBox; private final AppUpdate.Listener updateListener = st -> paintUpdate();
     private LinearLayout mapList; private AreaStore.Catalog catalog; private String confirmRemove;
     private final AreaStore.Listener areaListener = st -> paintMaps();
     private TextView adjust; private boolean fitting; private float[] old; private String oldLayout;
@@ -100,6 +101,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         // ---- about
         LinearLayout more = GabiPage.card(k); more.setPadding(k.dp(16), k.dp(12), k.dp(16), k.dp(6));
         more.addView(k.label("About"));
+        updateBox = k.column(0); more.addView(updateBox);
         more.addView(k.listRow(IconDrawable.SHARE, "Share navigation report", "Locations, destinations and pairing details are left out", null,
             () -> startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s.report()), "Share navigation report"))));
         more.addView(k.listRow(IconDrawable.CHECK, "Licenses and map data", "© OpenStreetMap contributors · ODbL", null, this::toggleLicenses));
@@ -113,9 +115,9 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     }
 
     protected void onStart() {
-        super.onStart(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps();
+        super.onStart(); AppUpdate.listen(updateListener); paintUpdate(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps();
         new Thread(() -> { try { AreaStore.Catalog fresh = AreaStore.fetch(this); runOnUiThread(() -> { catalog = fresh; paintMaps(); }); } catch (Exception ignored) {} }).start(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }
-    protected void onStop() { AreaStore.unlisten(areaListener); try { unregisterReceiver(changes); } catch (Exception ignored) {} super.onStop(); }
+    protected void onStop() { AppUpdate.unlisten(updateListener); AreaStore.unlisten(areaListener); try { unregisterReceiver(changes); } catch (Exception ignored) {} super.onStop(); }
     protected void onDestroy() { if (fitting) cancelFit(); progressAnim.cancel(); link.destroy(); super.onDestroy(); }
     public void finish() { super.finish(); overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out); }
 
@@ -176,6 +178,22 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     private void cancelFit() { s.insetLeft = old[0]; s.insetTop = old[1]; s.insetRight = old[2]; s.insetBottom = old[3]; s.textScale = old[4]; s.layout = oldLayout; endFit(); }
     private void endFit() { fitting = false; s.calibration = false; fitControls.setVisibility(View.GONE); s.signal(); paint(); }
 
+    /** App version, with check, download progress and install. */
+    private void paintUpdate() {
+        if (updateBox == null) return;
+        updateBox.removeAllViews();
+        AppUpdate.State st = AppUpdate.state();
+        String sub; String action = null; Runnable run = null;
+        if (st == null) { sub = "Tap to check for updates"; action = "Check"; run = () -> AppUpdate.check(this, false); }
+        else if (st.checking) sub = "Checking for updates…";
+        else if (st.downloading) sub = "Downloading " + st.release.version + " · " + st.percent() + "%";
+        else if (st.error != null) { sub = st.error; action = st.available() ? "Update" : "Check"; run = st.available() ? () -> AppUpdate.install(this) : () -> AppUpdate.check(this, false); }
+        else if (st.available()) { sub = "Version " + st.release.version + " is available · " + st.release.sizeLabel(); action = st.ready ? "Install" : "Update"; run = () -> AppUpdate.install(this); }
+        else { sub = "You have the latest version"; action = "Check"; run = () -> AppUpdate.check(this, false); }
+        LinearLayout r = k.listRow(IconDrawable.DOWNLOAD, "Daanvia " + BuildInfo.VERSION, sub, null, null);
+        if (action != null) { TextView a = k.text(action, 13.5f, 700, ACCENT); a.setPadding(k.dp(12), k.dp(8), 0, k.dp(8)); Runnable go = run; Gabi.press(a, () -> { if (s.active) { Gabi.shake(a); return; } go.run(); }); r.addView(a); }
+        updateBox.addView(r);
+    }
     /** Downloaded areas with size, km and update/remove, plus the download in progress. */
     private void paintMaps() {
         if (mapList == null) return;
