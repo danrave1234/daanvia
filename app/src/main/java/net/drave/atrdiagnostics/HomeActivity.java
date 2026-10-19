@@ -80,6 +80,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private double destLat, destLon; private String destName; private boolean pendingPlan, demoTrip;
     private Here here; private boolean centerOnFix, userMovedMap, firstFixHandled;
     static final long MAP_CACHE_BYTES = 200L * 1024 * 1024;
+    static final int SEARCH_PARKING_METERS = 150;
     private boolean routeCleared; private List<double[]> drawnShape; private List<JSONObject> drawnParking; private Gabi.Palette drawnParkingPalette; private ValueAnimator routeAnim;
     private boolean follow = true, haveShown; private double shownLat, shownLon; private float shownBearing; private ValueAnimator puckAnim, pulse; private long lastFix = -1;
     private long themeCheckedAt; private boolean centeredOnRegion, coastline; private int shownRegion = -1;
@@ -89,7 +90,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // ================================================================ lifecycle
     public void onCreate(Bundle state) {
         super.onCreate(state);
-        s = NavSession.get(this); MapLibre.getInstance(this); here = new Here(this, s);
+        s = NavSession.get(this); MapLibre.getInstance(this); here = new Here(this, s); rideMotion = new RideMotion(s);
         // Online map pieces stay on the phone after they are seen, so those places still show without signal.
         org.maplibre.android.offline.OfflineManager.getInstance(this).setMaximumAmbientCacheSize(MAP_CACHE_BYTES, null);
         theme = new Gabi.Themer(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)); k = new Gabi.Kit(this, theme);
@@ -113,7 +114,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         sheet.swap(explore);
         mapView.getMapAsync(this::onMap);
         worker.execute(() -> { if (!s.active && (AreaStore.state() == null || !AreaStore.state().running)) Housekeeping.run(this, false); });
-        link = new DashboardLink(this, this); linkedQr = savedQr();
+        link = DashboardLink.attach(this, this); linkedQr = savedQr();
         handleIntent(getIntent());
     }
     protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); handleIntent(i); }
@@ -158,7 +159,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         mapView.onPause(); super.onPause();
     }
     protected void onStop() { here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
-    protected void onDestroy() { ui.removeCallbacksAndMessages(null); link.destroy(); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
+    protected void onDestroy() { ui.removeCallbacksAndMessages(null); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
 
@@ -657,9 +658,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 List<Lots.Lot> near = new ArrayList<>();
                 if (lots != null && parent[n] == -1 && roots++ < 12) {
                     LinkedHashMap<String, Lots.Lot> all = new LinkedHashMap<>();
-                    for (Lots.Lot l : lots.near(la, lo, 300)) all.put(l.id, l);
-                    for (int c = 0; c < hits.length; c++) if (parent[c] == n) for (Lots.Lot l : lots.near(index.lat[hits[c]], index.lon[hits[c]], 300)) all.putIfAbsent(l.id, l);
-                    near.addAll(all.values()); Lots.rank(near, la, lo);
+                    // Parking that belongs to the place: on its grounds or right next door, the closest six.
+                    for (Lots.Lot l : lots.near(la, lo, SEARCH_PARKING_METERS)) all.put(l.id, l);
+                    for (int c = 0; c < hits.length; c++) if (parent[c] == n) for (Lots.Lot l : lots.near(index.lat[hits[c]], index.lon[hits[c]], SEARCH_PARKING_METERS)) all.putIfAbsent(l.id, l);
+                    near.addAll(all.values()); Lots.rank(near, la, lo); if (near.size() > 6) near = new ArrayList<>(near.subList(0, 6));
                 }
                 String around = nearOf[n] == null ? null : "Near " + nearOf[n];
                 String sub = parent[n] != -1 ? "Part of " + index.names[hits[parent[n]]] : near.isEmpty() ? around : (around == null ? "" : around + " \u00b7 ") + near.size() + " parking nearby";
@@ -1152,7 +1154,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             if (!routeCleared) { if (routeAnim != null) routeAnim.cancel(); route.setGeoJson(MapStyle.empty()); done.setGeoJson(MapStyle.empty()); routeCleared = true; }
             drawnShape = null;
         } else if (mode == Mode.ROUTE && shape != drawnShape) { routeCleared = false; drawnShape = shape; done.setGeoJson(MapStyle.empty()); drawRouteIn(shape); ui.postDelayed(() -> { if (drawnShape == shape) fitRoute(shape); }, 120); }
-        else if (mode == Mode.RIDE) {
+        else if (mode == Mode.RIDE && !rideFrames) {
             drawnShape = shape; routeCleared = false; int prog = Math.min(s.progress, shape.size() - 1); double[] here = {s.viewLat, s.viewLon};
             route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, prog + 1, shape.size(), here)));
             done.setGeoJson(Feature.fromGeometry(withHead(shape, prog, here)));
@@ -1211,6 +1213,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         GeoJsonSource puck = src(MapStyle.PUCK); if (puck == null) return;
         boolean visible = s.fixAt > 0 || s.active;
         if (!visible) { puck.setGeoJson(MapStyle.empty()); stopPulse(); haveShown = false; return; }
+        if (mode == Mode.RIDE && s.active) { stopPulse(); if (puckAnim != null) puckAnim.cancel(); startRideFrames(); return; }
         if (s.fixAt == lastFix && haveShown) return;
         lastFix = s.fixAt;
         double toLat = s.viewLat, toLon = s.viewLon; float toBearing = s.viewBearing;
@@ -1232,6 +1235,36 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         puckAnim.start();
         if (mode == Mode.RIDE) stopPulse(); else startPulse();
     }
+    // During a ride the arrow moves every frame along the road at the rider's speed (the same motion as the bike
+    // display), so it never trails a second behind the real position.
+    private RideMotion rideMotion; private boolean rideFrames; private long rideFrameAt, routeSplitAt;
+    private final android.view.Choreographer.FrameCallback rideFrame = new android.view.Choreographer.FrameCallback() {
+        public void doFrame(long nanos) {
+            if (!rideFrames || isDestroyed()) return;
+            if (mode != Mode.RIDE || !s.active) { rideFrames = false; return; }
+            GeoJsonSource puck = src(MapStyle.PUCK);
+            long now = SystemClock.elapsedRealtime(); float gap = rideFrameAt == 0 ? 16f : Math.min(1000f, now - rideFrameAt); rideFrameAt = now;
+            rideMotion.update(now, gap);
+            if (puck != null && rideMotion.lat != 0) {
+                shownLat = rideMotion.lat; shownLon = rideMotion.lon; shownBearing = rideMotion.bearing; haveShown = true;
+                Feature feature = MapStyle.point(shownLat, shownLon);
+                feature.addStringProperty("icon", "puck-arrow"); feature.addNumberProperty("bearing", shownBearing); feature.addNumberProperty("r0", 0);
+                puck.setGeoJson(feature);
+                if (follow) follow();
+                // The route line starts at the arrow, ten times a second.
+                List<double[]> shape = s.shape;
+                if (now - routeSplitAt > 100 && shape.size() > 1) {
+                    routeSplitAt = now; drawnShape = shape; routeCleared = false;
+                    GeoJsonSource route = src(MapStyle.ROUTE), done = src(MapStyle.DONE); int from = Math.min(rideMotion.routeFrom, shape.size() - 1); double[] here = {shownLat, shownLon};
+                    if (route != null) route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, from + 1, shape.size(), here)));
+                    if (done != null) done.setGeoJson(Feature.fromGeometry(withHead(shape, from, here)));
+                }
+            }
+            android.view.Choreographer.getInstance().postFrameCallback(this);
+        }
+    };
+    private void startRideFrames() { if (rideFrames) return; rideFrames = true; rideFrameAt = 0; android.view.Choreographer.getInstance().postFrameCallback(rideFrame); }
+
     private void follow() {
         int h = mapView.getHeight();
         CameraPosition pos = new CameraPosition.Builder().target(new LatLng(shownLat, shownLon)).bearing(shownBearing).tilt(52)

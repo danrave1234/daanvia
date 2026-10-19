@@ -6,16 +6,17 @@ import org.json.*;
 import java.util.*;
 
 /**
- * The scene sent to the motorcycle TFT, laid out for its landscape screen the way Carbit-style dashboards
- * do: an instrument panel on the left (turn, distance, street, next turn, arrival) and a heading-up map on
- * the right. "Large turns" widens the panel. Safe insets, text size and the calibration grid apply as before.
+ * The scene sent to the motorcycle TFT: a heading-up, tilted map across the whole screen, with a turn card and a trip
+ * card floating on it. The rider places both cards and the arrow per bike (Settings › Bike display › Edit layout) so
+ * they stay clear of that bike's own speedometer and gauges. Safe insets, text size and the calibration grid apply too.
  */
 public final class DashboardRenderer {
     private final NavSession s; private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); private final Path path = new Path();
+    private final RideMotion motion;
     private Gabi.Palette pal = Gabi.NIGHT; private long palAt;
     private Typeface bold, semi, black;
 
-    public DashboardRenderer(NavSession session) { s = session; }
+    public DashboardRenderer(NavSession session) { s = session; motion = new RideMotion(session); }
 
     private void fonts() {
         if (bold != null) return;
@@ -28,7 +29,7 @@ public final class DashboardRenderer {
     }
 
     // ---------------------------------------------------------------- colors
-    private int panel() { return pal.night ? 0xFF0B1117 : 0xFFFFFFFF; }
+    private int panel() { return pal.night ? 0xF20B1117 : 0xF7FFFFFF; }
     private int ink() { return pal.night ? 0xFFF2F4F6 : 0xFF121A21; }
     private int soft() { return pal.night ? 0xFFB7C3CF : 0xFF3A4652; }
     private int muted() { return pal.night ? 0xFF7F8FA0 : 0xFF6B7885; }
@@ -62,75 +63,114 @@ public final class DashboardRenderer {
     }
 
     // ---------------------------------------------------------------- scene
+    /** The visible part of a w×h display after the safe insets, in display pixels. */
+    public RectF scene(int w, int h) { double[] r = GeoMath.safeRect(w, h, s.insetLeft, s.insetTop, s.insetRight, s.insetBottom); return new RectF((float)r[0], (float)r[1], (float)r[2], (float)r[3]); }
+
     public void draw(Canvas target, int w, int h) {
         fonts(); palette();
         target.drawColor(Color.BLACK);
-        double[] r = GeoMath.safeRect(w, h, s.insetLeft, s.insetTop, s.insetRight, s.insetBottom);
-        float width = (float)(r[2] - r[0]), height = (float)(r[3] - r[1]);
-        target.save(); target.clipRect((float)r[0], (float)r[1], (float)r[2], (float)r[3]); target.translate((float)r[0], (float)r[1]);
+        RectF r = scene(w, h); float width = r.width(), height = r.height();
+        target.save(); target.clipRect(r); target.translate(r.left, r.top);
         float scale = Math.min(width / 800f, height / 480f); float vw = width / scale, vh = height / scale; target.scale(scale, scale);
         if (s.calibration) { grid(target, vw, vh); target.restore(); return; }
-        boolean large = "Large turns".equals(s.layout);
-        float panelW = Math.round(vw * (large ? 0.5f : 0.37f));
-        drawMap(target, panelW, 0, vw - panelW, vh);
-        p.setStyle(Paint.Style.FILL); p.setColor(panel()); target.drawRect(0, 0, panelW, vh, p);
-        p.setColor(pal.night ? 0x14FFFFFF : 0x14000000); target.drawRect(panelW - 1.5f, 0, panelW, vh, p);
-        if (s.active) ride(target, panelW, vh, large); else idle(target, panelW, vh);
+        drawMap(target, vw, vh);
+        RectF turn = card(s.turnCard, vw, vh), trip = card(s.tripCard, vw, vh);
+        boolean sample = s.layoutEditing && !s.active;
+        if (s.active || sample) { turnCard(target, turn, sample); tripCard(target, trip, sample); } else idle(target, turn);
+        if (s.layoutEditing) outlines(target, turn, trip, s.arrowX * vw, s.arrowY * vh);
         target.restore();
     }
+    private static RectF card(float[] f, float vw, float vh) { return new RectF(f[0] * vw, f[1] * vh, (f[0] + f[2]) * vw, (f[1] + f[3]) * vh); }
+    private void cardBackground(Canvas c, RectF r) {
+        p.setStyle(Paint.Style.FILL); p.setColor(panel()); c.drawRoundRect(r, 18, 18, p);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.5f); p.setColor(pal.night ? 0x1FFFFFFF : 0x14000000); c.drawRoundRect(r, 18, 18, p);
+    }
+    /** Content grows and shrinks with the card the rider sized, and with the text size from Fit my TFT. */
+    private float unit(RectF r, float baseW, float baseH) { return Math.max(0.55f, Math.min(1.8f, Math.min(r.width() / baseW, r.height() / baseH) * s.textScale * ("Large turns".equals(s.layout) ? 1.15f : 1f))); }
 
-    private void ride(Canvas c, float pw, float vh, boolean large) {
-        float t = s.textScale, pad = 22;
+    private void turnCard(Canvas c, RectF r, boolean sample) {
+        cardBackground(c, r);
         JSONObject m = s.maneuvers.optJSONObject(s.maneuver);
-        boolean arriving = "Destination nearby".equals(s.instruction);
-        boolean stale = !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
-        int type = arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
-        float tile = (large ? 150 : 108) * Math.min(t, 1.25f);
-        RectF box = new RectF(pad, pad, pad + tile, pad + tile);
+        boolean arriving = !sample && "Destination nearby".equals(s.instruction);
+        boolean stale = !sample && !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
+        int type = sample ? 10 : arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
+        String dist = sample ? "200 m" : stale ? "GPS weak" : arriving ? "Arriving" : distance(s.distanceToTurn);
+        String street = sample ? "Sample Street" : arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : streetOf(m, s.instruction);
+        JSONObject next = sample || arriving ? null : s.maneuvers.optJSONObject(s.maneuver + 1);
+        String then = sample ? "Turn left" : next == null ? null : (next.optInt("type") >= 4 && next.optInt("type") <= 6 ? "Arrive" : streetOf(next, next.optString("instruction", "")));
+        int thenIcon = sample ? 15 : next == null ? 8 : next.optInt("type", 8);
+        boolean wide = r.width() > r.height() * 1.55f;
+        float k = unit(r, wide ? 420 : 280, wide ? 150 : 270), pad = 16 * k;
+        float tile = wide ? Math.min(r.height() - pad * 2, 104 * k) : Math.min(100 * k, r.height() * 0.42f);
+        RectF box = new RectF(r.left + pad, r.top + pad, r.left + pad + tile, r.top + pad + tile);
         p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(box, tile * 0.22f, tile * 0.22f, p);
         IconDrawable arrow = new IconDrawable(Maneuvers.icon(type), 0xFF1A1203).stroke(2.8f);
         int inset = Math.round(tile * 0.16f); arrow.setBounds(Math.round(box.left) + inset, Math.round(box.top) + inset, Math.round(box.right) - inset, Math.round(box.bottom) - inset); arrow.draw(c);
-        float y = box.bottom + (large ? 76 : 58) * t;
-        String dist = stale ? "GPS weak" : arriving ? "Arriving" : distance(s.distanceToTurn);
-        text(c, fit(dist, pw - pad * 2, (large ? 78 : 56) * t, black), pad, y, (large ? 78 : 56) * t, stale ? pal.danger : ink(), black);
-        String street = arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : streetOf(m, s.instruction);
-        float ss = (large ? 30 : 24) * t;
-        for (String line : wrap(street, pw - pad * 2, ss, bold, 2)) { y += ss * 1.2f; text(c, line, pad, y, ss, soft(), bold); }
-        JSONObject next = arriving ? null : s.maneuvers.optJSONObject(s.maneuver + 1);
-        float statsTop = vh - 92 * Math.min(t, 1.2f);
-        if (next != null && y + 52 < statsTop) {
-            y += 40; float is = 26;
-            text(c, "Then", pad, y, 18, muted(), semi);
-            p.setTextSize(18); p.setTypeface(semi); float tx = pad + p.measureText("Then") + 10;
-            IconDrawable ni = new IconDrawable(Maneuvers.icon(next.optInt("type", 8)), soft()).stroke(2.4f); ni.setBounds(Math.round(tx), Math.round(y - is + 4), Math.round(tx + is), Math.round(y + 4)); ni.draw(c);
-            int nt = next.optInt("type"); String ns = nt >= 4 && nt <= 6 ? "Arrive" : streetOf(next, next.optString("instruction", ""));
-            text(c, fit(ns, pw - tx - is - pad - 8, 18, semi), tx + is + 8, y, 18, soft(), semi);
-        }
-        p.setColor(pal.night ? 0x14FFFFFF : 0x12000000); c.drawRect(pad, statsTop - 14, pw - pad, statsTop - 12.5f, p);
-        String[] v = {String.valueOf(Math.max(1, Math.round(s.seconds / 60))), String.format(Locale.US, "%.1f", s.remaining / 1000), Gabi.clock(s.seconds).replace(" AM", "").replace(" PM", "")};
-        String[] u = {"MIN", "KM", "ARRIVE"};
-        float col = (pw - pad * 2) / 3f, vs = (large ? 38 : 30) * Math.min(t, 1.2f);
-        for (int i = 0; i < 3; i++) {
-            float x = pad + col * i;
-            text(c, fit(v[i], col - 6, vs, black), x, statsTop + vs, vs, i == 0 ? pal.accent : ink(), black);
-            p.setLetterSpacing(0.12f); text(c, u[i], x, statsTop + vs + 24, 13, muted(), bold); p.setLetterSpacing(0);
+        float x = wide ? box.right + pad : r.left + pad, textW = r.right - pad - x;
+        float ds = 52 * k, ss = 22 * k, ts = 17 * k;
+        float y = wide ? r.top + pad + ds * 0.86f : box.bottom + ds * 1.02f;
+        text(c, fit(dist, textW, ds, black), x, y, ds, stale ? pal.danger : ink(), black);
+        for (String line : wrap(street, textW, ss, bold, wide ? 1 : 2)) { if (y + ss * 1.25f > r.bottom - pad * 0.5f) break; y += ss * 1.25f; text(c, line, x, y, ss, soft(), bold); }
+        if (then != null && y + ts * 2.1f < r.bottom - pad * 0.4f) {
+            y += ts * 1.9f; text(c, "Then", x, y, ts, muted(), semi);
+            p.setTextSize(ts); p.setTypeface(semi); float tx = x + p.measureText("Then") + 8 * k, is = ts * 1.35f;
+            IconDrawable ni = new IconDrawable(Maneuvers.icon(thenIcon), soft()).stroke(2.4f); ni.setBounds(Math.round(tx), Math.round(y - is + 3 * k), Math.round(tx + is), Math.round(y + 3 * k)); ni.draw(c);
+            text(c, fit(then, r.right - pad - tx - is - 6 * k, ts, semi), tx + is + 6 * k, y, ts, soft(), semi);
         }
     }
 
-    private void idle(Canvas c, float pw, float vh) {
-        float pad = 24, t = s.textScale;
-        p.setLetterSpacing(0.18f); text(c, "DAANVIA", pad, pad + 16, 16, pal.accent, black); p.setLetterSpacing(0);
-        String clock = new java.text.SimpleDateFormat("h:mm", Locale.US).format(new Date());
-        text(c, clock, pad, pad + 16 + 92 * t, 88 * t, ink(), black);
-        float y = pad + 16 + 92 * t + 44;
-        if (!s.shape.isEmpty() && !s.destination.isEmpty()) {
-            text(c, "Route ready", pad, y, 18, muted(), bold);
-            for (String line : wrap(s.destination, pw - pad * 2, 26 * t, bold, 2)) { y += 32 * t; text(c, line, pad, y, 26 * t, ink(), bold); }
-            y += 40 * t; text(c, Gabi.minutes(s.seconds) + " · " + distance(s.remaining), pad, y, 24 * t, pal.accent, black);
+    private void tripCard(Canvas c, RectF r, boolean sample) {
+        cardBackground(c, r);
+        double secs = sample ? 12 * 60 : s.seconds, metres = sample ? 4500 : s.remaining;
+        String[] v = {String.valueOf(Math.max(1, Math.round(secs / 60))), String.format(Locale.US, "%.1f", metres / 1000), Gabi.clock(secs).replace(" AM", "").replace(" PM", "")};
+        String[] u = {"MIN", "KM", "ARRIVE"};
+        boolean row = r.width() >= r.height() * 1.25f;
+        if (row) {
+            float k = unit(r, 280, 140), pad = 14 * k, col = (r.width() - pad * 2) / 3f, vs = 32 * k, us = 12 * k;
+            float base = r.top + r.height() / 2f + vs * 0.25f;
+            for (int i = 0; i < 3; i++) {
+                float x = r.left + pad + col * i;
+                text(c, fit(v[i], col - 4, vs, black), x, base, vs, i == 0 ? pal.accent : ink(), black);
+                p.setLetterSpacing(0.12f); text(c, u[i], x, base + us * 1.9f, us, muted(), bold); p.setLetterSpacing(0);
+            }
         } else {
-            text(c, fit(s.ready ? s.regionName : "Getting the map ready…", pw - pad * 2, 20, bold), pad, y, 20, soft(), bold);
-            y += 30; text(c, fit("Choose a destination on your phone", pw - pad * 2, 17, semi), pad, y, 17, muted(), semi);
+            float k = unit(r, 150, 260), pad = 14 * k, line = (r.height() - pad * 2) / 3f, vs = Math.min(30 * k, line * 0.55f), us = 11 * k;
+            for (int i = 0; i < 3; i++) {
+                float y = r.top + pad + line * i + vs;
+                text(c, fit(v[i], r.width() - pad * 2, vs, black), r.left + pad, y, vs, i == 0 ? pal.accent : ink(), black);
+                p.setLetterSpacing(0.12f); text(c, u[i], r.left + pad, y + us * 1.6f, us, muted(), bold); p.setLetterSpacing(0);
+            }
         }
+    }
+
+    private void idle(Canvas c, RectF r) {
+        cardBackground(c, r);
+        float k = unit(r, 280, 270), pad = 18 * k, x = r.left + pad, w = r.width() - pad * 2;
+        p.setLetterSpacing(0.18f); text(c, "DAANVIA", x, r.top + pad + 13 * k, 14 * k, pal.accent, black); p.setLetterSpacing(0);
+        String clock = new java.text.SimpleDateFormat("h:mm", Locale.US).format(new Date());
+        float cs = Math.min(78 * k, r.height() * 0.34f), y = r.top + pad + 13 * k + cs * 1.02f;
+        text(c, fit(clock, w, cs, black), x, y, cs, ink(), black);
+        if (!s.shape.isEmpty() && !s.destination.isEmpty()) {
+            y += 30 * k; text(c, "Route ready", x, y, 15 * k, muted(), bold);
+            for (String line : wrap(s.destination, w, 22 * k, bold, 2)) { if (y + 28 * k > r.bottom - pad) break; y += 27 * k; text(c, line, x, y, 22 * k, ink(), bold); }
+            if (y + 32 * k < r.bottom) { y += 32 * k; text(c, fit(Gabi.minutes(s.seconds) + " · " + distance(s.remaining), w, 20 * k, black), x, y, 20 * k, pal.accent, black); }
+        } else {
+            y += 28 * k; text(c, fit(s.ready ? s.regionName : "Getting the map ready…", w, 17 * k, bold), x, y, 17 * k, soft(), bold);
+            if (y + 24 * k < r.bottom) { y += 24 * k; text(c, fit("Choose a destination on your phone", w, 14 * k, semi), x, y, 14 * k, muted(), semi); }
+        }
+    }
+
+    /** While editing: each card outlined and named, a corner handle to resize, and the arrow's spot. */
+    private void outlines(Canvas c, RectF turn, RectF trip, float ax, float ay) {
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3); p.setColor(pal.accent); p.setPathEffect(new DashPathEffect(new float[]{12, 8}, 0));
+        c.drawRoundRect(turn, 18, 18, p); c.drawRoundRect(trip, 18, 18, p); c.drawCircle(ax, ay, 34, p); p.setPathEffect(null);
+        for (RectF r : new RectF[]{turn, trip}) { p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawCircle(r.right - 4, r.bottom - 4, 11, p); p.setColor(0xFF1A1203); c.drawCircle(r.right - 4, r.bottom - 4, 4, p); }
+        label(c, "TURN", turn.left + 10, turn.top - 6); label(c, "TRIP", trip.left + 10, trip.top - 6); label(c, "ARROW", ax - 26, ay - 40);
+    }
+    private void label(Canvas c, String t, float x, float y) {
+        p.setTextSize(13); p.setTypeface(black); p.setLetterSpacing(0.1f); float tw = p.measureText(t);
+        float top = Math.max(2, y - 16); RectF b = new RectF(x - 6, top, x + tw + 8, top + 22);
+        p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(b, 8, 8, p); text(c, t, x, top + 16, 13, 0xFF1A1203, black); p.setLetterSpacing(0);
     }
 
     private static String distance(double m) { return m < 1000 ? Math.max(0, Math.round(m / 10) * 10) + " m" : String.format(Locale.US, "%.1f km", m / 1000); }
@@ -142,24 +182,42 @@ public final class DashboardRenderer {
     }
 
     // ---------------------------------------------------------------- map
-    private float cx, cy, cos, sin; private double clat, clon, mpp, coslat;
+    private float cx, cy, cos, sin, tilt; private double clat, clon, mpp = 3, coslat; private long lastFrame;
+    private final android.graphics.Camera lens = new android.graphics.Camera(); private final Matrix tiltMatrix = new Matrix();
+    /** Metres per pixel: close like Google Maps, a little wider at speed, closer for a turn and when arriving. */
+    private double targetMpp() {
+        if (!s.active) return 3.0;
+        double z = Math.max(1.0, Math.min(2.4, 1.0 + motion.speed * 0.07));
+        if (s.distanceToTurn > 0 && s.distanceToTurn < 200) z *= 0.8;
+        if (s.remaining < 400) z = Math.min(z, 0.85);
+        return z;
+    }
+    private float targetTilt() { return !s.active ? 0 : s.remaining < 400 ? 58 : 48; }
     private void project(double lat, double lon, float[] out) {
         float x = (float)((lon - clon) * coslat * 111195 / mpp), y = (float)(-(lat - clat) * 111195 / mpp);
         out[0] = cx + x * cos - y * sin; out[1] = cy + x * sin + y * cos;
     }
+    /** Where a place lands on screen after the tilt. */
+    private void screen(double lat, double lon, float[] out) { project(lat, lon, out); tiltMatrix.mapPoints(out); }
 
-    private void drawMap(Canvas c, float left, float top, float w, float h) {
-        c.save(); c.clipRect(left, top, left + w, top + h);
-        p.setStyle(Paint.Style.FILL); p.setColor(land()); c.drawRect(left, top, left + w, top + h, p);
+    private void drawMap(Canvas c, float w, float h) {
+        p.setStyle(Paint.Style.FILL); p.setColor(land()); c.drawRect(0, 0, w, h, p);
         boolean heading = s.active;
         List<double[]> route = s.shape;
-        clat = s.viewLat; clon = s.viewLon; coslat = Math.cos(Math.toRadians(clat));
-        mpp = s.active ? (s.remaining < 1000 ? 2.2 : 3.4) : 5.5;
-        double theta = heading ? Math.toRadians(-s.viewBearing) : 0; cos = (float)Math.cos(theta); sin = (float)Math.sin(theta);
-        cx = left + w / 2; cy = top + h * (heading ? 0.70f : 0.5f);
-        double reach = Math.hypot(w, h) * mpp, dLat = reach / 111195, dLon = reach / (111195 * coslat);
+        long now = SystemClock.elapsedRealtime(); float gap = lastFrame == 0 ? 1000f : Math.min(1000f, now - lastFrame), ease = Math.min(1f, gap / 700f); lastFrame = now;
+        motion.update(now, gap);
+        mpp += (targetMpp() - mpp) * ease; tilt += (targetTilt() - tilt) * ease;
+        clat = motion.lat == 0 ? s.viewLat : motion.lat; clon = motion.lon == 0 ? s.viewLon : motion.lon; coslat = Math.cos(Math.toRadians(clat));
+        double theta = heading ? Math.toRadians(-motion.bearing) : 0; cos = (float)Math.cos(theta); sin = (float)Math.sin(theta);
+        cx = s.arrowX * w; cy = s.arrowY * h;
+        // Tilt the map away from the rider like the phone's 3D view: the road ahead recedes towards the horizon.
+        lens.save(); lens.setLocation(0, 0, -10); lens.rotateX(tilt); lens.getMatrix(tiltMatrix); lens.restore();
+        tiltMatrix.preTranslate(-cx, -cy); tiltMatrix.postTranslate(cx, cy);
+        double reach = Math.hypot(w, h) * mpp * (tilt > 5 ? 3.2 : 1.2), dLat = reach / 111195, dLon = reach / (111195 * coslat);
         float[] pt = new float[2];
+        c.save(); c.concat(tiltMatrix);
         p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
+        float roadScale = (float)Math.max(0.6, Math.min(1.8, 2.0 / mpp));
         for (int pass = 0; pass < 2; pass++) for (NavSession.Road road : s.roads) {
             if (road.size() < 2 || path(road.kind)) continue;
             boolean major = road.kind.contains("primary") || road.kind.contains("trunk") || road.kind.contains("motorway") || road.kind.contains("secondary");
@@ -167,22 +225,26 @@ public final class DashboardRenderer {
             if (road.maxLat < clat - dLat || road.minLat > clat + dLat || road.maxLon < clon - dLon || road.minLon > clon + dLon) continue;
             path.reset();
             for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); if (j == 0) path.moveTo(pt[0], pt[1]); else path.lineTo(pt[0], pt[1]); }
-            p.setColor(road(road.kind)); p.setStrokeWidth(roadWidth(road.kind) * (float)(3.4 / mpp + 0.4)); c.drawPath(path, p);
+            p.setColor(road(road.kind)); p.setStrokeWidth(roadWidth(road.kind) * roadScale); c.drawPath(path, p);
         }
         if (route.size() > 1) {
-            int from = s.active ? Math.max(0, Math.min(s.progress, route.size() - 1)) : 0;
+            int from = s.active ? Math.max(0, Math.min(motion.routeFrom, route.size() - 1)) : 0;
             path.reset();
             if (s.active) { project(clat, clon, pt); path.moveTo(pt[0], pt[1]); }
             for (int i = from + (s.active ? 1 : 0); i < route.size(); i++) { double[] a = route.get(i); project(a[0], a[1], pt); if (path.isEmpty()) path.moveTo(pt[0], pt[1]); else path.lineTo(pt[0], pt[1]); }
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(17); p.setColor(pal.night ? 0xFF3B2804 : 0xFF8A5600); c.drawPath(path, p);
             p.setStrokeWidth(10); p.setColor(pal.accent); c.drawPath(path, p);
-            project(s.destLat, s.destLon, pt);
+        }
+        c.restore();
+        // Pins and the rider stand upright on the tilted map.
+        if (route.size() > 1) {
+            screen(s.destLat, s.destLon, pt);
             p.setStyle(Paint.Style.FILL); p.setColor(0xFFFFFFFF); c.drawCircle(pt[0], pt[1], 15, p); p.setColor(pal.accent); c.drawCircle(pt[0], pt[1], 12, p); p.setColor(0xFF1A1203); c.drawCircle(pt[0], pt[1], 4.5f, p);
         }
-        if (!route.isEmpty() && (!s.active || s.remaining < 1000)) parking(c, left, top, w, h, pt);
+        if (!route.isEmpty() && (!s.active || s.remaining < 1000)) parking(c, 0, 0, w, h, pt);
         if (s.active || s.fixAt > 0) {
-            project(clat, clon, pt);
-            c.save(); c.rotate(heading ? 0 : s.viewBearing, pt[0], pt[1]);
+            screen(clat, clon, pt);
+            c.save(); c.rotate(heading ? 0 : motion.bearing, pt[0], pt[1]);
             p.setStyle(Paint.Style.FILL); p.setColor(pal.night ? 0x40FFB020 : 0x30F5A300); c.drawCircle(pt[0], pt[1], 30, p);
             path.reset(); path.moveTo(pt[0], pt[1] - 20); path.lineTo(pt[0] + 15, pt[1] + 15); path.lineTo(pt[0], pt[1] + 7); path.lineTo(pt[0] - 15, pt[1] + 15); path.close();
             p.setColor(0xFFFFFFFF); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(6); c.drawPath(path, p);
@@ -191,20 +253,19 @@ public final class DashboardRenderer {
         }
         if (s.simulation) {
             p.setTextSize(15); p.setTypeface(black); p.setLetterSpacing(0.1f); float tw = p.measureText("DEMO");
-            RectF b = new RectF(left + w - tw - 40, top + 16, left + w - 16, top + 46); p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(b, 15, 15, p);
+            RectF b = new RectF(w - tw - 40, 16, w - 16, 46); p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(b, 15, 15, p);
             text(c, "DEMO", b.left + 12, b.bottom - 9, 15, 0xFF1A1203, black); p.setLetterSpacing(0);
         }
         p.setTextSize(11); p.setTypeface(semi); float aw = p.measureText("© OpenStreetMap contributors");
-        text(c, "© OpenStreetMap contributors", left + w - aw - 10, top + h - 8, 11, muted(), semi);
-        c.restore();
+        text(c, "© OpenStreetMap contributors", w - aw - 10, h - 8, 11, muted(), semi);
     }
 
     private void parking(Canvas c, float left, float top, float w, float h, float[] pt) {
         ArrayList<RectF> occupied = new ArrayList<>(); int shown = 0;
         for (int i = 0; i < s.nearbyParking.size() && shown < 3; i++) try {
             JSONObject lot = s.nearbyParking.get(i); double a = lot.getDouble("lat"), b = lot.getDouble("lon");
-            if (GeoMath.distance(a, b, s.destLat, s.destLon) > 700) continue;
-            project(a, b, pt); float x = pt[0], y = pt[1];
+            if (GeoMath.distance(a, b, s.destLat, s.destLon) > 300) continue;
+            screen(a, b, pt); float x = pt[0], y = pt[1];
             if (x < left + 24 || x > left + w - 24 || y < top + 24 || y > top + h - 30) continue;
             String price = MapStyle.priceOf(lot);
             p.setTextSize(18); p.setTypeface(black); float lw = price.isEmpty() ? 0 : Math.min(150, p.measureText(price) + 16);

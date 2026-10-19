@@ -19,6 +19,7 @@ import java.util.concurrent.*;
 
 public final class StreamService extends Service {
     public static volatile boolean navigationActive;
+    private boolean userStop;
     public static final String EVENT="net.drave.atrdiagnostics.STREAM_EVENT";
     private static final String PACKAGE="net.drave.atrdiagnostics";
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -47,7 +48,7 @@ public final class StreamService extends Service {
     private void log(String s){event("log",s);if("navigation".equals(mode)&&s.contains("failed"))NavSession.get(this).message("Display: "+s);}
     public int onStartCommand(Intent intent,int flags,int id) {
         if(intent==null){stopSelf();return START_NOT_STICKY;}
-        if("stop".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
+        if("stop".equals(intent.getAction())){userStop=true;stopSelf();return START_NOT_STICKY;}
         if(running){log("A stream test is already running. Stop it before starting another.");return START_NOT_STICKY;}
         try {
             mode=intent.getStringExtra("mode");
@@ -190,13 +191,13 @@ public final class StreamService extends Service {
     public void onDestroy() {
         navigationActive=false;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
-        if("navigation".equals(mode)&&NavSession.get(this).active)NavSession.get(this).message("Display disconnected · reconnect from Bike & fit");
+        if("navigation".equals(mode)&&NavSession.get(this).active&&!userStop)NavSession.get(this).message("Bike display dropped · reconnecting");
         running=false;if(deadline!=null)main.removeCallbacks(deadline);
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}
         workers.shutdownNow();
         synchronized(encoderLock){if(encoder!=null){encoder.close();encoder=null;}}
         if(projection!=null){if(projectionCallback!=null)projection.unregisterCallback(projectionCallback);projection.stop();projection=null;}
-        event("stopped","Stream test stopped. Frames sent="+frames+", bytes="+bytes+". User confirmation is needed to prove visible output.");
+        sendBroadcast(new Intent(EVENT).setPackage(getPackageName()).putExtra("kind","stopped").putExtra("message","Stream stopped. Frames sent="+frames+", bytes="+bytes+".").putExtra("mode",mode).putExtra("frames",frames).putExtra("bytes",bytes).putExtra("user",userStop));
         stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();
     }
 }

@@ -69,6 +69,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         tftHead.addView(k.info("This is what Daanvia sends to your bike’s screen. It updates live, but it’s drawn here on the phone, so colors may look a little different on the bike."));
         tft.addView(tftHead);
         preview = new TftPreview(this, s); tft.addView(preview, new LinearLayout.LayoutParams(-1, -2));
+        TextView layoutBtn = k.primary("Edit display layout", () -> { if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then edit the layout while parked.", android.widget.Toast.LENGTH_SHORT).show(); return; } startActivity(new Intent(this, TftLayoutActivity.class)); });
+        tft.addView(layoutBtn);
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
         fitNote = k.text("End the ride and adjust fit while parked.", 12.5f, 600, ACCENT); fitNote.setVisibility(View.GONE); tft.addView(fitNote);
         fitControls = k.column(6); fitControls.setVisibility(View.GONE); tft.addView(fitControls);
@@ -112,7 +114,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         more.addView(licenseText);
         c.addView(more);
 
-        link = new DashboardLink(this, this);
+        link = DashboardLink.attach(this, this);
         if (getIntent().getBooleanExtra("navigation_connect", false) && link.profileReady()) link.sendNavigation();
         paint();
     }
@@ -121,7 +123,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         super.onStart(); AppUpdate.listen(updateListener); paintUpdate(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps();
         new Thread(() -> { try { AreaStore.Catalog fresh = AreaStore.fetch(this); runOnUiThread(() -> { catalog = fresh; paintMaps(); }); } catch (Exception ignored) {} }).start(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }
     protected void onStop() { AppUpdate.unlisten(updateListener); AreaStore.unlisten(areaListener); try { unregisterReceiver(changes); } catch (Exception ignored) {} super.onStop(); }
-    protected void onDestroy() { if (fitting) cancelFit(); progressAnim.cancel(); link.destroy(); super.onDestroy(); }
+    protected void onDestroy() { if (fitting) cancelFit(); progressAnim.cancel(); link.detach(this); super.onDestroy(); }
     public void finish() { super.finish(); overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out); }
 
     private void paint() {

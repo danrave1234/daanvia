@@ -21,9 +21,10 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Dashboard discovery, pairing, identification and stream start, moved out of the old setup
- * screen without changing its behavior. One instance belongs to one screen and is released with
- * {@link #destroy()} from that screen's onDestroy, exactly as the old activity did.
+ * Dashboard discovery, pairing, identification and stream start. One instance serves the whole app: screens
+ * {@link #attach} to show its status and {@link #detach} when they close, so switching apps or screens never
+ * tears down the Wi-Fi Direct channel or the dashboard Wi-Fi while the bike display is live. If the display
+ * drops without the rider stopping it, the link reconnects on its own.
  */
 public final class DashboardLink {
     public interface Host {
@@ -39,7 +40,36 @@ public final class DashboardLink {
     public static final int MODE_NAVIGATION = 3, MODE_PATTERN = 1, MODE_MIRROR = 2;
 
     private final Context context;
-    private final Host ui;
+    private final List<Host> hosts = new ArrayList<>();
+    /** Forwards to the attached screens; permission prompts and "display started" go to the screen on top. */
+    private final Host ui = new Host() {
+        private List<Host> all() { synchronized (hosts) { return new ArrayList<>(hosts); } }
+        private Host top() { synchronized (hosts) { return hosts.isEmpty() ? null : hosts.get(0); } }
+        public void onStatus(String status) { for (Host h : all()) h.onStatus(status); }
+        public void onLog() { for (Host h : all()) h.onLog(); }
+        public void onChanged() { for (Host h : all()) h.onChanged(); }
+        public void requestPermissions(String[] permissions, int requestCode) { Host h = top(); if (h != null) h.requestPermissions(permissions, requestCode); else log("Open Daanvia to allow Nearby devices and location."); }
+        public void onPermissionsMissing() { Host h = top(); if (h != null) h.onPermissionsMissing(); }
+        public void onNavigationStarted() { Host h = top(); if (h != null) h.onNavigationStarted(); }
+    };
+    private static DashboardLink shared;
+    /** The app's one link, created on first use; the screen becomes the top host. */
+    public static synchronized DashboardLink attach(Context screen, Host host) {
+        if (shared == null) shared = new DashboardLink(screen.getApplicationContext());
+        synchronized (shared.hosts) { shared.hosts.remove(host); shared.hosts.add(0, host); }
+        return shared;
+    }
+    /** A screen is closing: stop sending it updates. The connection itself stays. */
+    public void detach(Host host) { synchronized (hosts) { hosts.remove(host); } }
+    private boolean userStopped; private int reconnects;
+    /** Try again after an unexpected drop: every 8 s for about three minutes, while auto-connect is on. */
+    private final Runnable reconnect = this::reconnectNow;
+    private void reconnectNow() {
+        if (StreamService.navigationActive || !profileReady || !hasPermissions()) return;
+        if (!context.getSharedPreferences("ui", 0).getBoolean("autoconnect", true) || reconnects > 22) return;
+        if (!running) { reconnects++; log("Reconnecting to the bike display (attempt " + reconnects + ")."); sendNavigation(); }
+        main.postDelayed(reconnect, 8000);
+    }
     private String SSID = "", MAC = "", password = "", model = "", qrAction = "";
     private boolean profileReady;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -85,7 +115,10 @@ public final class DashboardLink {
             } else if ("negotiated".equals(kind)) label("Video format negotiated • sending…");
             else if ("stopped".equals(kind)) {
                 frameEvidence.put(event.getStringExtra("mode"), event.getLongExtra("frames", 0));
+                boolean dropped = "navigation".equals(event.getStringExtra("mode")) && !userStopped && !event.getBooleanExtra("user", false);
+                userStopped = false;
                 serviceActive = false; cleanup(); ui.onChanged();
+                if (dropped) { reconnects = 0; label("Bike display dropped • reconnecting…"); main.removeCallbacks(reconnect); main.postDelayed(reconnect, 3000); }
                 label(visualEvidence.containsKey(lastStreamMode) ? "User reported: " + visualEvidence.get(lastStreamMode) : sawFrames ? "Test ended • confirm what appeared" : "No video confirmed • share report");
             }
         }
@@ -98,13 +131,13 @@ public final class DashboardLink {
         }
     };
 
-    public DashboardLink(Context context, Host host) {
-        this.context = context; this.ui = host;
+    private DashboardLink(Context context) {
+        this.context = context;
         cm = (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
         wifi = (WifiManager)context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         p2p = (WifiP2pManager)context.getSystemService(Context.WIFI_P2P_SERVICE);
         nsd = (NsdManager)context.getSystemService(Context.NSD_SERVICE);
-        if (p2p != null) channel = p2p.initialize(context, context.getMainLooper(), () -> log("Wi-Fi Direct channel closed. Reopen the app."));
+        if (p2p != null) channel = p2p.initialize(context, context.getMainLooper(), () -> { log("Wi-Fi Direct channel closed."); channel = p2p.initialize(context, context.getMainLooper(), null); });
         IntentFilter f = new IntentFilter();
         f.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
         f.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
@@ -414,7 +447,7 @@ public final class DashboardLink {
                         Intent service = new Intent(context, StreamService.class).putExtra("host", host.getHostAddress()).putExtra("local", local).putExtra("port", port)
                             .putExtra("mode", lastStreamMode).putExtra("network", network == null ? 0 : network.getNetworkHandle());
                         if (consent != null) service.putExtra("consent", consent);
-                        try { context.startForegroundService(service); if (selected == MODE_NAVIGATION) ui.onNavigationStarted(); } catch (Exception e) { serviceActive = false; finishRun("Could not start stream test"); log(e.getClass().getSimpleName()); }
+                        try { context.startForegroundService(service); if (selected == MODE_NAVIGATION) { reconnects = 0; main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } } catch (Exception e) { serviceActive = false; finishRun("Could not start stream test"); log(e.getClass().getSimpleName()); }
                     });
                 } catch (Exception e) { log("Cannot start video: " + e.getClass().getSimpleName()); testing.set(false); }
             });
@@ -506,7 +539,7 @@ public final class DashboardLink {
         for (RouteInfo r : lp.getRoutes()) if (r.getGateway() instanceof Inet4Address && !r.getGateway().isAnyLocalAddress())
             target(r.getGateway(), lp.getInterfaceName(), n, "Android QR-specific network request");
     }
-    private void finishRun(String message) { context.stopService(new Intent(context, StreamService.class)); serviceActive = false; if (running) log(message + ". Report remains available."); cleanup(); label(message); ui.onChanged(); }
+    private void finishRun(String message) { userStopped = true; main.removeCallbacks(reconnect); context.stopService(new Intent(context, StreamService.class)); serviceActive = false; if (running) log(message + ". Report remains available."); cleanup(); label(message); ui.onChanged(); }
     private void cleanup() {
         running = false; generation++;
         if (ownDiscovery && p2p != null && channel != null) {
@@ -523,7 +556,8 @@ public final class DashboardLink {
         if (discovery != null) { try { nsd.stopServiceDiscovery(discovery); } catch (Exception ignored) {} discovery = null; }
         services.clear(); resolving = false;
         if (multicast != null && multicast.isHeld()) multicast.release(); multicast = null;
-        if (apCallback != null) { try { cm.unregisterNetworkCallback(apCallback); } catch (Exception ignored) {} apCallback = null; }
+        // The dashboard Wi-Fi stays requested while the display streams; releasing it would let Android drop the network.
+        if (apCallback != null && !serviceActive) { try { cm.unregisterNetworkCallback(apCallback); } catch (Exception ignored) {} apCallback = null; }
         // Do not remove a group: it may belong to the user's existing Carbit session.
     }
 
@@ -561,13 +595,5 @@ public final class DashboardLink {
         return Uri.parse("content://net.drave.atrdiagnostics.report/atr-report.json");
     }
 
-    public void destroy() {
-        destroyed = true;
-        if (!StreamService.navigationActive && !"navigation".equals(lastStreamMode)) context.stopService(new Intent(context, StreamService.class));
-        cleanup();
-        try { context.unregisterReceiver(streamReceiver); } catch (Exception ignored) {}
-        try { context.unregisterReceiver(receiver); } catch (Exception ignored) {}
-        if (channel != null) channel.close();
-        io.shutdownNow();
-    }
+
 }

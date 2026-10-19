@@ -74,10 +74,10 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         logScroll.addView(log); logs.addView(logScroll, new LinearLayout.LayoutParams(-1, k.dp(260)));
         c.addView(logs);
 
-        link = new DashboardLink(this, this);
+        link = DashboardLink.attach(this, this);
         status.setText(link.status()); onLog(); onChanged();
     }
-    protected void onDestroy() { stopGps(); link.destroy(); super.onDestroy(); }
+    protected void onDestroy() { stopGps(); link.detach(this); super.onDestroy(); }
     protected void onPause() { stopGps(); super.onPause(); }
 
     // ---- GPS check

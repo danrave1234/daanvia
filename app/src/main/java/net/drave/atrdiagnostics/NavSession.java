@@ -36,6 +36,14 @@ public final class NavSession {
     public volatile String regionName="Offline region";public volatile double[] demoFrom={10.3157,123.8854},demoTo={10.2934,123.9019};public volatile String demoName="Sample route";
     public volatile double[] home;public double homeLat(){return home!=null?home[0]:ready?(minLat+maxLat)/2:lat;}public double homeLon(){return home!=null?home[1]:ready?(minLon+maxLon)/2:lon;}
     public float insetLeft,insetTop,insetRight,insetBottom,textScale=1;public String layout="Map focus";
+    /** The bike display's cards and arrow, as fractions of its visible area (x, y, width, height), saved per bike so they can sit clear of that bike's own gauges. */
+    public static final float[] DEFAULT_TURN={0.02f,0.03f,0.34f,0.57f},DEFAULT_TRIP={0.02f,0.63f,0.34f,0.33f};public static final float DEFAULT_ARROW_X=0.68f,DEFAULT_ARROW_Y=0.72f;
+    public volatile float[] turnCard=DEFAULT_TURN.clone(),tripCard=DEFAULT_TRIP.clone();public volatile float arrowX=DEFAULT_ARROW_X,arrowY=DEFAULT_ARROW_Y;
+    /** True while the layout editor is open: the display shows sample directions and outlines its cards. */
+    public volatile boolean layoutEditing;
+    public void resetLayout(){turnCard=DEFAULT_TURN.clone();tripCard=DEFAULT_TRIP.clone();arrowX=DEFAULT_ARROW_X;arrowY=DEFAULT_ARROW_Y;}
+    static String cards(float[] t,float[] r,float ax,float ay){StringBuilder b=new StringBuilder();for(float v:t)b.append(v).append(',');for(float v:r)b.append(v).append(',');return b.append(ax).append(',').append(ay).toString();}
+    void cards(String saved){resetLayout();if(saved==null||saved.isEmpty())return;try{String[] v=saved.split(",");if(v.length!=10)return;float[] n=new float[10];for(int i=0;i<10;i++)n[i]=Float.parseFloat(v[i]);turnCard=new float[]{n[0],n[1],n[2],n[3]};tripCard=new float[]{n[4],n[5],n[6],n[7]};arrowX=n[8];arrowY=n[9];}catch(NumberFormatException e){resetLayout();}}
     /** A road line for the bike display, its points packed as lat,lon floats (about 1 m precision) to keep a large area in memory. */
     public static final class Road {private final float[] xy;public final String name,kind;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
         Road(float[] xy,String n,String k){this.xy=xy;name=n;kind=k;for(int i=0;i+1<xy.length;i+=2){minLat=Math.min(minLat,xy[i]);maxLat=Math.max(maxLat,xy[i]);minLon=Math.min(minLon,xy[i+1]);maxLon=Math.max(maxLon,xy[i+1]);}}
@@ -194,7 +202,7 @@ public final class NavSession {
             if(rem<35&&GeoMath.distance(a,b,destLat,destLon)<45){instruction="Destination nearby";message((demo?"SIMULATION · ":"")+"Destination nearby");}
         }catch(JSONException ignored){}signal();
     }
-    private void refreshParking(){ArrayList<JSONObject> list=new ArrayList<>();for(int i=0;i<parking.length();i++){JSONObject p=parking.optJSONObject(i);if(p!=null&&GeoMath.distance(p.optDouble("lat"),p.optDouble("lon"),destLat,destLon)<=700)list.add(p);}list.sort((a,b)->Double.compare(GeoMath.distance(a.optDouble("lat"),a.optDouble("lon"),destLat,destLon),GeoMath.distance(b.optDouble("lat"),b.optDouble("lon"),destLat,destLon)));nearbyParking=Collections.unmodifiableList(list);}
+    private void refreshParking(){ArrayList<JSONObject> list=new ArrayList<>();for(int i=0;i<parking.length();i++){JSONObject p=parking.optJSONObject(i);if(p!=null&&GeoMath.distance(p.optDouble("lat"),p.optDouble("lon"),destLat,destLon)<=350)list.add(p);}list.sort((a,b)->Double.compare(GeoMath.distance(a.optDouble("lat"),a.optDouble("lon"),destLat,destLon),GeoMath.distance(b.optDouble("lat"),b.optDouble("lon"),destLat,destLon)));nearbyParking=Collections.unmodifiableList(list.size()>8?new ArrayList<>(list.subList(0,8)):list);}
     private void mergeSavedParking(){try{JSONArray saved=new JSONArray(context.getSharedPreferences("parking-local",0).getString("records","[]"));for(int i=0;i<saved.length();i++)parking.put(saved.getJSONObject(i));}catch(JSONException ignored){}}
     public synchronized void saveParking(double a,double b,String name,String amount,String basis)throws Exception{
         JSONObject lot=new JSONObject().put("id",UUID.randomUUID().toString()).put("lat",a).put("lon",b).put("name",name).put("source","Owner-entered").put("motorcycle",true).put("access","yes");
@@ -202,7 +210,7 @@ public final class NavSession {
         JSONArray saved=new JSONArray(context.getSharedPreferences("parking-local",0).getString("records","[]"));saved.put(lot);context.getSharedPreferences("parking-local",0).edit().putString("records",saved.toString()).apply();parking.put(lot);refreshParking();signal();
     }
     private String fitStore(){String raw=context.getSharedPreferences("saved-bike",0).getString("qr","");try{QrProfile p=QrProfile.parse(raw);return "display-fit-"+Integer.toHexString((p.mac+"/"+p.ssid+"/"+p.model).hashCode());}catch(Exception e){return "display-fit-generic";}}
-    public void loadFit(){android.content.SharedPreferences p=context.getSharedPreferences(fitStore(),0);insetLeft=p.getFloat("left",0);insetTop=p.getFloat("top",0);insetRight=p.getFloat("right",0);insetBottom=p.getFloat("bottom",0);textScale=p.getFloat("text",1);layout=p.getString("layout","Map focus");}
-    public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).apply();signal();}
+    public void loadFit(){android.content.SharedPreferences p=context.getSharedPreferences(fitStore(),0);insetLeft=p.getFloat("left",0);insetTop=p.getFloat("top",0);insetRight=p.getFloat("right",0);insetBottom=p.getFloat("bottom",0);textScale=p.getFloat("text",1);layout=p.getString("layout","Map focus");cards(p.getString("cards",""));}
+    public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).putString("cards",cards(turnCard,tripCard,arrowX,arrowY)).apply();signal();}
     public String routeJson(){try{JSONArray points=new JSONArray();for(double[] p:shape)points.put(new JSONArray().put(p[1]).put(p[0]));return new JSONObject().put("type","Feature").put("properties",new JSONObject()).put("geometry",new JSONObject().put("type","LineString").put("coordinates",points)).toString();}catch(Exception e){return "{\"type\":\"FeatureCollection\",\"features\":[]}";}}
 }
