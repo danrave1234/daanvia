@@ -2,7 +2,7 @@
 
 Offline motorcycle navigation for Android that projects its own navigation scene to a QJ Motor / ATR 160 dashboard over Wi-Fi Direct. Not certified for road use.
 
-Download the latest APK from [Releases](https://github.com/danrave1234/daanvia/releases/latest). Use the `arm64-v8a` APK on phones. Later versions update from inside the app (Settings › About).
+Download `daanvia-<version>.apk` from the [latest release](https://github.com/danrave1234/daanvia/releases/latest). The one APK runs on any Android 10+ phone. Later versions update from inside the app (Settings › About).
 
 ## What it does
 
@@ -20,13 +20,13 @@ JDK 21, Android SDK platform 36:
 
     ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug
 
-Gradle 8.13 and Android Gradle Plugin 8.13.2. Min SDK 29, target SDK 35. Release builds produce one APK per CPU type (`arm64-v8a`, `x86_64`). No API keys are needed.
+Gradle 8.13 and Android Gradle Plugin 8.13.2. Min SDK 29, target SDK 35. The release build is one APK for 64-bit and 32-bit ARM phones and x86_64 emulators. No API keys are needed.
 
 Both build types are signed with `signing/prototype.p12`, a public prototype TEST key, so new builds install over earlier test builds. It must never become the production signing key.
 
 ## Releases
 
-App releases (`vX.Y.Z`) carry only the APKs, one per CPU type. The app checks `releases/latest` for updates.
+App releases (`vX.Y.Z`) carry only the app: one `daanvia-X.Y.Z.apk`. The app checks `releases/latest` for updates.
 
 The downloadable map areas live in a separate release tagged `maps`, which the app reads from `releases/download/maps/`:
 

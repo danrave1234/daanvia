@@ -60,13 +60,19 @@ public final class AppUpdate {
     private static String clean(String v) { v = v.trim(); return v.startsWith("v") || v.startsWith("V") ? v.substring(1) : v; }
     private static int num(String s) { try { return Integer.parseInt(s.replaceAll("\\D", "")); } catch (NumberFormatException e) { return 0; } }
 
-    /** Pick the APK built for this phone's CPU from the release's files. */
+    private static final String[] ABIS = {"arm64-v8a", "armeabi-v7a", "x86_64", "x86"};
+    /** Pick the APK built for this phone's CPU from the release's files, else the one APK that runs on every phone. */
     static Release parse(String json, String[] abis) throws JSONException {
         JSONObject r = new JSONObject(json); JSONArray assets = r.optJSONArray("assets");
         String version = clean(r.optString("tag_name")); JSONObject pick = null;
         if (assets != null) for (String abi : abis) {
             for (int i = 0; i < assets.length() && pick == null; i++) { JSONObject a = assets.getJSONObject(i); String n = a.optString("name"); if (n.endsWith(".apk") && n.contains(abi)) pick = a; }
             if (pick != null) break;
+        }
+        if (pick == null && assets != null) for (int i = 0; i < assets.length() && pick == null; i++) {
+            JSONObject a = assets.getJSONObject(i); String n = a.optString("name"); boolean universal = n.endsWith(".apk");
+            for (String abi : ABIS) if (n.contains(abi)) universal = false;
+            if (universal) pick = a;
         }
         if (pick == null) return new Release(version, r.optString("body"), null, null, "", 0);
         String digest = pick.optString("digest"); if (digest.startsWith("sha256:")) digest = digest.substring(7);
