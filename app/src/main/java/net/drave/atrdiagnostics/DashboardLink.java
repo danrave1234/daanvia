@@ -141,6 +141,10 @@ public final class DashboardLink {
         pendingStream = 0; permissions(true);
     }
     public void stop() { finishRun("Stopped"); }
+    /** Stop looking for the dashboard without touching a stream that is already running. */
+    public void pauseSearch() { if (running && !serviceActive) { cleanup(); label(profileReady ? "Not connected" : verdict); ui.onChanged(); } }
+    /** Release discovery once the display is live, as the old setup screen did when it closed after connecting. */
+    public void settle() { if (running) cleanup(); }
     /** Called before the QR camera or photo picker opens. */
     public void resetForScan() { context.stopService(new Intent(context, StreamService.class)); cleanup(); }
 
@@ -157,7 +161,7 @@ public final class DashboardLink {
     public void note(String s) { log(s); }
     public void setStatus(String s) { label(s); }
 
-    private boolean hasPermissions() {
+    public boolean hasPermissions() {
         return context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
             (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED);
     }

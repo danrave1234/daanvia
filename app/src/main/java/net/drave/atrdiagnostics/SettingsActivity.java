@@ -15,8 +15,8 @@ import java.nio.charset.StandardCharsets;
 
 import static net.drave.atrdiagnostics.Gabi.Role.*;
 
-/** Bike & display: connect the saved bike, preview and fit the TFT scene, theme and support links. */
-public final class BikeActivity extends Activity implements DashboardLink.Host {
+/** Settings: the bike connection, TFT fit, map theme, testing tools and app information. */
+public final class SettingsActivity extends Activity implements DashboardLink.Host {
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k; private DashboardLink link;
     private TftPreview preview; private TextView modelText, statusText, primary, liveChip, fitNote, licenseText; private LinearLayout permissionBanner, fitControls, scanRow; private View progress; private ValueAnimator progressAnim;
     private TextView adjust; private boolean fitting; private float[] old; private String oldLayout;
@@ -25,11 +25,12 @@ public final class BikeActivity extends Activity implements DashboardLink.Host {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         s = NavSession.get(this); theme = new Gabi.Themer(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)); k = new Gabi.Kit(this, theme);
-        GabiPage page = new GabiPage(this, k, "Bike & display");
+        GabiPage page = new GabiPage(this, k, "Settings");
         LinearLayout c = page.content;
 
         // ---- connection
         LinearLayout bike = GabiPage.card(k);
+        bike.addView(k.label("Bike"));
         LinearLayout head = k.row(12);
         FrameLayout bub = new FrameLayout(this); k.fill(bub, 14, ACCENT_SOFT); bub.addView(k.icon(IconDrawable.BIKE, 22, ACCENT), new FrameLayout.LayoutParams(k.dp(22), k.dp(22), Gravity.CENTER));
         head.addView(bub, new LinearLayout.LayoutParams(k.dp(46), k.dp(46)));
@@ -47,6 +48,10 @@ public final class BikeActivity extends Activity implements DashboardLink.Host {
         scanRow.addView(k.ghost("QR photo", this::scanPhoto), new LinearLayout.LayoutParams(0, -2, 1));
         bike.addView(scanRow);
         bike.addView(k.text("Park first. Close Carbit Ride and keep the dashboard’s Android QR screen open. Wi-Fi on, hotspot off.", 12.5f, 500, MUTED));
+        bike.addView(k.text("Connect automatically when Daanvia opens", 14, 650, INK));
+        boolean auto = getSharedPreferences("ui", 0).getBoolean("autoconnect", true);
+        bike.addView(k.segmented(new String[]{"On", "Off"}, auto ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("autoconnect", i == 0).apply()));
+        bike.addView(k.text("While the app is open, Daanvia keeps looking for the saved dashboard and connects as soon as its QR screen is waiting.", 12.5f, 500, MUTED));
         permissionBanner = k.column(10); permissionBanner.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(permissionBanner, 16, DANGER_SOFT); permissionBanner.setVisibility(View.GONE);
         permissionBanner.addView(k.text("Android needs Nearby devices and precise location for the Wi-Fi connection. Daanvia does not collect GPS positions for this.", 13, 550, INK));
         permissionBanner.addView(k.ghost("Open app settings", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))));
@@ -55,7 +60,7 @@ public final class BikeActivity extends Activity implements DashboardLink.Host {
 
         // ---- TFT preview and fit
         LinearLayout tft = GabiPage.card(k);
-        tft.addView(k.label("What the bike shows"));
+        tft.addView(k.label("Bike display"));
         preview = new TftPreview(this, s); tft.addView(preview, new LinearLayout.LayoutParams(-1, -2));
         tft.addView(k.text("A preview drawn on this phone, not a capture from the TFT.", 12, 500, MUTED));
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
@@ -71,11 +76,19 @@ public final class BikeActivity extends Activity implements DashboardLink.Host {
         look.addView(k.text("Auto switches to the night map after sunset where you are riding, and back at sunrise.", 12.5f, 500, MUTED));
         c.addView(look);
 
-        // ---- more
-        LinearLayout more = GabiPage.card(k); more.setPadding(k.dp(16), k.dp(6), k.dp(16), k.dp(6));
+        // ---- testing
+        LinearLayout test = GabiPage.card(k); test.setPadding(k.dp(16), k.dp(12), k.dp(16), k.dp(6));
+        test.addView(k.label("Testing"));
+        test.addView(k.listRow(IconDrawable.PLAY, "Demo ride", "Simulates a sample route on the phone and the bike display, to check the setup while parked", null,
+            () -> { startActivity(new Intent(this, HomeActivity.class).putExtra("demo", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }));
+        test.addView(k.listRow(IconDrawable.TOOLS, "Support and test tools", "Connection test, test pattern, mirror test, logs", null, () -> startActivity(new Intent(this, SupportActivity.class))));
+        c.addView(test);
+
+        // ---- about
+        LinearLayout more = GabiPage.card(k); more.setPadding(k.dp(16), k.dp(12), k.dp(16), k.dp(6));
+        more.addView(k.label("About"));
         more.addView(k.listRow(IconDrawable.SHARE, "Share navigation report", "Locations, destinations and pairing details are left out", null,
             () -> startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s.report()), "Share navigation report"))));
-        more.addView(k.listRow(IconDrawable.TOOLS, "Support and test tools", "Connection test, test pattern, mirror test, logs", null, () -> startActivity(new Intent(this, SupportActivity.class))));
         more.addView(k.listRow(IconDrawable.CHECK, "Licenses and map data", "© OpenStreetMap contributors · ODbL", null, this::toggleLicenses));
         licenseText = k.text("", 11, 500, MUTED); licenseText.setTypeface(android.graphics.Typeface.MONOSPACE); licenseText.setVisibility(View.GONE); licenseText.setTextIsSelectable(true);
         more.addView(licenseText);

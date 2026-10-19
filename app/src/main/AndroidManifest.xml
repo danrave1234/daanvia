@@ -20,8 +20,13 @@
     <application android:label="Daanvia" android:icon="@mipmap/ic_launcher" android:dataExtractionRules="@xml/data_extraction_rules" android:fullBackupContent="false" android:theme="@style/AppTheme" android:allowBackup="false" android:usesCleartextTraffic="false">
         <activity android:name=".HomeActivity" android:exported="true" android:configChanges="orientation|screenSize|uiMode" android:launchMode="singleTop" android:windowSoftInputMode="adjustNothing">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <!-- Save places shared from Google Maps or any map app -->
+            <intent-filter android:label="Save in Daanvia"><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="geo" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" /><data android:host="maps.app.goo.gl" /><data android:host="maps.google.com" /></intent-filter>
         </activity>
-        <activity android:name=".BikeActivity" android:exported="false" android:configChanges="orientation|screenSize" android:windowSoftInputMode="adjustNothing" />
+        <activity android:name=".SettingsActivity" android:exported="false" android:configChanges="orientation|screenSize" android:windowSoftInputMode="adjustNothing" />
         <activity android:name=".SupportActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <service android:name=".NavService" android:exported="false" android:foregroundServiceType="location|connectedDevice" />
         <activity android:name=".ScanActivity" android:exported="false" android:screenOrientation="portrait" />

@@ -31,9 +31,12 @@ import java.util.concurrent.*;
 import static org.maplibre.android.style.layers.PropertyFactory.*;
 import static net.drave.atrdiagnostics.Gabi.Role.*;
 
-/** The whole riding app on one map: explore, search, pin, route preview, parking and the live ride. */
-public final class HomeActivity extends Activity {
-    private enum Mode { EXPLORE, SEARCH, PIN, ROUTE, RIDE, PARK_PICK, PARK_FORM }
+/**
+ * The whole riding app on one map: explore, search, pin, saved places, route preview and the live ride.
+ * While it is open it keeps trying to put Daanvia on the saved bike's dashboard, like Carbit does.
+ */
+public final class HomeActivity extends Activity implements DashboardLink.Host {
+    private enum Mode { EXPLORE, SEARCH, PIN, SAVE, ROUTE, RIDE, PARK_FORM }
 
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -42,19 +45,23 @@ public final class HomeActivity extends Activity {
 
     private MapView mapView; private MapLibreMap map; private org.maplibre.android.maps.Style style; private boolean layersReady;
     private FrameLayout root; private LinearLayout top, chips, fabs; private TextView regionChip, bikeChip, attribution, notice;
-    private FrameLayout fabLocate; private ImageView fabIcon; private SheetView sheet; private View crosshair;
+    private FrameLayout fabLocate, fabTft; private ImageView fabIcon; private SheetView sheet;
     private int insetTop, insetBottom, insetIme;
 
     // search
     private LinearLayout searchPanel, results; private EditText field; private SearchIndex index; private int searchToken;
     // explore
-    private LinearLayout explore, recentsBox; private TextView exploreStatus;
+    private LinearLayout explore, savedBox, recentsBox; private TextView exploreStatus; private Bookmarks bookmarks;
+    // save place
+    private LinearLayout saveSheet; private EditText saveName; private TextView saveSub; private double saveLat, saveLon;
+    // bike
+    private DashboardLink link; private boolean started, askedLinkPermissions; private String linkedQr; private boolean pendingDemo;
     // pin
     private LinearLayout pinSheet; private TextView pinSub; private double dropLat, dropLon;
     // route
-    private LinearLayout routeSheet, routeTags, parkRow; private TextView routeName, routeEta, routeMeta, routeStatus, parkText, startBtn, simNote; private FrameLayout simBtn; private View shimmer;
+    private LinearLayout routeSheet, routeTags, parkRow; private TextView routeName, routeEta, routeMeta, routeStatus, parkText, startBtn, simNote; private FrameLayout routeStar; private View shimmer;
     // parking
-    private LinearLayout parkPick, parkForm; private EditText parkName, parkPrice; private TextView parkError; private String parkBasis = "hour"; private double parkLat, parkLon;
+    private LinearLayout parkForm; private EditText parkName, parkPrice; private TextView parkError; private String parkBasis = "hour"; private double parkLat, parkLon;
     // ride
     private LinearLayout rideTop, maneuver, thenChip, etaBar; private ImageView maneuverIcon, thenIcon; private TextView maneuverDist, maneuverStreet, thenText, etaMin, etaMeta, endBtn, simBadge, tftBadge;
     private int shownManeuver = -1; private boolean endArmed;
@@ -77,23 +84,27 @@ public final class HomeActivity extends Activity {
 
         root = new FrameLayout(this); theme.add(p -> root.setBackgroundColor(p.bg));
         mapView = new MapView(this); mapView.onCreate(state); root.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
-        buildTop(); buildFabs(); buildCrosshair(); buildRide();
+        buildTop(); buildFabs(); buildRide();
         sheet = new SheetView(this, k);
         FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); sp.leftMargin = sp.rightMargin = k.dp(8);
         root.addView(sheet, sp);
         sheet.setListener(h -> { float lift = -Math.max(h, mode == Mode.RIDE ? etaBar.getHeight() + k.dp(8) : 0); fabs.setTranslationY(lift); attribution.setTranslationY(lift); });
         buildSearch(); buildNotice();
-        explore = buildExplore(); pinSheet = buildPin(); routeSheet = buildRoute(); parkPick = buildParkPick(); parkForm = buildParkForm();
+        bookmarks = new Bookmarks(this);
+        explore = buildExplore(); pinSheet = buildPin(); saveSheet = buildSave(); routeSheet = buildRoute(); parkForm = buildParkForm();
         setContentView(root);
         Gabi.insets(root, (l, t, r, b, ime) -> { insetTop = t; insetBottom = b; insetIme = ime; layoutInsets(); });
         sheet.swap(explore);
         mapView.getMapAsync(this::onMap);
+        link = new DashboardLink(this, this); linkedQr = savedQr();
+        handleIntent(getIntent());
     }
+    protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); handleIntent(i); }
 
     private void layoutInsets() {
         ((FrameLayout.LayoutParams)top.getLayoutParams()).topMargin = insetTop + k.dp(8); top.requestLayout();
         ((FrameLayout.LayoutParams)rideTop.getLayoutParams()).topMargin = insetTop + k.dp(8); rideTop.requestLayout();
-        ((FrameLayout.LayoutParams)sheet.getLayoutParams()).bottomMargin = insetBottom + k.dp(8) + (mode == Mode.PARK_FORM ? insetIme : 0); sheet.requestLayout();
+        ((FrameLayout.LayoutParams)sheet.getLayoutParams()).bottomMargin = insetBottom + k.dp(8) + (mode == Mode.PARK_FORM || mode == Mode.SAVE ? insetIme : 0); sheet.requestLayout();
         ((FrameLayout.LayoutParams)etaBar.getLayoutParams()).bottomMargin = insetBottom + k.dp(8); etaBar.requestLayout();
         ((FrameLayout.LayoutParams)fabs.getLayoutParams()).bottomMargin = insetBottom + k.dp(16); fabs.requestLayout();
         ((FrameLayout.LayoutParams)attribution.getLayoutParams()).bottomMargin = insetBottom + k.dp(14); attribution.requestLayout();
@@ -101,18 +112,23 @@ public final class HomeActivity extends Activity {
         ((FrameLayout.LayoutParams)notice.getLayoutParams()).topMargin = insetTop + k.dp(70); notice.requestLayout();
     }
 
-    protected void onStart() { super.onStart(); mapView.onStart(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); refresh(); }
+    protected void onStart() {
+        super.onStart(); mapView.onStart(); started = true;
+        androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
+        refresh(); autoConnect();
+    }
     protected void onResume() { super.onResume(); mapView.onResume(); themeCheckedAt = 0; refresh(); }
     protected void onPause() { mapView.onPause(); super.onPause(); }
-    protected void onStop() { try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
-    protected void onDestroy() { ui.removeCallbacksAndMessages(null); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
+    protected void onStop() { started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    protected void onDestroy() { ui.removeCallbacksAndMessages(null); link.destroy(); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
 
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
         switch (mode) {
-            case SEARCH: case PIN: case PARK_PICK: go(Mode.EXPLORE); return;
+            case SEARCH: case PIN: case SAVE: go(Mode.EXPLORE); return;
             case PARK_FORM: go(Mode.EXPLORE); return;
             case ROUTE: closeRoute(); return;
             default: super.onBackPressed();
@@ -148,14 +164,13 @@ public final class HomeActivity extends Activity {
         LinearLayout pr = k.row(10); pr.setPadding(k.dp(18), 0, k.dp(6), 0);
         pr.addView(k.icon(IconDrawable.SEARCH, 20, MUTED));
         TextView hint = k.single(k.text("Where to?", 16, 500, MUTED)); pr.addView(hint, new LinearLayout.LayoutParams(0, -2, 1));
-        FrameLayout bike = k.circle(IconDrawable.BIKE, 38, ACCENT_SOFT, ACCENT, this::openBike);
-        pr.addView(bike);
+        pr.addView(k.circle(IconDrawable.GEAR, 40, CHIP, INK_SOFT, this::openSettings));
         pill.addView(pr, new FrameLayout.LayoutParams(-1, k.dp(52)));
         Gabi.press(pill, () -> go(Mode.SEARCH));
         top.addView(pill, new LinearLayout.LayoutParams(-1, k.dp(52)));
         chips = k.row(6);
         regionChip = chip(""); bikeChip = chip("");
-        Gabi.press(bikeChip, this::openBike);
+        Gabi.press(bikeChip, this::openSettings);
         chips.addView(regionChip); chips.addView(bikeChip);
         top.addView(chips);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP); lp.leftMargin = lp.rightMargin = k.dp(14);
@@ -173,6 +188,7 @@ public final class HomeActivity extends Activity {
         fabLocate = k.circle(IconDrawable.LOC, 50, GLASS, ACCENT, this::onLocateFab);
         fabIcon = (ImageView)fabLocate.getChildAt(0);
         fabs.addView(fabLocate);
+        fabTft = k.circle(IconDrawable.TFT, 50, GLASS, INK, this::openSettings); fabTft.setVisibility(View.GONE); fabs.addView(fabTft);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END); lp.rightMargin = k.dp(16);
         root.addView(fabs, lp);
         attribution = k.text("© OpenStreetMap contributors", 10.5f, 500, MUTED);
@@ -182,21 +198,13 @@ public final class HomeActivity extends Activity {
     private void paintLocateFab() {
         boolean recenter = mode == Mode.RIDE && !follow;
         ((IconDrawable)fabIcon.getDrawable()).setColor(recenter ? theme.palette.ink : theme.palette.accent);
-        if (mode == Mode.RIDE) Gabi.show(fabLocate, recenter, k.dp(10)); else Gabi.show(fabLocate, mode == Mode.EXPLORE || mode == Mode.PIN, k.dp(10));
+        Gabi.show(fabTft, mode == Mode.RIDE, k.dp(10));
+        if (mode == Mode.RIDE) Gabi.show(fabLocate, recenter, k.dp(10)); else Gabi.show(fabLocate, mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.SAVE, k.dp(10));
     }
     private void onLocateFab() {
         if (mode == Mode.RIDE) { follow = true; paintLocateFab(); lastFix = -1; refresh(); return; }
         if (s.fixAt > 0 && map != null) map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder().target(new LatLng(s.lat, s.lon)).zoom(15.5).tilt(0).bearing(0).build()), 900);
         locate();
-    }
-
-    private void buildCrosshair() {
-        FrameLayout c = new FrameLayout(this);
-        ImageView i = k.icon(IconDrawable.CROSSHAIR, 44, ACCENT); ((IconDrawable)i.getDrawable()).stroke(1.6f);
-        c.addView(i, new FrameLayout.LayoutParams(k.dp(44), k.dp(44), Gravity.CENTER));
-        View dot = new View(this); k.fill(dot, 4, ACCENT); c.addView(dot, new FrameLayout.LayoutParams(k.dp(8), k.dp(8), Gravity.CENTER));
-        crosshair = c; crosshair.setVisibility(View.GONE);
-        root.addView(c, new FrameLayout.LayoutParams(k.dp(60), k.dp(60), Gravity.CENTER));
     }
 
     private void buildNotice() {
@@ -205,9 +213,12 @@ public final class HomeActivity extends Activity {
         root.addView(notice, lp);
     }
     private final Runnable hideNotice = () -> Gabi.show(notice, false, -k.dp(12));
-    private void notice(String text) {
-        notice.setText(text); notice.bringToFront(); Gabi.show(notice, true, -k.dp(12));
-        ui.removeCallbacks(hideNotice); ui.postDelayed(hideNotice, 3600);
+    private void notice(String text) { notice(text, null); }
+    /** Toast-like glass notice; with an action, tapping it runs the action (used for Undo). */
+    private void notice(String text, Runnable action) {
+        notice.setText(action == null ? text : text + "  ·  Undo"); notice.bringToFront(); Gabi.show(notice, true, -k.dp(12));
+        notice.setOnClickListener(action == null ? null : v -> { action.run(); hideNotice.run(); });
+        ui.removeCallbacks(hideNotice); ui.postDelayed(hideNotice, action == null ? 3600 : 5000);
     }
 
     // ================================================================ explore
@@ -217,20 +228,34 @@ public final class HomeActivity extends Activity {
         TextView title = k.text("Ride somewhere", 19, 750, INK); head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(head);
         exploreStatus = k.text("", 13, 500, MUTED); exploreStatus.setPadding(0, k.dp(4), 0, k.dp(14)); c.addView(exploreStatus);
-        LinearLayout tiles = k.row(8);
-        tiles.addView(tile(IconDrawable.PLAY, "Demo ride", this::demo), new LinearLayout.LayoutParams(0, -2, 1));
-        tiles.addView(tile(IconDrawable.PARK, "Add parking", () -> go(Mode.PARK_PICK)), new LinearLayout.LayoutParams(0, -2, 1));
-        tiles.addView(tile(IconDrawable.TFT, "Bike & fit", this::openBike), new LinearLayout.LayoutParams(0, -2, 1));
-        c.addView(tiles);
-        recentsBox = k.column(0); recentsBox.setPadding(0, k.dp(10), 0, 0); c.addView(recentsBox);
+        c.addView(k.label("Saved places"));
+        ScrollView sv = new ScrollView(this); sv.setVerticalScrollBarEnabled(false);
+        LinearLayout lists = k.column(0); sv.addView(lists);
+        savedBox = k.column(0); lists.addView(savedBox);
+        TextView rl = k.label("Recent"); rl.setPadding(0, k.dp(12), 0, 0); lists.addView(rl);
+        recentsBox = k.column(0); lists.addView(recentsBox);
+        c.addView(sv, new LinearLayout.LayoutParams(-1, -2));
+        sv.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { int max = Math.round(getResources().getDisplayMetrics().heightPixels * 0.42f); if (sv.getHeight() > max) { sv.getLayoutParams().height = max; sv.requestLayout(); } });
         return c;
     }
-    private View tile(int icon, String label, Runnable action) {
-        LinearLayout t = k.column(10); t.setPadding(k.dp(12), k.dp(13), k.dp(10), k.dp(13)); k.fill(t, 18, CHIP);
-        t.addView(k.icon(icon, 20, ACCENT)); t.addView(k.single(k.text(label, 13, 650, INK_SOFT)));
-        Gabi.press(t, action); return t;
+    private LinearLayout starRow(Bookmarks.Place b, CharSequence title, String sub, String trail) {
+        LinearLayout row = k.listRow(IconDrawable.STAR_FILLED, title, sub, trail, () -> choose(b.lat, b.lon, b.name));
+        ((ImageView)((FrameLayout)row.getChildAt(0)).getChildAt(0)).setImageDrawable(new IconDrawable(IconDrawable.STAR_FILLED, theme.palette.accent));
+        return row;
+    }
+    private void paintSaved() {
+        savedBox.removeAllViews();
+        List<Bookmarks.Place> saved = bookmarks.all();
+        for (Bookmarks.Place b : saved) {
+            String d = s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, b.lat, b.lon)) : null;
+            LinearLayout row = starRow(b, b.name, s.inRegion(b.lat, b.lon) ? "Hold to remove" : "Outside " + s.regionName + " · hold to remove", d);
+            row.setOnLongClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); bookmarks.remove(b.lat, b.lon); paintSaved(); notice("Removed " + b.name, () -> { bookmarks.save(b.name, b.lat, b.lon); paintSaved(); }); return true; });
+            savedBox.addView(row);
+        }
+        if (saved.isEmpty()) savedBox.addView(k.listRow(IconDrawable.STAR, "No saved places yet", "Tap the star on a place, or share one to Daanvia from Google Maps", null, null));
     }
     private void paintRecents() {
+        paintSaved();
         recentsBox.removeAllViews();
         JSONArray r = recents(); int shown = 0;
         for (int i = 0; i < r.length() && shown < 3; i++) {
@@ -239,7 +264,7 @@ public final class HomeActivity extends Activity {
             String d = s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) : null;
             recentsBox.addView(k.listRow(IconDrawable.CLOCK, name, "Recent", d, () -> choose(lat, lon, name))); shown++;
         }
-        if (shown == 0) recentsBox.addView(k.listRow(IconDrawable.PIN, "Long-press the map", "Drop a pin to ride there or save parking", null, null));
+        if (shown == 0) recentsBox.addView(k.listRow(IconDrawable.PIN, "Long-press the map", "Drop a pin to ride there or save it", null, null));
     }
     private JSONArray recents() { try { return new JSONArray(getSharedPreferences("recents", 0).getString("list", "[]")); } catch (JSONException e) { return new JSONArray(); } }
     private void remember(double lat, double lon, String name) {
@@ -297,13 +322,15 @@ public final class HomeActivity extends Activity {
         results.removeAllViews();
         if (r == null) { results.addView(k.listRow(IconDrawable.CLOCK, s.ready ? "Preparing search…" : s.status, null, null, null)); return; }
         int[] hits = (int[])r[0]; double fromLat = (double)r[1], fromLon = (double)r[2];
+        for (Bookmarks.Place b : bookmarks.match(q)) results.addView(starRow(b, highlight(b.name, q), "Saved", Gabi.distance(GeoMath.distance(fromLat, fromLon, b.lat, b.lon))));
+        boolean anySaved = results.getChildCount() > 0;
         if (q.trim().isEmpty()) {
             JSONArray rec = recents();
             for (int i = 0; i < rec.length() && i < 6; i++) { JSONObject o = rec.optJSONObject(i); double la = o.optDouble("lat"), lo = o.optDouble("lon"); String n = o.optString("name");
                 results.addView(k.listRow(IconDrawable.CLOCK, n, "Recent", Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> choose(la, lo, n))); }
             results.addView(k.listRow(IconDrawable.LOC, "Choose on the map", "Long-press anywhere to drop a pin", null, () -> { go(Mode.EXPLORE); notice("Long-press the map where you want to go"); }));
-        } else if (hits.length == 0) {
-            results.addView(k.listRow(IconDrawable.SEARCH, "No places match “" + q.trim() + "”", "Try fewer letters, or long-press the map in " + s.regionName, null, null));
+        } else if (hits.length == 0 && !anySaved) {
+            results.addView(k.listRow(IconDrawable.SEARCH, "No places match “" + q.trim() + "”", "Not in the offline map. Share it to Daanvia from Google Maps to save it, or long-press the map.", null, null));
         } else for (int h : hits) {
             String name = index.names[h]; double la = index.lat[h], lo = index.lon[h];
             results.addView(k.listRow(IconDrawable.PIN, highlight(name, q), null, Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> choose(la, lo, name)));
@@ -333,14 +360,44 @@ public final class HomeActivity extends Activity {
         head.addView(k.circle(IconDrawable.CLOSE, 38, CHIP, MUTED, () -> go(Mode.EXPLORE)));
         c.addView(head);
         LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(16), 0, 0);
-        btns.addView(k.ghost("Save parking", () -> { parkLat = dropLat; parkLon = dropLon; go(Mode.PARK_FORM); }), new LinearLayout.LayoutParams(0, -2, 1));
-        btns.addView(k.primary("Ride here", () -> choose(dropLat, dropLon, "Map pin")), new LinearLayout.LayoutParams(0, -2, 1.3f));
+        btns.addView(k.circle(IconDrawable.STAR, 56, CHIP, ACCENT, () -> openSave("", dropLat, dropLon)));
+        btns.addView(k.primary("Ride here", () -> choose(dropLat, dropLon, "Map pin")), new LinearLayout.LayoutParams(0, -2, 1));
+        c.addView(btns);
+        TextView rate = k.text("Add a motorcycle parking rate here", 13, 600, MUTED); rate.setPadding(0, k.dp(12), 0, k.dp(2)); rate.setGravity(Gravity.CENTER);
+        Gabi.press(rate, () -> { parkLat = dropLat; parkLon = dropLon; go(Mode.PARK_FORM); });
+        c.addView(rate);
+        return c;
+    }
+
+    // ================================================================ save place
+    private LinearLayout buildSave() {
+        LinearLayout c = k.column(10);
+        LinearLayout head = k.row(10);
+        LinearLayout tc = k.column(3); tc.addView(k.text("Save place", 19, 750, INK)); saveSub = k.text("", 13, 500, MUTED); tc.addView(saveSub);
+        head.addView(tc, new LinearLayout.LayoutParams(0, -2, 1));
+        head.addView(k.circle(IconDrawable.CLOSE, 38, CHIP, MUTED, () -> go(Mode.EXPLORE)));
+        c.addView(head);
+        saveName = input("Name, e.g. Balay ni Drave", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS); c.addView(saveName, new LinearLayout.LayoutParams(-1, k.dp(52)));
+        LinearLayout btns = k.row(8);
+        btns.addView(k.ghost("Ride here", () -> { String n = saveName.getText().toString().trim(); choose(saveLat, saveLon, n.isEmpty() ? "Map pin" : n); }), new LinearLayout.LayoutParams(0, -2, 1));
+        btns.addView(k.primary("Save", () -> {
+            String n = saveName.getText().toString().trim(); if (n.isEmpty()) { Gabi.shake(saveName); return; }
+            bookmarks.save(n, saveLat, saveLon); hideKeyboard(); go(Mode.EXPLORE); notice("Saved " + n + ". Search finds it offline now.");
+        }), new LinearLayout.LayoutParams(0, -2, 1.3f));
         c.addView(btns);
         return c;
     }
+    private void openSave(String name, double lat, double lon) {
+        if (s.active) { notice("End the ride before saving places"); return; }
+        saveLat = lat; saveLon = lon; saveName.setText(name); saveName.setSelection(saveName.length());
+        saveSub.setText(s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) + " from you" : s.inRegion(lat, lon) ? "Inside " + s.regionName : "Outside the installed offline region · saved for later");
+        dropLat = lat; dropLon = lon;
+        go(Mode.SAVE);
+        if (map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(lat, lon), 16), 900);
+    }
     private void onLongPress(double lat, double lon) {
         if (s.active) { notice("End the ride before changing destination"); return; }
-        if (mode == Mode.PARK_PICK || mode == Mode.PARK_FORM) return;
+        if (mode == Mode.PARK_FORM || mode == Mode.SAVE) return;
         dropLat = lat; dropLon = lon;
         pinSub.setText(s.fixAt > 0 ? Gabi.distance(GeoMath.distance(s.lat, s.lon, lat, lon)) + " from you" : s.inRegion(lat, lon) ? "Inside " + s.regionName : "Outside the installed offline region");
         root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
@@ -352,6 +409,7 @@ public final class HomeActivity extends Activity {
         LinearLayout c = k.column(0);
         LinearLayout head = k.row(10);
         routeName = k.single(k.text("", 15, 650, INK_SOFT)); head.addView(routeName, new LinearLayout.LayoutParams(0, -2, 1));
+        routeStar = k.circle(IconDrawable.STAR, 36, CHIP, ACCENT, this::toggleRouteStar); head.addView(routeStar);
         head.addView(k.circle(IconDrawable.CLOSE, 36, CHIP, MUTED, this::closeRoute));
         c.addView(head);
         LinearLayout etaRow = k.row(10); etaRow.setGravity(Gravity.BOTTOM); etaRow.setPadding(0, k.dp(6), 0, 0);
@@ -374,7 +432,6 @@ public final class HomeActivity extends Activity {
         simNote = k.text("Simulates the route on this phone and the connected TFT. Do not follow a simulated position while riding.", 12.5f, 500, MUTED);
         simNote.setPadding(0, k.dp(10), 0, 0); c.addView(simNote);
         LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(12), 0, 0);
-        simBtn = k.circle(IconDrawable.PLAY, 56, CHIP, INK, this::simulate); btns.addView(simBtn);
         startBtn = k.primary("Start ride", this::start); btns.addView(startBtn, new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(btns);
         return c;
@@ -395,9 +452,19 @@ public final class HomeActivity extends Activity {
         parkRow.setVisibility(mine && lots > 0 ? View.VISIBLE : View.GONE);
         parkText.setText(lots + " parking " + (lots == 1 ? "spot" : "spots") + " near arrival" + (priced > 0 ? " · " + priced + " with a saved rate" : ""));
         simNote.setVisibility(demoTrip ? View.VISIBLE : View.GONE);
-        simBtn.setVisibility(demoTrip ? View.GONE : View.VISIBLE);
         startBtn.setText(demoTrip ? "Start simulation" : "Start ride");
-        boolean can = mine && !s.routing; startBtn.setAlpha(can ? 1f : 0.45f); simBtn.setAlpha(s.routing ? 0.45f : 1f);
+        boolean can = mine && !s.routing; startBtn.setAlpha(can ? 1f : 0.45f);
+        routeStar.setVisibility(demoTrip ? View.GONE : View.VISIBLE);
+        boolean saved = destName != null && bookmarks.find(destLat, destLon) != null;
+        ((ImageView)routeStar.getChildAt(0)).setImageDrawable(new IconDrawable(saved ? IconDrawable.STAR_FILLED : IconDrawable.STAR, theme.palette.accent));
+    }
+    private void toggleRouteStar() {
+        if (destName == null) return;
+        Bookmarks.Place b = bookmarks.find(destLat, destLon);
+        if (b != null) { bookmarks.remove(destLat, destLon); notice("Removed " + b.name, () -> { bookmarks.save(b.name, b.lat, b.lon); paintRoute(); }); }
+        else if ("Map pin".equals(destName)) { openSave("", destLat, destLon); return; }
+        else { bookmarks.save(destName, destLat, destLon); notice("Saved " + destName); }
+        paintRoute();
     }
 
     private void choose(double lat, double lon, String name) {
@@ -422,19 +489,10 @@ public final class HomeActivity extends Activity {
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
 
-    /** Ride the chosen route as a simulation; without GPS the region's sample start is used, as the old demo did. */
-    private void simulate() {
-        if (s.active) { notice("End the current ride first"); return; }
-        if (s.routing) { notice("Wait for the route calculation"); return; }
-        if (destName == null) return;
-        if (s.fixAt == 0) { s.lat = s.demoFrom[0]; s.lon = s.demoFrom[1]; }
-        demoTrip = true; pendingPlan = false;
-        s.plan(destLat, destLon, destName, true);
-        paintRoute();
-    }
+    /** Simulated ride over the region's sample route, started from Settings › Testing. */
     private void demo() {
         if (s.active) { notice("End the current ride first"); return; }
-        if (!s.ready) { notice("Wait for the offline map to finish loading"); return; }
+        if (!s.ready) { pendingDemo = true; notice("Loading the offline map first…"); return; }
         if (s.routing) { notice("Wait for the route calculation"); return; }
         s.lat = s.demoFrom[0]; s.lon = s.demoFrom[1]; s.fixAt = 0;
         destLat = s.demoTo[0]; destLon = s.demoTo[1]; destName = s.demoName; demoTrip = true; pendingPlan = false;
@@ -444,17 +502,6 @@ public final class HomeActivity extends Activity {
     }
 
     // ================================================================ parking
-    private LinearLayout buildParkPick() {
-        LinearLayout c = k.column(0);
-        LinearLayout head = k.row(10);
-        LinearLayout tc = k.column(3); tc.addView(k.text("Add motorcycle parking", 19, 750, INK)); tc.addView(k.text("Move the map until the crosshair sits on the entrance.", 13, 500, MUTED));
-        head.addView(tc, new LinearLayout.LayoutParams(0, -2, 1));
-        head.addView(k.circle(IconDrawable.CLOSE, 38, CHIP, MUTED, () -> go(Mode.EXPLORE)));
-        c.addView(head);
-        TextView use = k.primary("Use this spot", () -> { if (map == null) return; LatLng t = map.getCameraPosition().target; parkLat = t.getLatitude(); parkLon = t.getLongitude(); go(Mode.PARK_FORM); });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.topMargin = k.dp(16); c.addView(use, lp);
-        return c;
-    }
     private LinearLayout buildParkForm() {
         LinearLayout c = k.column(10);
         LinearLayout head = k.row(10);
@@ -527,7 +574,8 @@ public final class HomeActivity extends Activity {
     private void onEnd() {
         if (!endArmed) { endArmed = true; endBtn.setText("Tap to end"); ui.removeCallbacks(disarmEnd); ui.postDelayed(disarmEnd, 3000); return; }
         ui.removeCallbacks(disarmEnd); disarmEnd.run();
-        s.stop(); stopService(new Intent(this, NavService.class)); stopService(new Intent(this, StreamService.class)); refresh();
+        // The bike display stays connected between rides; the notification's Stop still disconnects everything.
+        s.stop(); stopService(new Intent(this, NavService.class)); refresh();
     }
     private void paintRide() {
         JSONArray ms = s.maneuvers; int idx = s.maneuver;
@@ -573,15 +621,14 @@ public final class HomeActivity extends Activity {
             runSearch.run();
         } else if (prev == Mode.SEARCH) { hideKeyboard(); Gabi.show(searchPanel, false, k.dp(16)); }
         Gabi.show(top, next == Mode.EXPLORE || next == Mode.PIN, -k.dp(14));
+        if (prev == Mode.SAVE && next != Mode.SAVE) hideKeyboard();
         Gabi.show(rideTop, riding, -k.dp(24)); if (!riding) thenChip.setVisibility(View.GONE);
         Gabi.show(etaBar, riding, k.dp(24));
-        crosshair.setVisibility(next == Mode.PARK_PICK ? View.VISIBLE : View.GONE);
-        if (next == Mode.PARK_PICK) { crosshair.setScaleX(1.6f); crosshair.setScaleY(1.6f); crosshair.setAlpha(0); crosshair.animate().scaleX(1).scaleY(1).alpha(1).setDuration(420).setInterpolator(Gabi.EASE_OUT).start(); }
         switch (next) {
             case EXPLORE: paintRecents(); sheet.swap(explore); break;
             case PIN: sheet.swap(pinSheet); break;
             case ROUTE: paintRoute(); sheet.swap(routeSheet); drawnShape = null; break;
-            case PARK_PICK: sheet.swap(parkPick); break;
+            case SAVE: sheet.swap(saveSheet); break;
             case PARK_FORM: sheet.swap(parkForm); parkName.requestFocus(); break;
             case SEARCH: sheet.hide(); break;
             case RIDE: sheet.hide(); follow = true; shownManeuver = -1; lastFix = -1; break;
@@ -601,7 +648,9 @@ public final class HomeActivity extends Activity {
         else dotChip(regionChip, s.regionName + " · offline", OK);
         String model = savedModel();
         if (StreamService.navigationActive) dotChip(bikeChip, "Bike display live", OK);
-        else dotChip(bikeChip, model == null ? "Connect bike" : model + " · not connected", MUTED);
+        else if (link != null && link.searching()) dotChip(bikeChip, "Looking for " + (model == null ? "your bike" : model) + "…", ACCENT);
+        else dotChip(bikeChip, model == null ? "Set up your bike" : model + " · not connected", MUTED);
+        if (pendingDemo && s.ready) { pendingDemo = false; demo(); }
         exploreStatus.setText(!s.ready ? s.status : s.fixAt > 0 ? "GPS ready · maps and routing work without data" : "Maps and routing work without data in " + s.regionName);
         if (pendingPlan && s.ready && !s.routing && s.fixAt > 0) { pendingPlan = false; s.plan(destLat, destLon, destName, false); }
         if (s.active && mode != Mode.RIDE) go(Mode.RIDE);
@@ -638,7 +687,7 @@ public final class HomeActivity extends Activity {
         // destination / pin
         GeoJsonSource dest = src(MapStyle.DEST), drop = src(MapStyle.DROP);
         if (routeMode && destName != null || mode == Mode.RIDE) dest.setGeoJson(mode == Mode.RIDE ? MapStyle.point(s.destLat, s.destLon) : MapStyle.point(destLat, destLon)); else dest.setGeoJson(MapStyle.empty());
-        if (mode == Mode.PIN) drop.setGeoJson(MapStyle.point(dropLat, dropLon)); else drop.setGeoJson(MapStyle.empty());
+        if (mode == Mode.PIN || mode == Mode.SAVE) drop.setGeoJson(MapStyle.point(dropLat, dropLon)); else drop.setGeoJson(MapStyle.empty());
         // parking near the destination, before the ride and in the last kilometre
         List<JSONObject> lots = (showRoute && (mode == Mode.ROUTE || s.remaining < 1000)) ? s.nearbyParking : Collections.emptyList();
         if (lots != drawnParking || drawnParkingPalette != theme.palette) {
@@ -729,11 +778,58 @@ public final class HomeActivity extends Activity {
     }
     public void onRequestPermissionsResult(int code, String[] p, int[] r) {
         super.onRequestPermissionsResult(code, p, r);
-        if (code == 71 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) locate();
-        else if (code == 71) { pendingPlan = false; notice("Precise location is needed for a live ride. Simulation still works."); refresh(); }
+        if (code == 71 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { locate(); autoConnect(); }
+        else if (code == 71) { pendingPlan = false; notice("Precise location is needed for a live ride."); refresh(); }
+        if (code == DashboardLink.PERMISSIONS) link.onPermissionsResult();
     }
-    private void openBike() {
-        startActivity(new Intent(this, BikeActivity.class));
+    private void openSettings() {
+        startActivity(new Intent(this, SettingsActivity.class));
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
     }
+    private String savedQr() { return getSharedPreferences("saved-bike", 0).getString("qr", ""); }
+
+    // ================================================================ shared places
+    private void handleIntent(Intent i) {
+        if (i == null) return;
+        if (i.getBooleanExtra("demo", false)) { i.removeExtra("demo"); demo(); return; }
+        String text = null;
+        if (Intent.ACTION_SEND.equals(i.getAction())) {
+            CharSequence t = i.getCharSequenceExtra(Intent.EXTRA_TEXT); text = t == null ? null : t.toString();
+            String subject = i.getStringExtra(Intent.EXTRA_SUBJECT);
+            if (text != null && subject != null && !text.contains(subject)) text = subject + "\n" + text;
+        } else if (Intent.ACTION_VIEW.equals(i.getAction()) && i.getData() != null) text = i.getData().toString();
+        if (text == null) return;
+        setIntent(new Intent(this, HomeActivity.class));
+        ShareLinks.Place place = ShareLinks.parse(text);
+        if (place == null) { notice("That share has no place in it. In Google Maps, open the place and tap Share."); return; }
+        if (place.located()) { openSave(place.name.equals("Shared place") ? "" : place.name, place.lat, place.lon); return; }
+        notice("Reading the Google Maps link…");
+        worker.execute(() -> {
+            ShareLinks.Place found;
+            try { found = ShareLinks.resolve(place); } catch (Exception e) { found = place; }
+            ShareLinks.Place r = found;
+            ui.post(() -> {
+                if (r.located()) openSave(r.name.equals("Shared place") ? "" : r.name, r.lat, r.lon);
+                else notice("Couldn't read that link. Share it again while online, or long-press the map to pin it.");
+            });
+        });
+    }
+
+    // ================================================================ bike display
+    private final Runnable retryConnect = this::autoConnect;
+    /** Keep trying to reach the saved dashboard while the app is open and the display is not live. */
+    private void autoConnect() {
+        if (!started || link == null || !link.profileReady() || StreamService.navigationActive || link.searching()) return;
+        if (!getSharedPreferences("ui", 0).getBoolean("autoconnect", true)) return;
+        if (!link.hasPermissions()) { if (askedLinkPermissions) return; askedLinkPermissions = true; }
+        link.sendNavigation(); refresh();
+    }
+    public void onStatus(String status) { refresh(); }
+    public void onLog() {}
+    public void onChanged() {
+        refresh();
+        if (started && link != null && !link.searching() && !StreamService.navigationActive) { ui.removeCallbacks(retryConnect); ui.postDelayed(retryConnect, 15000); }
+    }
+    public void onPermissionsMissing() { notice("Allow Nearby devices and location so Daanvia can find your bike"); }
+    public void onNavigationStarted() { link.settle(); notice("Connected. Daanvia is on the bike display."); refresh(); }
 }
