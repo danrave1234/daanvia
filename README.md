@@ -20,7 +20,7 @@ JDK 21, Android SDK platform 36:
 
     ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug
 
-Gradle 8.13 and Android Gradle Plugin 8.13.2. Min SDK 29, target SDK 35. The release build is one APK for 64-bit and 32-bit ARM phones and x86_64 emulators. No API keys are needed.
+Gradle 8.13 and Android Gradle Plugin 8.13.2. Min SDK 29, target SDK 35. The release build is one APK for every Android phone (64-bit and 32-bit ARM). Debug builds also include x86_64 for testing on a PC emulator. No API keys are needed.
 
 Both build types are signed with `signing/prototype.p12`, a public prototype TEST key, so new builds install over earlier test builds. It must never become the production signing key.
 
