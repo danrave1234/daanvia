@@ -41,6 +41,10 @@ public final class Gabi {
         if (THEME_DAY.equals(mode)) return DAY;
         if (THEME_NIGHT.equals(mode)) return NIGHT;
         if (haveLocation) return SunClock.isNight(lat, lon, System.currentTimeMillis()) ? NIGHT : DAY;
+        // No fix yet: the last place the rider was (or looked at the map) has the same sky, so the look doesn't flip on the first fix.
+        android.content.SharedPreferences u = c.getSharedPreferences("ui", 0);
+        String at = u.contains("fix_lat") ? "fix" : u.contains("cam_lat") ? "cam" : null;
+        if (at != null) return SunClock.isNight(u.getFloat(at + "_lat", 0), u.getFloat(at + "_lon", 0), System.currentTimeMillis()) ? NIGHT : DAY;
         int ui = c.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         return ui == Configuration.UI_MODE_NIGHT_NO ? DAY : NIGHT;
     }

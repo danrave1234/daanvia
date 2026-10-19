@@ -40,6 +40,10 @@ public final class AppUpdate {
 
     private static volatile State state; private static final List<Listener> listeners = new ArrayList<>(); private static Handler main;
     private static final AtomicBoolean busy = new AtomicBoolean();
+    /** When the last install was handed to Android (elapsedRealtime), 0 once Android reports it failed or was cancelled. */
+    private static volatile long committedAt;
+    /** Downloading or installing right now: its APK must stay. */
+    static boolean busy() { return busy.get() || android.os.SystemClock.elapsedRealtime() - committedAt < 60000; }
     public static State state() { return state; }
     public static void listen(Listener l) { synchronized (listeners) { listeners.add(l); } }
     public static void unlisten(Listener l) { synchronized (listeners) { listeners.remove(l); } }
@@ -83,7 +87,9 @@ public final class AppUpdate {
     public static void check(Context context, boolean quiet) {
         Context c = context.getApplicationContext();
         SharedPreferences prefs = c.getSharedPreferences("update", 0);
-        if (quiet && System.currentTimeMillis() - prefs.getLong("checked", 0) < 12 * 3600_000L) { if (state == null) restore(c); return; }
+        // A newer version found by an earlier check is looked up again, so the update banner is back after a restart.
+        String latest = prefs.getString("latest", ""); boolean knownNewer = !latest.isEmpty() && compare(latest, BuildInfo.VERSION) > 0;
+        if (quiet && !knownNewer && System.currentTimeMillis() - prefs.getLong("checked", 0) < 12 * 3600_000L) { if (state == null) restore(c); return; }
         if (NavSession.get(c).active || !busy.compareAndSet(false, true)) return;
         post(new State(null, 0, true, false, false, false, null));
         new Thread(() -> {
@@ -105,7 +111,9 @@ public final class AppUpdate {
 
     /** Download the APK (verified) and open Android's install prompt. */
     public static void install(Context context) {
-        State s = state; if (s == null || s.release == null || s.release.apkUrl == null || !busy.compareAndSet(false, true)) return;
+        State s = state; if (s == null || s.release == null || s.release.apkUrl == null) return;
+        // Android's prompt is up (or about to be): a second tap would open a second install.
+        if (android.os.SystemClock.elapsedRealtime() - committedAt < 60000 || !busy.compareAndSet(false, true)) return;
         Context c = context.getApplicationContext(); Release r = s.release;
         if (!c.getPackageManager().canRequestPackageInstalls()) {
             busy.set(false);
@@ -114,24 +122,26 @@ public final class AppUpdate {
             return;
         }
         new Thread(() -> {
-            File apk = file(c, r);
+            File apk = file(c, r); PackageInstaller pi = null; int id = -1; boolean committed = false;
             try {
                 if (!(apk.isFile() && apk.length() == r.bytes && sha(apk).equalsIgnoreCase(r.sha256.isEmpty() ? sha(apk) : r.sha256))) download(r, apk);
                 post(new State(r, r.bytes, false, false, true, false, null));
-                PackageInstaller pi = c.getPackageManager().getPackageInstaller();
+                pi = c.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
                 params.setAppPackageName(c.getPackageName());
                 if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
-                int id = pi.createSession(params);
+                id = pi.createSession(params);
                 try (PackageInstaller.Session session = pi.openSession(id)) {
                     try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("daanvia.apk", 0, apk.length())) {
                         byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) out.write(b, 0, n); session.fsync(out);
                     }
                     Intent done = new Intent(c, InstallReceiver.class);
                     int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-                    session.commit(PendingIntent.getBroadcast(c, id, done, flags).getIntentSender());
+                    session.commit(PendingIntent.getBroadcast(c, id, done, flags).getIntentSender()); committed = true; committedAt = android.os.SystemClock.elapsedRealtime();
                 }
             } catch (Exception e) {
+                // A session that wasn't committed keeps its staged copy of the APK until it is abandoned.
+                if (pi != null && id >= 0 && !committed) try { pi.abandonSession(id); } catch (Exception ignored) {}
                 apk.delete();
                 post(new State(r, 0, false, false, false, false, e instanceof IOException && e.getMessage() != null && !e.getMessage().contains("://") ? e.getMessage() : "The update didn’t download. Try again with signal."));
             } finally { busy.set(false); }
@@ -171,7 +181,7 @@ public final class AppUpdate {
                 Intent confirm = Build.VERSION.SDK_INT >= 33 ? i.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class) : legacy(i);
                 if (confirm != null) c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else if (status != PackageInstaller.STATUS_SUCCESS) {
-                State s = state;
+                committedAt = 0; State s = state;
                 post(new State(s == null ? null : s.release, 0, false, false, false, false, status == PackageInstaller.STATUS_FAILURE_ABORTED ? "Update cancelled" : "The update couldn’t be installed"));
             }
         }

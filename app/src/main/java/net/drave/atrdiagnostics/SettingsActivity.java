@@ -23,7 +23,9 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     private LinearLayout updateBox; private final AppUpdate.Listener updateListener = st -> paintUpdate();
     private TextView storageText;
     private LinearLayout mapList; private AreaStore.Catalog catalog; private String confirmRemove;
-    private final AreaStore.Listener areaListener = st -> paintMaps();
+    // Download progress arrives every 256 KB; the list (which measures each area on disk) is redrawn at most twice a second.
+    private long mapsPaintedAt; private final java.util.HashMap<String, Long> sizes = new java.util.HashMap<>();
+    private final AreaStore.Listener areaListener = st -> { long now = android.os.SystemClock.elapsedRealtime(); if (st.running && now - mapsPaintedAt < 500) return; mapsPaintedAt = now; if (!st.running) sizes.clear(); paintMaps(); };
     private TextView adjust; private boolean fitting; private float[] old; private String oldLayout;
     private final BroadcastReceiver changes = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { if (preview != null) preview.invalidate(); paint(); } };
 
@@ -227,18 +229,19 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         List<AreaStore.Area> list = AreaStore.installed(this);
         for (AreaStore.Area a : list) {
             boolean update = a.outdated(catalog), confirming = a.id.equals(confirmRemove);
-            String sub = a.kmLabel() + " · " + Math.max(1, Math.round(a.diskBytes() / 1048576.0)) + " MB" + (update ? " · update available" : "");
+            Long bytes = sizes.get(a.dir.getPath()); if (bytes == null) { bytes = a.diskBytes(); sizes.put(a.dir.getPath(), bytes); }
+            String sub = a.kmLabel() + " · " + Math.max(1, Math.round(bytes / 1048576.0)) + " MB" + (update ? " · update available" : "");
             LinearLayout r = k.listRow(IconDrawable.MAP, a.name, sub, null, null);
             if (update) { TextView u = k.text("Update", 13.5f, 700, ACCENT); u.setPadding(k.dp(12), k.dp(8), k.dp(6), k.dp(8)); Gabi.press(u, () -> updateArea(a)); r.addView(u); }
             TextView del = k.text(confirming ? "Remove?" : "Remove", 13.5f, 700, confirming ? DANGER : MUTED); del.setPadding(k.dp(12), k.dp(8), 0, k.dp(8));
             Gabi.press(del, () -> {
                 if (s.active) { Gabi.shake(del); return; }
                 if (!confirming) { confirmRemove = a.id; paintMaps(); return; }
-                confirmRemove = null; AreaStore.remove(this, a); paintMaps();
+                confirmRemove = null; AreaStore.remove(this, a); sizes.clear(); paintMaps();
             });
             r.addView(del); mapList.addView(r);
         }
-        paintStorage();
+        if (st == null || !st.running) paintStorage();
         if (list.isEmpty() && (st == null || !st.running)) mapList.addView(k.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
     }
     private void paintStorage() {
@@ -269,10 +272,18 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         }).start();
     }
     private void updateArea(AreaStore.Area a) {
-        ArrayList<AreaStore.Cell> cells = new ArrayList<>();
-        for (AreaStore.Cell c : catalog.cells) if (a.cells.contains(c.id)) cells.add(c);
-        if (cells.isEmpty()) return;
-        AreaStore.download(this, catalog, cells, a.name, null, a);
+        // The update replaces the files the ride is navigating with.
+        if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then update the map.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        ArrayList<AreaStore.Cell> cells = new ArrayList<>(); boolean all = true;
+        for (String id : a.cells) { boolean found = false; for (AreaStore.Cell c : catalog.cells) if (c.id.equals(id)) { cells.add(c); found = true; } all &= found; }
+        // A busy square can be split into smaller ones in a newer map: take every square that now lies inside the area's old ones.
+        if (!all) {
+            cells.clear();
+            for (AreaStore.Cell c : catalog.cells) { double lon = (c.box[0] + c.box[2]) / 2, lat = (c.box[1] + c.box[3]) / 2;
+                for (double[] b : a.boxes) if (lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3]) { cells.add(c); break; } }
+        }
+        if (cells.isEmpty()) { android.widget.Toast.makeText(this, "This area's map has changed. Remove it and download it again.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        AreaStore.download(this, catalog, cells, a.name, a.home, a);
     }
     private void toggleLicenses() {
         if (licenseText.getVisibility() == View.VISIBLE) { licenseText.setVisibility(View.GONE); return; }

@@ -61,7 +61,7 @@ public final class VideoEncoder implements Closeable {
                                 if((info.flags&MediaCodec.BUFFER_FLAG_KEY_FRAME)!=0&&headers.length>0) {
                                     byte[] joined=new byte[headers.length+bytes.length];System.arraycopy(headers,0,joined,0,headers.length);System.arraycopy(bytes,0,joined,headers.length,bytes.length);bytes=joined;
                                 }
-                                frames.put(bytes);
+                                queue(bytes,(info.flags&MediaCodec.BUFFER_FLAG_KEY_FRAME)!=0);
                             }
                         }
                     } finally {codec.releaseOutputBuffer(i,false);}
@@ -121,7 +121,15 @@ public final class VideoEncoder implements Closeable {
         finally{if(bitmap!=null)bitmap.recycle();if(egl!=EGL14.EGL_NO_DISPLAY){EGL14.eglMakeCurrent(egl,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);if(window!=EGL14.EGL_NO_SURFACE)EGL14.eglDestroySurface(egl,window);if(context!=EGL14.EGL_NO_CONTEXT)EGL14.eglDestroyContext(egl,context);EGL14.eglTerminate(egl);}}
     }
     private int shader(int type,String source)throws IOException{int shader=GLES20.glCreateShader(type);GLES20.glShaderSource(shader,source);GLES20.glCompileShader(shader);int[] status=new int[1];GLES20.glGetShaderiv(shader,GLES20.GL_COMPILE_STATUS,status,0);if(status[0]==0)throw new IOException("Navigation shader failed");return shader;}
+    // The bike pulls frames at its own pace. Frames waiting in the queue are frames the bike shows late, so once more than
+    // three are waiting they are dropped and the encoder sends a fresh key frame; a P-frame can't be shown without the ones before it.
+    private final Object queueLock=new Object();private boolean waitKey;
+    private void queue(byte[] bytes,boolean key){synchronized(queueLock){
+        if(waitKey&&!key)return;if(key)waitKey=false;
+        if(!frames.offer(bytes))restart();}}
+    private void restart(){frames.clear();waitKey=true;try{android.os.Bundle b=new android.os.Bundle();b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME,0);codec.setParameters(b);}catch(Exception ignored){}}
     public byte[] next()throws Exception {
+        synchronized(queueLock){if(frames.size()>3)restart();}
         byte[] data=frames.poll(6,TimeUnit.SECONDS);if(data==null)throw new IOException("No encoded frame available within six seconds");return data;
     }
     public void close() {

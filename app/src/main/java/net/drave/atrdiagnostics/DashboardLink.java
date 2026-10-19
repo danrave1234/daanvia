@@ -61,15 +61,22 @@ public final class DashboardLink {
     }
     /** A screen is closing: stop sending it updates. The connection itself stays. */
     public void detach(Host host) { synchronized (hosts) { hosts.remove(host); } }
-    private boolean userStopped; private int reconnects;
-    /** Try again after an unexpected drop: every 8 s for about three minutes, while auto-connect is on. */
+    /** The app is ending the stream itself (Stop, a QR rescan), so its end is not a drop. Cleared when the next stream starts. */
+    private boolean expectStop;
+    /** The rider stopped the display: nothing connects on its own until they connect again or start a ride. */
+    private boolean stoppedByUser;
+    /** Reconnecting after a drop keeps going until this time (elapsedRealtime); streams that fail within seconds count as quick drops. */
+    private long reconnectUntil, streamStartedAt; private int quickDrops;
+    /** Try again after an unexpected drop, while auto-connect is on: a new search whenever the last one has ended, for five minutes. */
     private final Runnable reconnect = this::reconnectNow;
     private void reconnectNow() {
-        if (StreamService.navigationActive || !profileReady || !hasPermissions()) return;
-        if (!context.getSharedPreferences("ui", 0).getBoolean("autoconnect", true) || reconnects > 22) return;
-        if (!running) { reconnects++; log("Reconnecting to the bike display (attempt " + reconnects + ")."); autoNavigation(); }
+        if (StreamService.navigationActive || stoppedByUser || !profileReady || !hasPermissions()) return;
+        if (!context.getSharedPreferences("ui", 0).getBoolean("autoconnect", true) || SystemClock.elapsedRealtime() > reconnectUntil) return;
+        if (!running) { log("Reconnecting to the bike display."); autoNavigation(); }
         main.postDelayed(reconnect, 8000);
     }
+    /** A new ride lets auto-connect run again after the rider stopped the display. */
+    public void allowAuto() { stoppedByUser = false; }
     private String SSID = "", MAC = "", password = "", model = "", qrAction = "";
     private boolean profileReady;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -115,14 +122,30 @@ public final class DashboardLink {
             } else if ("negotiated".equals(kind)) label("Video format negotiated • sending…");
             else if ("stopped".equals(kind)) {
                 frameEvidence.put(event.getStringExtra("mode"), event.getLongExtra("frames", 0));
-                boolean dropped = "navigation".equals(event.getStringExtra("mode")) && !userStopped && !event.getBooleanExtra("user", false);
-                userStopped = false;
-                serviceActive = false; cleanup(); ui.onChanged();
-                if (dropped) { reconnects = 0; label("Bike display dropped • reconnecting…"); main.removeCallbacks(reconnect); main.postDelayed(reconnect, 3000); }
-                label(visualEvidence.containsKey(lastStreamMode) ? "User reported: " + visualEvidence.get(lastStreamMode) : sawFrames ? "Test ended • confirm what appeared" : "No video confirmed • share report");
+                boolean user = event.getBooleanExtra("user", false); if (user) stoppedByUser = true;
+                boolean dropped = "navigation".equals(event.getStringExtra("mode")) && !expectStop && !stoppedByUser;
+                expectStop = false;
+                serviceActive = false; cleanup();
+                if (dropped) dropped();
+                else label(visualEvidence.containsKey(lastStreamMode) ? "User reported: " + visualEvidence.get(lastStreamMode) : sawFrames ? "Test ended • confirm what appeared" : "No video confirmed • share report");
+                ui.onChanged();
             }
         }
     };
+    /** The display stream ended on its own. Reconnect for five minutes, unless it keeps failing within seconds of starting. */
+    private void dropped() {
+        long now = SystemClock.elapsedRealtime(); boolean quick = now - streamStartedAt < 20000;
+        quickDrops = quick ? quickDrops + 1 : 0;
+        NavSession s = NavSession.get(context);
+        if (quickDrops >= 4) {
+            reconnectUntil = 0; label("Bike display keeps dropping • tap Connect to try again");
+            if (s.active) s.message("Bike display keeps dropping · open Daanvia to connect again");
+            return;
+        }
+        if (!quick || reconnectUntil < now) reconnectUntil = now + 5 * 60_000L;
+        label("Bike display dropped • reconnecting…"); if (s.active) s.message("Bike display dropped · reconnecting");
+        main.removeCallbacks(reconnect); main.postDelayed(reconnect, quick ? 8000 : 3000);
+    }
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         public void onReceive(Context c, Intent i) {
             if (!running) return;
@@ -166,14 +189,14 @@ public final class DashboardLink {
     /** Same as the old "Send Daanvia to dashboard" button. */
     public void sendNavigation() {
         if (!profileReady) { log("Scan your dashboard QR first"); return; }
-        quiet = false; pendingStream = MODE_NAVIGATION; permissions(true);
+        stoppedByUser = false; quickDrops = 0; quiet = false; pendingStream = MODE_NAVIGATION; permissions(true);
     }
     /**
      * A background attempt (auto-connect, reconnect): Wi-Fi Direct only, never Android's "connect to device" Wi-Fi sheet,
      * which would otherwise pop up every time the bike is off. Does nothing while Wi-Fi is off.
      */
     public void autoNavigation() {
-        if (!profileReady || wifi == null || !wifi.isWifiEnabled() || !hasPermissions()) return;
+        if (!profileReady || stoppedByUser || wifi == null || !wifi.isWifiEnabled() || !hasPermissions()) return;
         quiet = true; pendingStream = MODE_NAVIGATION; start(true);
     }
     private boolean quiet;
@@ -182,15 +205,19 @@ public final class DashboardLink {
     /** Same as the old "Test connection" button. */
     public void testConnection() {
         if (!profileReady) { log("Scan your dashboard QR first."); return; }
-        pendingStream = 0; permissions(true);
+        stoppedByUser = false; quiet = false; pendingStream = 0; permissions(true);
     }
-    public void stop() { finishRun("Stopped"); }
+    /** The rider stops the search or the display. */
+    public void stop() {
+        stoppedByUser = true; expectStop = true; main.removeCallbacks(reconnect);
+        context.stopService(new Intent(context, StreamService.class)); serviceActive = false; finishRun("Stopped");
+    }
     /** Stop looking for the dashboard without touching a stream that is already running. */
     public void pauseSearch() { if (running && !serviceActive) { cleanup(); label(profileReady ? "Not connected" : verdict); ui.onChanged(); } }
     /** Release discovery once the display is live, as the old setup screen did when it closed after connecting. */
     public void settle() { if (running) cleanup(); }
     /** Called before the QR camera or photo picker opens. */
-    public void resetForScan() { context.stopService(new Intent(context, StreamService.class)); cleanup(); }
+    public void resetForScan() { expectStop = true; main.removeCallbacks(reconnect); context.stopService(new Intent(context, StreamService.class)); cleanup(); }
 
     private void log(String s) {
         String line = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + clean(s) + "\n";
@@ -235,7 +262,9 @@ public final class DashboardLink {
         try {
             QrProfile profile = QrProfile.parse(raw);
             SSID = profile.ssid; MAC = profile.mac; password = profile.password; model = profile.model; qrAction = profile.action;
-            context.getSharedPreferences("saved-bike", 0).edit().putString("qr", raw).apply(); NavSession.get(context).loadFit();
+            android.content.SharedPreferences bike = context.getSharedPreferences("saved-bike", 0);
+            // A different bike hasn't approved its Wi-Fi network yet.
+            if (!raw.equals(bike.getString("qr", ""))) bike.edit().putString("qr", raw).remove("ap_ok").apply(); NavSession.get(context).loadFit();
             profileReady = true;
             log("QR decoded. Dashboard network: " + SSID + "; security: " + profile.security + "; model: " + model + "; connection flag: " + qrAction + ". Password is hidden.");
             label("QR decoded • tap Test connection");
@@ -262,6 +291,8 @@ public final class DashboardLink {
     }
 
     private void start(boolean mode) {
+        // A search or test now would cut the live display off when it times out.
+        if (serviceActive) { log("The bike display is already connected. Stop it first to run another test."); ui.onChanged(); return; }
         cleanup(); running = true; active = mode; connecting = false; tested.clear();
         if (pendingStream == 0) identificationAccepted = false;
         ui.onChanged();
@@ -279,9 +310,11 @@ public final class DashboardLink {
             peers();
         }
         int g = generation;
-        // If P2P cannot establish the target, try the QR's AP credentials once.
+        // If P2P cannot establish the target, try the QR's AP credentials once. Background attempts only do this for a bike whose
+        // network the rider already approved, which Android then joins without asking again.
+        boolean apApproved = context.getSharedPreferences("saved-bike", 0).getBoolean("ap_ok", false);
         main.postDelayed(() -> {
-            if (running && g == generation && !quiet && tested.isEmpty() && trustedInterface == null && !password.isEmpty()) joinAp();
+            if (running && g == generation && (!quiet || apApproved) && tested.isEmpty() && trustedInterface == null && !password.isEmpty()) joinAp();
         }, 18000);
         deadline = () -> {
             if (running && g == generation) {
@@ -458,7 +491,13 @@ public final class DashboardLink {
                         Intent service = new Intent(context, StreamService.class).putExtra("host", host.getHostAddress()).putExtra("local", local).putExtra("port", port)
                             .putExtra("mode", lastStreamMode).putExtra("network", network == null ? 0 : network.getNetworkHandle());
                         if (consent != null) service.putExtra("consent", consent);
-                        try { context.startForegroundService(service); if (selected == MODE_NAVIGATION) { reconnects = 0; main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } } catch (Exception e) { serviceActive = false; finishRun("Could not start stream test"); log(e.getClass().getSimpleName()); }
+                        expectStop = false; streamStartedAt = SystemClock.elapsedRealtime();
+                        try { context.startForegroundService(service); if (selected == MODE_NAVIGATION) { main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } }
+                        catch (Exception e) {
+                            // Android 12+ refuses to start it from the background; the next search after Daanvia is opened connects.
+                            serviceActive = false; log(e.getClass().getSimpleName());
+                            finishRun(Build.VERSION.SDK_INT >= 31 && e instanceof android.app.ForegroundServiceStartNotAllowedException ? "Open Daanvia to reconnect the bike display" : "Could not start stream test");
+                        }
                     });
                 } catch (Exception e) { log("Cannot start video: " + e.getClass().getSimpleName()); testing.set(false); }
             });
@@ -528,6 +567,7 @@ public final class DashboardLink {
     private void joinAp() {
         log("Optional fallback: requesting the exact QR SSID. This will only work if the dashboard exposes a normal Wi-Fi access point.");
         int g = generation;
+        if (apCallback != null) { try { cm.unregisterNetworkCallback(apCallback); } catch (Exception ignored) {} apCallback = null; }
         try {
             WifiNetworkSpecifier spec = new WifiNetworkSpecifier.Builder().setSsid(SSID).setWpa2Passphrase(password).build();
             NetworkRequest request = new NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
@@ -535,7 +575,7 @@ public final class DashboardLink {
             apCallback = new ConnectivityManager.NetworkCallback() {
                 public void onAvailable(Network n) {
                     if (!running || g != generation) return;
-                    log("Android supplied the QR-requested Wi-Fi network.");
+                    log("Android supplied the QR-requested Wi-Fi network."); context.getSharedPreferences("saved-bike", 0).edit().putBoolean("ap_ok", true).apply();
                     LinkProperties lp = cm.getLinkProperties(n); if (lp != null) apTarget(n, lp, g);
                 }
                 public void onLinkPropertiesChanged(Network n, LinkProperties lp) { if (running && g == generation) apTarget(n, lp, g); }
@@ -550,7 +590,8 @@ public final class DashboardLink {
         for (RouteInfo r : lp.getRoutes()) if (r.getGateway() instanceof Inet4Address && !r.getGateway().isAnyLocalAddress())
             target(r.getGateway(), lp.getInterfaceName(), n, "Android QR-specific network request");
     }
-    private void finishRun(String message) { userStopped = true; main.removeCallbacks(reconnect); context.stopService(new Intent(context, StreamService.class)); serviceActive = false; if (running) log(message + ". Report remains available."); cleanup(); label(message); ui.onChanged(); }
+    /** The search or test ends. A display already streaming is left alone, and so is reconnecting after a drop. */
+    private void finishRun(String message) { if (running) log(message + ". Report remains available."); cleanup(); label(message); ui.onChanged(); }
     private void cleanup() {
         running = false; generation++;
         if (ownDiscovery && p2p != null && channel != null) {
@@ -576,7 +617,7 @@ public final class DashboardLink {
     public void requestStream(int kind, Intent consent) {
         if (!identificationAccepted) { log("Run Test connection first. Video tests unlock after an accepted identification probe."); return; }
         if (serviceActive) { log("Stop the current stream test first."); return; }
-        pendingStream = kind; captureConsent = consent;
+        quiet = false; pendingStream = kind; captureConsent = consent;
         log(kind == MODE_PATTERN ? "Starting a short animated color-bar test after reconnecting." : "Screen sharing authorized. Reconnecting for a 90-second mirror test; open your navigation app once frames are sent.");
         permissions(true);
     }

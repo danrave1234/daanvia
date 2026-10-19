@@ -19,15 +19,20 @@ public final class Housekeeping {
         // map downloads that never finished, or areas that were mid-merge when the app closed
         freed += remove(new File(cache, "area-download"));
         File[] regions = AreaStore.root(c).listFiles();
-        if (regions != null) for (File d : regions) if (d.getName().endsWith(".building") || d.getName().endsWith(".unpacking")) freed += remove(d);
+        if (regions != null) for (File d : regions) if (d.getName().endsWith(".building") || d.getName().endsWith(".unpacking") || d.getName().startsWith(AreaStore.TRASH)) freed += remove(d);
         // an app update that is already installed (or older than this version)
         File[] apks = new File(cache, "updates").listFiles();
         if (apks != null) for (File a : apks) {
+            if (AppUpdate.busy()) break; // being downloaded or installed right now
             if (everything || !a.getName().endsWith(".apk") || AppUpdate.compare(versionOf(a.getName()), BuildInfo.VERSION) <= 0) freed += remove(a);
         }
         // routing copies for packs that are no longer installed
+        // (by pack id, read from each pack's region.json, in app storage and in the USB-copy folder)
         Set<String> installed = new HashSet<>();
-        if (regions != null) for (File d : regions) installed.add(d.getName());
+        for (File base : new File[]{AreaStore.root(c), c.getExternalFilesDir("regions")}) {
+            File[] dirs = base == null ? null : base.listFiles(); if (dirs == null) continue;
+            for (File d : dirs) { installed.add(d.getName()); try { installed.add(new org.json.JSONObject(AreaStore.readAll(new java.io.FileInputStream(new File(d, "region.json")))).optString("id")); } catch (Exception ignored) {} }
+        }
         File[] engines = new File(files, "engines").listFiles();
         if (engines != null) for (File e : engines) if (!installed.contains(e.getName())) freed += remove(e);
         // the copy of the first version's built-in Cebu map, now that maps are downloaded instead

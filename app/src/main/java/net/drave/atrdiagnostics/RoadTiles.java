@@ -30,9 +30,9 @@ final class RoadTiles {
 
     /** Collects features while the roads file is read, then writes the main-roads file and one file per square. */
     static final class Writer {
-        private final File area; private final ByteArrayOutputStream majors = new ByteArrayOutputStream(1 << 20);
+        private final File area; private final String from; private final ByteArrayOutputStream majors = new ByteArrayOutputStream(1 << 20);
         private final HashMap<Long, ByteArrayOutputStream> cells = new HashMap<>();
-        Writer(File area) { this.area = area; }
+        Writer(File area) { this.area = area; from = stamp(new File(area, "roads.geojson")); }
         void add(String name, String kind, float[] xy, int n) {
             if (n < 4) return;
             StringBuilder b = new StringBuilder(32 + n * 9);
@@ -53,6 +53,8 @@ final class RoadTiles {
         }
         void finish() throws IOException {
             File dir = new File(area, DIR), tmp = new File(area, DIR + ".building");
+            // The area was removed or updated while its roads were being read: these tiles belong to nothing now.
+            if (!area.isDirectory() || !from.equals(stamp(new File(area, "roads.geojson")))) throw new IOException("Area changed while building road tiles");
             AreaStore.delete(tmp); if (!tmp.mkdirs()) throw new IOException("Cannot write road tiles");
             try (OutputStream o = new BufferedOutputStream(new FileOutputStream(new File(tmp, MAJOR)), 1 << 16)) {
                 o.write("{\"type\":\"FeatureCollection\",\"features\":[".getBytes(StandardCharsets.UTF_8)); majors.writeTo(o); o.write("]}".getBytes(StandardCharsets.UTF_8));
@@ -61,7 +63,7 @@ final class RoadTiles {
                 int x = (int)(e.getKey() >> 32), y = (int)(long)e.getKey();
                 try (OutputStream o = new BufferedOutputStream(new FileOutputStream(new File(tmp, x + "_" + y)), 1 << 15)) { e.getValue().writeTo(o); }
             }
-            try (OutputStream o = new FileOutputStream(new File(tmp, DONE))) { o.write(stamp(new File(area, "roads.geojson")).getBytes(StandardCharsets.UTF_8)); }
+            try (OutputStream o = new FileOutputStream(new File(tmp, DONE))) { o.write(from.getBytes(StandardCharsets.UTF_8)); }
             AreaStore.delete(dir); if (!tmp.renameTo(dir)) throw new IOException("Cannot save road tiles");
         }
     }

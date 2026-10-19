@@ -45,12 +45,13 @@ final class Here implements LocationListenerCompat {
 
     void start() {
         if (on || !allowed(c)) return;
-        manager(); if (lm == null) return; on = true;
+        manager(); if (lm == null) return;
         Location best = null;
         try { for (String p : lm.getProviders(true)) { Location l = lm.getLastKnownLocation(p); if (l != null && (best == null || l.getElapsedRealtimeNanos() > best.getElapsedRealtimeNanos())) best = l; } } catch (SecurityException ignored) {}
         if (best != null && ageMillis(best) < 30 * 60_000L) feed(best);
+        // With Location switched off there is nothing to listen to yet; the next start() (locate, reopening the app) tries again.
         for (String p : providers()) {
-            try { LocationManagerCompat.requestLocationUpdates(lm, p, request(), this, Looper.getMainLooper()); } catch (SecurityException | IllegalArgumentException ignored) {}
+            try { LocationManagerCompat.requestLocationUpdates(lm, p, request(), this, Looper.getMainLooper()); on = true; } catch (SecurityException | IllegalArgumentException ignored) {}
         }
     }
     /** Removing updates needs no permission; the compat API is annotated as if it did. */

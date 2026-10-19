@@ -52,6 +52,7 @@ public final class SheetView extends FrameLayout {
         body.addView(next, new LinearLayout.LayoutParams(-1, -2));
         collapsed = false;
         boolean wasHidden = getVisibility() != VISIBLE;
+        animate().cancel(); // a hide() still running would set it GONE when it ends
         setVisibility(VISIBLE);
         next.setAlpha(0f); next.setTranslationY(kit.dp(18));
         next.animate().alpha(1f).translationY(0).setStartDelay(wasHidden ? 60 : 30).setDuration(420).setInterpolator(Gabi.EASE_OUT).start();
@@ -60,7 +61,7 @@ public final class SheetView extends FrameLayout {
     }
     public View content() { return current; }
     public void expand() {
-        collapsed = false;
+        collapsed = false; animate().cancel();
         if (getVisibility() != VISIBLE) { setVisibility(VISIBLE); post(() -> { setTranslationY(getHeight() + kit.dp(40)); spring.animateToFinalPosition(0); }); }
         else spring.animateToFinalPosition(0);
     }

@@ -30,7 +30,9 @@ public final class NavSession {
     public volatile JSONArray maneuvers=new JSONArray();
     public volatile int maneuver,progress;
     public volatile double[] cumulative=new double[0];private double routeMeters,routeSeconds;
-    private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute;private int offRoute,requestId;
+    private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute,savedFixAt=-600000;private int offRoute,requestId;
+    /** The rider reached the destination on this route: no more rerouting, and the arrival is announced once. */
+    public volatile boolean arrived;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */
     public volatile List<Region> regions=Collections.emptyList();public volatile String regionId="";public volatile int regionVersion;
     /** Where the map reads the area's roads (file:// or asset://); MapLibre parses the file itself, off the main thread. Null without a map. */
@@ -89,7 +91,7 @@ public final class NavSession {
     /** Packs unpacked in app storage (downloaded, or copied from a Play asset pack), then packs copied over USB to Android/data/…/files/regions, then the APK's own. The first copy of an id wins. */
     private List<Region> discover(){ArrayList<Region> list=new ArrayList<>();HashSet<String> ids=new HashSet<>();
         for(File base:new File[]{new File(context.getFilesDir(),"regions"),context.getExternalFilesDir("regions")}){File[] dirs=base==null?null:base.listFiles();if(dirs==null)continue;Arrays.sort(dirs);
-            for(File d:dirs)try{if(new File(d,"valhalla_tiles.tar").isFile()||new File(d,"valhalla").isDirectory())add(list,ids,region(new JSONObject(read(new FileInputStream(new File(d,"region.json")))),null,d));}catch(Exception e){android.util.Log.w("Daanvia","Skipping offline pack "+d.getName(),e);}}
+            for(File d:dirs)try{if(d.getName().startsWith(AreaStore.TRASH)||d.getName().endsWith(".building"))continue;if(new File(d,"valhalla_tiles.tar").isFile()||new File(d,"valhalla").isDirectory())add(list,ids,region(new JSONObject(read(new FileInputStream(new File(d,"region.json")))),null,d));}catch(Exception e){android.util.Log.w("Daanvia","Skipping offline pack "+d.getName(),e);}}
         try{String[] bundled=context.getAssets().list("regions");if(bundled!=null){Arrays.sort(bundled);for(String n:bundled)add(list,ids,region(new JSONObject(asset("regions/"+n+"/region.json")),"regions/"+n,null));}}catch(Exception e){android.util.Log.w("Daanvia","Bundled packs unreadable",e);}
         return list;}
     private static void add(List<Region> list,Set<String> ids,Region r){if(ids.add(r.id))list.add(r);}
@@ -153,7 +155,9 @@ public final class NavSession {
     /** Look for installed packs again, after a download or removal. A ride in progress keeps its pack. */
     public void reload(){reload(null);}
     /** Re-scan installed areas and show {@code prefer} if given (a fresh download), else the best one for where the rider is. */
-    public void reload(String prefer){worker.execute(()->{if(active)return;preferred=prefer;load();preferred=null;});}
+    public void reload(String prefer){worker.execute(()->{if(active){reloadAfterRide=true;return;}preferred=prefer;load();preferred=null;});}
+    /** An area changed during a ride; it is read again once the ride ends. */
+    private volatile boolean reloadAfterRide;
     private volatile String preferred;
     /** Show the downloaded area at a map position the rider is looking at, so panning into another area swaps its roads, search and parking in. One area is held in memory at a time. */
     public void showAt(double lat,double lon){if(!ready||active||routing)return;Region r=Region.at(regions,lat,lon);if(r==null||r==shown)return;
@@ -183,28 +187,39 @@ public final class NavSession {
                 .put("costing_options",new JSONObject().put("motor_scooter",new JSONObject().put("use_highways",0).put("use_tolls",0).put("top_speed",80)));
             JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));JSONObject trip=response.getJSONObject("trip");JSONArray legs=trip.getJSONArray("legs");JSONObject leg=legs.getJSONObject(0);
             List<double[]> route=GeoMath.decode(leg.getString("shape"));if(route.size()<2)throw new IOException("Empty route");
-            synchronized(this){if(token!=requestId)return;shape=Collections.unmodifiableList(route);maneuvers=leg.getJSONArray("maneuvers");maneuver=0;progress=0;double[] prefix=new double[route.size()];for(int j=1;j<route.size();j++)prefix[j]=prefix[j-1]+GeoMath.distance(route.get(j-1)[0],route.get(j-1)[1],route.get(j)[0],route.get(j)[1]);cumulative=prefix;routeMeters=prefix[prefix.length-1];remaining=routeMeters;routeSeconds=trip.getJSONObject("summary").getDouble("time");seconds=routeSeconds;instruction="Route ready";}
+            synchronized(this){if(token!=requestId)return;shape=Collections.unmodifiableList(route);maneuvers=leg.getJSONArray("maneuvers");maneuver=0;progress=0;double[] prefix=new double[route.size()];for(int j=1;j<route.size();j++)prefix[j]=prefix[j-1]+GeoMath.distance(route.get(j-1)[0],route.get(j-1)[1],route.get(j)[0],route.get(j)[1]);cumulative=prefix;arrived=false;offRoute=0;routeMeters=prefix[prefix.length-1];remaining=routeMeters;routeSeconds=trip.getJSONObject("summary").getDouble("time");seconds=routeSeconds;instruction="Route ready";}
             message((simulation?"SIMULATION · ":"Offline route ready · ")+destination);
-        }catch(Throwable e){synchronized(this){if(token!=requestId)return;shape=Collections.emptyList();}message("No offline route: "+e.getMessage());}finally{routing=false;signal();}});
+        // A failed reroute keeps the old route, so guidance goes on and the next reroute is tried 12 s later.
+        }catch(Throwable e){boolean riding;synchronized(this){if(token!=requestId)return;riding=active&&shape.size()>1;if(!riding)shape=Collections.emptyList();}message(riding?"Couldn't find a new route here · keeping the last one":"No offline route: "+e.getMessage());}finally{routing=false;signal();}});
     }
-    public synchronized void stop(){active=false;simulation=false;fixAt=0;accuracy=999;requestId++;shape=Collections.emptyList();instruction="Choose a destination";message("Ride ended · tracking stopped");}
+    public synchronized void stop(){active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;shape=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
     public void update(double a,double b,float acc,float direction,boolean demo){update(a,b,acc,direction,demo,SystemClock.elapsedRealtime());}
     /** {@code takenAt} is when the fix was taken (elapsedRealtime). Outside a ride any fix places the rider, however rough; during a ride only sharp ones count. */
     public synchronized void update(double a,double b,float acc,float direction,boolean demo,long takenAt){
         accuracy=acc;if(acc>50&&!demo&&active){signal();return;}lat=a;lon=b;bearing=direction;fixAt=Math.max(1,takenAt);
         viewLat=a;viewLon=b;viewBearing=direction;snapped=false;
+        // Remembered so the day/night look matches the rider's sky before the next fix (see Gabi.resolve).
+        if(!demo&&SystemClock.elapsedRealtime()-savedFixAt>600000){savedFixAt=SystemClock.elapsedRealtime();context.getSharedPreferences("ui",0).edit().putFloat("fix_lat",(float)a).putFloat("fix_lon",(float)b).apply();}
         List<double[]> route=shape;if(!active||route.size()<2){signal();return;}
-        double best=Double.MAX_VALUE;int nearest=progress;
-        for(int i=Math.max(0,progress-8);i<route.size()-1;i++){double distance=GeoMath.segmentDistance(a,b,route.get(i),route.get(i+1));if(distance<best){best=distance;nearest=i;}}
+        // Match the rider to the route a few hundred metres ahead at most, and count a stretch running against the rider's
+        // heading as farther away: on a divided road the lanes back from a U-turn slot lie metres away, and matching them
+        // would jump past the U-turn.
+        double best=Double.MAX_VALUE,score=Double.MAX_VALUE;int nearest=progress;double[] cum=cumulative;boolean measured=cum.length==route.size();
+        double reach=measured?cum[Math.min(progress,cum.length-1)]+400:Double.MAX_VALUE;
+        for(int i=Math.max(0,progress-8);i<route.size()-1;i++){if(measured&&cum[i]>reach)break;double[] p=route.get(i),q=route.get(i+1);double distance=GeoMath.segmentDistance(a,b,p,q);
+            double sc=distance+(Math.abs(((GeoMath.bearing(p,q)-direction+540)%360)-180)>100?25:0);if(sc<score){score=sc;best=distance;nearest=i;}}
         if(best<Math.max(45,acc)){progress=Math.max(progress,nearest);offRoute=0;}
         // Draw the rider on the road being followed, pointing along it, like car navigation does; GPS scatter stays hidden.
-        if(best<Math.min(45,Math.max(25,acc))){double[] p1=route.get(nearest),p2=route.get(Math.min(nearest+1,route.size()-1));double[] on=GeoMath.project(a,b,p1,p2);viewLat=on[0];viewLon=on[1];if(p1!=p2)viewBearing=GeoMath.bearing(p1,p2);snapped=true;}else if(acc<35&&best>65){offRoute++;if(!demo&&offRoute>=3&&!routing&&SystemClock.elapsedRealtime()-lastReroute>12000){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
+        if(best<Math.min(45,Math.max(25,acc))){double[] p1=route.get(nearest),p2=route.get(Math.min(nearest+1,route.size()-1));double[] on=GeoMath.project(a,b,p1,p2);viewLat=on[0];viewLon=on[1];if(p1!=p2)viewBearing=GeoMath.bearing(p1,p2);snapped=true;}else if(acc<35&&best>65&&!arrived&&GeoMath.distance(a,b,destLat,destLon)>150){offRoute++;if(!demo&&offRoute>=3&&!routing&&SystemClock.elapsedRealtime()-lastReroute>12000){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
         double rem=GeoMath.distance(a,b,route.get(Math.min(progress+1,route.size()-1))[0],route.get(Math.min(progress+1,route.size()-1))[1]);
         for(int i=progress+1;i<route.size()-1;i++)rem+=GeoMath.distance(route.get(i)[0],route.get(i)[1],route.get(i+1)[0],route.get(i+1)[1]);remaining=rem;seconds=routeMeters>0?routeSeconds*remaining/routeMeters:0;
         try{
             int next=0;for(int i=0;i<maneuvers.length();i++)if(maneuvers.getJSONObject(i).optInt("begin_shape_index")>progress){next=i;break;}
             if(next==0)next=Math.max(0,maneuvers.length()-1);maneuver=next;JSONObject m=maneuvers.getJSONObject(next);int at=Math.min(route.size()-1,m.optInt("begin_shape_index"));double[] prefix=cumulative;int ahead=Math.min(progress+1,route.size()-1);distanceToTurn=at>=ahead&&prefix.length==route.size()?GeoMath.distance(a,b,route.get(ahead)[0],route.get(ahead)[1])+prefix[at]-prefix[ahead]:0;instruction=m.optString("instruction","Continue");
-            if(rem<35&&GeoMath.distance(a,b,destLat,destLon)<45){instruction="Destination nearby";message((demo?"SIMULATION · ":"")+"Destination nearby");}
+            // Near the picked point, or at the route's end where the road stops short of a pin inside a campus or mall.
+            double[] end=route.get(route.size()-1);
+            if(arrived||rem<35&&(GeoMath.distance(a,b,destLat,destLon)<45||GeoMath.distance(a,b,end[0],end[1])<30)){instruction="Destination nearby";
+                if(!arrived){arrived=true;context.getSharedPreferences("ui",0).edit().remove("ride").apply();message((demo?"SIMULATION · ":"")+"Destination nearby");}}
         }catch(JSONException ignored){}signal();
     }
     private void refreshParking(){ArrayList<JSONObject> list=new ArrayList<>();for(int i=0;i<parking.length();i++){JSONObject p=parking.optJSONObject(i);if(p!=null&&GeoMath.distance(p.optDouble("lat"),p.optDouble("lon"),destLat,destLon)<=350)list.add(p);}list.sort((a,b)->Double.compare(GeoMath.distance(a.optDouble("lat"),a.optDouble("lon"),destLat,destLon),GeoMath.distance(b.optDouble("lat"),b.optDouble("lon"),destLat,destLon)));nearbyParking=Collections.unmodifiableList(list.size()>8?new ArrayList<>(list.subList(0,8)):list);}

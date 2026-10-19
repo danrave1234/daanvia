@@ -1,7 +1,7 @@
 package net.drave.atrdiagnostics;
 import android.*;import android.app.*;import android.content.*;import android.content.pm.*;import android.location.*;import android.os.*;import android.speech.tts.TextToSpeech;import java.util.*;
 public final class NavService extends Service implements androidx.core.location.LocationListenerCompat {
-    private NavSession s;private LocationManager gps;private TextToSpeech voice;private final Handler handler=new Handler(Looper.getMainLooper());private boolean voiceReady;private int spoken=-1,demoIndex;private long lastWarning;private Runnable simulator;
+    private NavSession s;private LocationManager gps;private TextToSpeech voice;private final Handler handler=new Handler(Looper.getMainLooper());private boolean voiceReady;private int spoken=-1,demoIndex;private List<double[]> spokenRoute;private long lastWarning;private Runnable simulator;
     public IBinder onBind(Intent i){return null;}
     @android.annotation.SuppressLint("MissingPermission") // removing location updates; subscribe() checks the permission itself
     public int onStartCommand(Intent i,int f,int id){
@@ -29,8 +29,8 @@ public final class NavService extends Service implements androidx.core.location.
         boolean moving=l.hasBearing()&&(!l.hasSpeed()||l.getSpeed()>1.4f);
         s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():s.bearing,false);speak();}
     public void onProviderDisabled(String provider){s.message("GPS is off · enable Location");}public void onProviderEnabled(String provider){}
-    private void speak(){if(s.active&&voiceReady&&getSharedPreferences("ui",0).getBoolean("voice",true)&&s.accuracy<40&&s.maneuver!=spoken&&s.distanceToTurn<250){spoken=s.maneuver;voice.speak(s.instruction,TextToSpeech.QUEUE_FLUSH,null,"turn-"+spoken);}}
+    private void speak(){if(s.shape!=spokenRoute){spokenRoute=s.shape;spoken=-1;}if(s.active&&voiceReady&&getSharedPreferences("ui",0).getBoolean("voice",true)&&s.accuracy<40&&s.maneuver!=spoken&&s.distanceToTurn<250){spoken=s.maneuver;voice.speak(s.instruction,TextToSpeech.QUEUE_FLUSH,null,"turn-"+spoken);}}
     private void startSimulation(){if(simulator!=null)handler.removeCallbacks(simulator);demoIndex=0;simulator=new Runnable(){public void run(){if(!s.active||!s.simulation)return;if(!s.shape.isEmpty()){double[] p=s.shape.get(Math.min(demoIndex,s.shape.size()-1));double[] next=s.shape.get(Math.min(demoIndex+1,s.shape.size()-1));s.update(p[0],p[1],3,GeoMath.bearing(p,next),true);speak();demoIndex=Math.min(demoIndex+1,s.shape.size()-1);}handler.postDelayed(this,900);}};handler.post(simulator);}
     @android.annotation.SuppressLint("MissingPermission")
-    public void onDestroy(){handler.removeCallbacksAndMessages(null);if(gps!=null)try{androidx.core.location.LocationManagerCompat.removeUpdates(gps,this);}catch(Exception ignored){}if(voice!=null){voice.stop();voice.shutdown();}if(s!=null){s.active=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+    public void onDestroy(){handler.removeCallbacksAndMessages(null);if(gps!=null)try{androidx.core.location.LocationManagerCompat.removeUpdates(gps,this);}catch(Exception ignored){}if(voice!=null){voice.stop();voice.shutdown();}if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }

@@ -41,6 +41,12 @@ public final class StreamService extends Service {
     private final java.util.concurrent.atomic.AtomicInteger channelIds=new java.util.concurrent.atomic.AtomicInteger();
     private Runnable deadline;
     private PowerManager.WakeLock navigationWake;
+    private volatile long lastFrameAt; private volatile boolean controlOpen;
+    /** The display stream has no time limit, so end it (and let the app reconnect) when the bike stops talking to it. */
+    private final Runnable watchdog=new Runnable(){public void run(){if(!running)return;long now=System.currentTimeMillis();
+        if(frames==0&&now-startedAt>45000){log("The display never asked for video within 45 s.");stopSelf();return;}
+        if(frames>0&&!controlOpen&&now-lastFrameAt>15000){log("The display stopped asking for video.");stopSelf();return;}
+        main.postDelayed(this,5000);}};
     public IBinder onBind(Intent i){return null;}
     private void event(String kind,String message) {
         sendBroadcast(new Intent(EVENT).setPackage(getPackageName()).putExtra("kind",kind).putExtra("message",message).putExtra("mode",mode).putExtra("frames",frames).putExtra("bytes",bytes));
@@ -77,7 +83,7 @@ public final class StreamService extends Service {
             running=true;frames=0;bytes=0;startedAt=System.currentTimeMillis();
             event("started","Starting "+(navigation?"dedicated Daanvia scene":mirror?"screen mirroring":"animated color-pattern test")+". A successful socket write is not proof of visible video.");
             int duration=mirror?90000:45000;
-            deadline=()->{log("Test time limit reached.");stopSelf();};if(!navigation)main.postDelayed(deadline,duration);
+            deadline=()->{log("Test time limit reached.");stopSelf();};if(!navigation)main.postDelayed(deadline,duration);else{lastFrameAt=startedAt;main.postDelayed(watchdog,5000);}
             workers.execute(()->setup(port));
         } catch(Exception e){log("Could not start stream test: "+e.getClass().getSimpleName()+" "+e.getMessage());stopSelf();}
         return START_NOT_STICKY;
@@ -115,7 +121,7 @@ public final class StreamService extends Service {
     private void control(Socket s)throws Exception {
         InputStream in=s.getInputStream();PxcWriter out=new PxcWriter(s.getOutputStream());
         int heartbeatCount=0,acknowledged=0;
-        ControlKeepalive keepalive=null;
+        ControlKeepalive keepalive=null;controlOpen=true;
         try {
         while(running) {
             Pxc f=Pxc.read(in);
@@ -150,7 +156,7 @@ public final class StreamService extends Service {
             } else log("Unimplemented control command 0x"+Integer.toHexString(f.command)+"; payload length="+f.payload.length+"; no guessed reply sent.");
             out.flush();
         }
-        } finally {if(keepalive!=null)keepalive.close();}
+        } finally {controlOpen=false;if(keepalive!=null)keepalive.close();}
     }
     private void media(Socket s)throws Exception {
         InputStream in=s.getInputStream();OutputStream out=s.getOutputStream();
@@ -179,7 +185,7 @@ public final class StreamService extends Service {
                 case 114: {
                     VideoEncoder current; synchronized(encoderLock){current=encoder;}
                     if(current==null)throw new IOException("Dashboard requested frames before configuration");
-                    byte[] frame=current.next();MediaWire.writeVideo(out,frame);frames++;bytes+=frame.length;
+                    byte[] frame=current.next();MediaWire.writeVideo(out,frame);frames++;bytes+=frame.length;lastFrameAt=System.currentTimeMillis();
                     if(frames==1||frames%30==0)event("frames","Sent "+frames+" H.264 frames ("+bytes+" bytes) in response to dashboard pulls. Rendering is not automatically verified.");
                     break;
                 }
@@ -191,8 +197,7 @@ public final class StreamService extends Service {
     public void onDestroy() {
         navigationActive=false;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
-        if("navigation".equals(mode)&&NavSession.get(this).active&&!userStop)NavSession.get(this).message("Bike display dropped · reconnecting");
-        running=false;if(deadline!=null)main.removeCallbacks(deadline);
+        running=false;if(deadline!=null)main.removeCallbacks(deadline);main.removeCallbacks(watchdog);
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}
         workers.shutdownNow();
         synchronized(encoderLock){if(encoder!=null){encoder.close();encoder=null;}}

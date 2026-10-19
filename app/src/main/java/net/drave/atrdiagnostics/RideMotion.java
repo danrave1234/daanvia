@@ -43,6 +43,8 @@ final class RideMotion {
         if (along < 0) return false;
         double predicted = Math.min(cum[cum.length - 1], along + speed * Math.min(1.5, (now - alongAt) / 1000.0));
         if (alongShown < 0 || Math.abs(predicted - alongShown) > 120) alongShown = predicted;
+        // A few metres behind the arrow means the rider braked or GPS wobbled back: creep back slowly instead of sliding back.
+        else if (predicted < alongShown && alongShown - predicted < 40) alongShown += (predicted - alongShown) * Math.min(1f, dtMs / 3000f);
         else alongShown += (predicted - alongShown) * Math.min(1f, dtMs / 250f);
         int i = segmentAt(cum, alongShown); routeFrom = i;
         double[] here = pointAt(route, cum, i, alongShown), ahead = pointAt(route, cum, segmentAt(cum, alongShown + 18), alongShown + 18);

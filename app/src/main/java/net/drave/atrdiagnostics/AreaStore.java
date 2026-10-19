@@ -89,10 +89,14 @@ public final class AreaStore {
     // ---------------------------------------------------------------- installed areas
     public static final class Area {
         public final String id, name, built; public final File dir; public final double[] bounds; public final List<String> cells;
+        /** The boxes of the cells it was made of, [minLon, minLat, maxLon, maxLat], and its home point [lat, lon] (null if none). */
+        public final List<double[]> boxes = new ArrayList<>(); public final double[] home;
         Area(File dir, JSONObject r) throws JSONException {
             this.dir = dir; id = r.getString("id"); name = r.optString("display_name", id); built = r.optString("built");
             JSONArray b = r.getJSONArray("bounds"); bounds = new double[]{b.getDouble(0), b.getDouble(1), b.getDouble(2), b.getDouble(3)};
             ArrayList<String> c = new ArrayList<>(); JSONArray a = r.optJSONArray("cells"); if (a != null) for (int i = 0; i < a.length(); i++) c.add(a.getString(i)); cells = c;
+            JSONArray x = r.optJSONArray("areas"); if (x != null) for (int i = 0; i < x.length(); i++) { JSONArray q = x.optJSONArray(i); if (q != null && q.length() == 4) boxes.add(new double[]{q.optDouble(0), q.optDouble(1), q.optDouble(2), q.optDouble(3)}); }
+            JSONArray h = r.optJSONArray("home"); home = h != null && h.length() == 2 ? new double[]{h.optDouble(0), h.optDouble(1)} : null;
         }
         public long diskBytes() { return AreaStore.diskBytes(dir); }
         public String kmLabel() {
@@ -108,7 +112,18 @@ public final class AreaStore {
         out.sort(Comparator.comparing(a -> a.name));
         return out;
     }
-    public static void remove(Context c, Area a) { NavSession.get(c).forget(a.id); delete(a.dir); NavSession.get(c).reload(); }
+    /**
+     * Remove an area. Its folder is first renamed out of the way in one step, so the app never sees half of it, and the
+     * files (thousands of tiles) are deleted in the background instead of freezing the screen.
+     */
+    public static void remove(Context c, Area a) {
+        File trash = trash(c, a.id); boolean moved = a.dir.renameTo(trash);
+        NavSession.get(c).forget(a.id); NavSession.get(c).reload();
+        File gone = moved ? trash : a.dir; new Thread(() -> delete(gone), "daanvia-remove").start();
+    }
+    /** Folders on their way out; Housekeeping clears any left behind. */
+    static final String TRASH = "trash-";
+    private static File trash(Context c, String id) { return new File(root(c), TRASH + id + "-" + System.nanoTime()); }
     public static void rename(Area a, String name) throws Exception {
         File f = new File(a.dir, "region.json"); JSONObject r = new JSONObject(readAll(new FileInputStream(f))); r.put("display_name", name);
         try (FileOutputStream o = new FileOutputStream(f)) { o.write(r.toString(2).getBytes(StandardCharsets.UTF_8)); }
@@ -143,19 +158,19 @@ public final class AreaStore {
         new Thread(() -> {
             String id = replace != null ? replace.id : "area-" + System.currentTimeMillis();
             File tmp = new File(root(c), id + ".building"), target = new File(root(c), id), cache = new File(c.getCacheDir(), "area-download");
-            long[] done = {0};
+            long[] done = {0}; Merger merge = null;
             try {
                 delete(tmp); cache.mkdirs(); if (!tmp.mkdirs()) throw new IOException("Not enough storage");
-                Merger merge = new Merger(tmp);
+                merge = new Merger(tmp);
                 String from = base(c);
-                for (String n : needs) { Base b = cat.base.get(n); if (b == null) continue; File z = fetch(from, new File(cache, b.file), b.file, b.sha256, done, all, name); merge.add(z); z.delete(); }
+                for (String n : needs) { Base b = cat.base.get(n); if (b == null) continue; File z = fetch(from, new File(cache, b.file), b.file, b.sha256, done, all, name); cancelled(); merge.add(z); z.delete(); }
                 double[] bounds = {180, 90, -180, -90}; JSONArray areas = new JSONArray(), ids = new JSONArray();
                 for (Cell x : cells) {
-                    File z = fetch(from, new File(cache, x.file), x.file, x.sha256, done, all, name); merge.add(z); z.delete();
+                    File z = fetch(from, new File(cache, x.file), x.file, x.sha256, done, all, name); cancelled(); merge.add(z); z.delete();
                     bounds[0] = Math.min(bounds[0], x.box[0]); bounds[1] = Math.min(bounds[1], x.box[1]); bounds[2] = Math.max(bounds[2], x.box[2]); bounds[3] = Math.max(bounds[3], x.box[3]);
                     areas.put(new JSONArray().put(x.box[0]).put(x.box[1]).put(x.box[2]).put(x.box[3])); ids.put(x.id);
                 }
-                merge.close();
+                merge.close(); merge = null; cancelled();
                 if (!new File(tmp, "valhalla").isDirectory()) throw new IOException("The map file is incomplete");
                 double[] h = home != null ? home : new double[]{(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2};
                 JSONObject region = new JSONObject().put("id", id).put("display_name", name).put("bounds", new JSONArray().put(bounds[0]).put(bounds[1]).put(bounds[2]).put(bounds[3]))
@@ -164,10 +179,15 @@ public final class AreaStore {
                 JSONObject demo = demo(new File(tmp, "places.json"), h); if (demo != null) region.put("demo", demo);
                 try (FileOutputStream o = new FileOutputStream(new File(tmp, "region.json"))) { o.write(region.toString(2).getBytes(StandardCharsets.UTF_8)); }
                 NavSession.get(c).forget(id);
-                delete(target); if (!tmp.renameTo(target)) throw new IOException("Could not save the map");
+                // Swap the new copy in with renames only: the old one goes aside first and comes back if the swap fails.
+                File old = trash(c, id); boolean hadOld = target.exists();
+                if (hadOld && !target.renameTo(old)) throw new IOException("Could not save the map");
+                if (!tmp.renameTo(target)) { if (hadOld) old.renameTo(target); throw new IOException("Could not save the map"); }
+                if (hadOld) new Thread(() -> delete(old), "daanvia-remove").start();
                 post(new State(name, all, all, false, true, null));
                 NavSession.get(c).reload(id);
             } catch (Exception e) {
+                if (merge != null) try { merge.close(); } catch (IOException ignored) {}
                 delete(tmp);
                 String why = cancel.get() ? "Download cancelled" : e instanceof IOException && e.getMessage() != null && !e.getMessage().contains("://") ? e.getMessage() : "Download failed. Check your connection and try again.";
                 post(new State(name, 0, all, false, false, why));
@@ -259,6 +279,7 @@ public final class AreaStore {
     }
     static String readAll(InputStream in) throws IOException { ByteArrayOutputStream o = new ByteArrayOutputStream(); byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) o.write(b, 0, n); return o.toString("UTF-8"); }
     public static long diskBytes(File f) { if (f.isFile()) return f.length(); long s = 0; File[] k = f.listFiles(); if (k != null) for (File x : k) s += diskBytes(x); return s; }
+    private static void cancelled() throws IOException { if (cancel.get()) throw new IOException("Download cancelled"); }
     public static void delete(File f) { File[] k = f.listFiles(); if (k != null) for (File x : k) delete(x); f.delete(); }
     private static String hex(byte[] d) { StringBuilder s = new StringBuilder(); for (byte x : d) s.append(String.format(Locale.US, "%02x", x)); return s.toString(); }
 }
