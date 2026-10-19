@@ -21,7 +21,7 @@ ap.add_argument('--no-landcover', action='store_true')
 ap.add_argument('--motorable', action='store_true', help='leave footway/path/steps etc. out of roads.geojson')
 args = ap.parse_args()
 out = pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True)
-packs = json.loads(pathlib.Path(args.packs).read_text())['packs']
+packs = json.loads(pathlib.Path(args.packs).read_text(encoding='utf-8'))['packs']
 if args.only: packs = [p for p in packs if p['id'] in args.only.split(',')]
 NOT_MOTORABLE = {'footway', 'path', 'steps', 'pedestrian', 'cycleway', 'bridleway', 'corridor', 'elevator', 'platform',
                  'proposed', 'construction', 'abandoned', 'razed', 'disused', 'bus_stop', 'via_ferrata'}

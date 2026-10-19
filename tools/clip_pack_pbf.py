@@ -16,7 +16,7 @@ ap.add_argument('--packs', default=str(pathlib.Path(__file__).with_name('packs.j
 ap.add_argument('--only', default='')
 args = ap.parse_args()
 out = pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True)
-packs = json.loads(pathlib.Path(args.packs).read_text())['packs']
+packs = json.loads(pathlib.Path(args.packs).read_text(encoding='utf-8'))['packs']
 if args.only: packs = [p for p in packs if p['id'] in args.only.split(',')]
 writers = {p['id']: osmium.BackReferenceWriter(str(out / (p['id'] + '.osm.pbf')), ref_src=args.pbf, overwrite=True, remove_tags=False) for p in packs}
 kept = {p['id']: set() for p in packs}

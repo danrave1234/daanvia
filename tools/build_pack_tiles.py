@@ -20,10 +20,10 @@ ap.add_argument('--packs', default=str(pathlib.Path(__file__).with_name('packs.j
 ap.add_argument('--only', default='')
 args = ap.parse_args()
 if bool(args.clipped) == bool(args.country): ap.error('pass exactly one of --clipped or --country')
-root = pathlib.Path(__file__).resolve().parents[1]; template_file = root / 'app/src/main/assets/cebu/valhalla-template.json'
+root = pathlib.Path(__file__).resolve().parents[1]; template_file = pathlib.Path(__file__).with_name('valhalla-template.json')
 work = pathlib.Path(args.work).resolve(); work.mkdir(parents=True, exist_ok=True)
 packdir = pathlib.Path(args.packdir).resolve(); pkg = pathlib.Path(valhalla.__file__).parent
-packs = json.loads(pathlib.Path(args.packs).read_text())['packs']
+packs = json.loads(pathlib.Path(args.packs).read_text(encoding='utf-8'))['packs']
 if args.only: packs = [p for p in packs if p['id'] in args.only.split(',')]
 
 def config(tiles):

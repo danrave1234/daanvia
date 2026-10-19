@@ -1,53 +1,203 @@
 {
-  "_comment": "Offline region packs cut from one country PBF. areas are [minLon,minLat,maxLon,maxLat] boxes; bounds is their envelope. Packs may overlap; the app routes inside one pack at a time.",
+  "_comment": "Offline region packs cut from one country PBF. areas are [minLon,minLat,maxLon,maxLat] boxes; bounds is their envelope. Packs may overlap; the app routes inside one pack at a time. kind: city packs ship as downloads today; island/country packs need vector tiles first (docs/offline-coverage.md).",
   "packs": [
     {
       "id": "ph-cebu-metro",
       "name": "Metro Cebu",
       "display_name": "Metro Cebu",
-      "areas": [[123.60, 10.10, 124.08, 10.62]],
+      "areas": [
+        [123.6, 10.1, 124.08, 10.62]
+      ],
       "home": [10.3075, 123.8935],
-      "demo": {"name": "Cebu sample route", "from": [10.3157, 123.8854], "to": [10.2934, 123.9019]}
+      "demo": {
+        "name": "Cebu sample route",
+        "from": [10.3157, 123.8854],
+        "to": [10.2934, 123.9019]
+      },
+      "kind": "city"
     },
     {
       "id": "ph-ncr",
       "name": "Metro Manila",
       "display_name": "Metro Manila",
-      "areas": [[120.85, 14.25, 121.25, 14.85]],
+      "areas": [
+        [120.9, 14.35, 121.13, 14.78]
+      ],
       "home": [14.5995, 120.9842],
-      "demo": {"name": "Manila sample route", "from": [14.5826, 120.9787], "to": [14.5547, 121.0244]}
+      "demo": {
+        "name": "SM Megamall to Bonifacio High Street",
+        "from": [14.585, 121.0561],
+        "to": [14.5511, 121.0501]
+      },
+      "kind": "city"
+    },
+    {
+      "id": "ph-davao",
+      "name": "Metro Davao",
+      "display_name": "Metro Davao",
+      "kind": "city",
+      "areas": [
+        [125.3, 6.95, 125.75, 7.4]
+      ],
+      "home": [7.0731, 125.6128],
+      "demo": {
+        "name": "SM City Davao to Abreeza Mall",
+        "from": [7.048, 125.5908],
+        "to": [7.0907, 125.6118]
+      }
+    },
+    {
+      "id": "ph-cdo",
+      "name": "Cagayan de Oro",
+      "display_name": "Cagayan de Oro",
+      "kind": "city",
+      "areas": [
+        [124.5, 8.35, 124.8, 8.56]
+      ],
+      "home": [8.4762, 124.6414],
+      "demo": {
+        "name": "City Hall to Limketkai Center",
+        "from": [8.4762, 124.6414],
+        "to": [8.4817, 124.6574]
+      }
+    },
+    {
+      "id": "ph-iloilo",
+      "name": "Iloilo City",
+      "display_name": "Iloilo City",
+      "kind": "city",
+      "areas": [
+        [122.45, 10.65, 122.65, 10.82]
+      ],
+      "home": [10.6935, 122.5732],
+      "demo": {
+        "name": "City Hall to SM City Iloilo",
+        "from": [10.6935, 122.5732],
+        "to": [10.7137, 122.5521]
+      }
+    },
+    {
+      "id": "ph-bacolod",
+      "name": "Bacolod",
+      "display_name": "Bacolod",
+      "kind": "city",
+      "areas": [
+        [122.9, 10.58, 123.08, 10.82]
+      ],
+      "home": [10.6678, 122.945],
+      "demo": {
+        "name": "SM City Bacolod to The Ruins",
+        "from": [10.6702, 122.9444],
+        "to": [10.7093, 122.9828]
+      }
+    },
+    {
+      "id": "ph-baguio",
+      "name": "Baguio",
+      "display_name": "Baguio",
+      "kind": "city",
+      "areas": [
+        [120.53, 16.35, 120.66, 16.5]
+      ],
+      "home": [16.4094, 120.5988],
+      "demo": {
+        "name": "Burnham Park to Camp John Hay",
+        "from": [16.4044, 120.5955],
+        "to": [16.3994, 120.6157]
+      }
+    },
+    {
+      "id": "ph-angeles-clark",
+      "name": "Angeles–Clark",
+      "display_name": "Angeles–Clark",
+      "kind": "city",
+      "areas": [
+        [120.48, 15.08, 120.66, 15.28]
+      ],
+      "home": [15.1654, 120.6081],
+      "demo": {
+        "name": "Angeles City Hall to Clark airport",
+        "from": [15.1654, 120.6081],
+        "to": [15.1881, 120.5482]
+      }
+    },
+    {
+      "id": "ph-zamboanga",
+      "name": "Zamboanga City",
+      "display_name": "Zamboanga City",
+      "kind": "city",
+      "areas": [
+        [121.95, 6.88, 122.2, 7.05]
+      ],
+      "home": [6.9039, 122.0761],
+      "demo": {
+        "name": "City Hall to KCC Mall de Zamboanga",
+        "from": [6.9039, 122.0761],
+        "to": [6.9186, 122.074]
+      }
     },
     {
       "id": "ph-luzon",
       "name": "Luzon",
       "display_name": "Luzon",
-      "areas": [[119.50, 12.10, 124.50, 21.30], [116.90, 7.50, 121.20, 12.50], [122.60, 11.70, 124.30, 12.60]],
+      "areas": [
+        [119.5, 12.1, 124.5, 21.3],
+        [116.9, 7.5, 121.2, 12.5],
+        [122.6, 11.7, 124.3, 12.6]
+      ],
       "home": [14.5995, 120.9842],
-      "demo": {"name": "Manila sample route", "from": [14.5826, 120.9787], "to": [14.6514, 121.0493]}
+      "demo": {
+        "name": "Manila sample route",
+        "from": [14.5826, 120.9787],
+        "to": [14.6514, 121.0493]
+      },
+      "kind": "island"
     },
     {
       "id": "ph-visayas",
       "name": "Visayas",
       "display_name": "Visayas",
-      "areas": [[121.70, 9.00, 126.20, 12.70]],
+      "areas": [
+        [121.7, 9.0, 126.2, 12.7]
+      ],
       "home": [10.3075, 123.8935],
-      "demo": {"name": "Cebu sample route", "from": [10.3157, 123.8854], "to": [10.2934, 123.9019]}
+      "demo": {
+        "name": "Cebu sample route",
+        "from": [10.3157, 123.8854],
+        "to": [10.2934, 123.9019]
+      },
+      "kind": "island"
     },
     {
       "id": "ph-mindanao",
       "name": "Mindanao",
       "display_name": "Mindanao",
-      "areas": [[119.20, 4.40, 126.70, 9.95], [125.30, 9.90, 126.30, 10.60]],
+      "areas": [
+        [119.2, 4.4, 126.7, 9.95],
+        [125.3, 9.9, 126.3, 10.6]
+      ],
       "home": [7.0731, 125.6128],
-      "demo": {"name": "Davao sample route", "from": [7.0646, 125.6080], "to": [7.0997, 125.6311]}
+      "demo": {
+        "name": "Davao sample route",
+        "from": [7.0646, 125.608],
+        "to": [7.0997, 125.6311]
+      },
+      "kind": "island"
     },
     {
       "id": "ph-all",
       "name": "Philippines",
       "display_name": "Philippines",
-      "areas": [[116.90, 4.40, 126.70, 21.30]],
+      "areas": [
+        [116.9, 4.4, 126.7, 21.3]
+      ],
       "home": [14.5995, 120.9842],
-      "demo": {"name": "Manila sample route", "from": [14.5826, 120.9787], "to": [14.5547, 121.0244]}
+      "demo": {
+        "name": "Manila sample route",
+        "from": [14.5826, 120.9787],
+        "to": [14.5547, 121.0244]
+      },
+      "kind": "country"
     }
   ]
 }
