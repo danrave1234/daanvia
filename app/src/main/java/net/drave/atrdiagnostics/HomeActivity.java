@@ -81,6 +81,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private Here here; private boolean centerOnFix, userMovedMap, firstFixHandled;
     static final long MAP_CACHE_BYTES = 200L * 1024 * 1024;
     static final int SEARCH_PARKING_METERS = 150;
+    private String drawnDest = null, drawnDrop = null;
     private boolean routeCleared; private List<double[]> drawnShape; private List<JSONObject> drawnParking; private Gabi.Palette drawnParkingPalette; private ValueAnimator routeAnim;
     private boolean follow = true, haveShown; private double shownLat, shownLon; private float shownBearing; private ValueAnimator puckAnim, pulse; private long lastFix = -1;
     private long themeCheckedAt; private boolean centeredOnRegion, coastline; private int shownRegion = -1;
@@ -153,7 +154,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
-        here.start(); askLocationOnce();
+        here.start(); askLocationOnce(); autoDelay = 15000;
         refresh(); autoConnect();
     }
     protected void onResume() { super.onResume(); mapView.onResume(); themeCheckedAt = 0; refresh(); }
@@ -180,8 +181,14 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
 
     // ================================================================ map
+    private long fpsFrames, fpsSince, fpsLast, fpsWorst;
     private void onMap(MapLibreMap m) {
         map = m;
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) mapView.addOnDidFinishRenderingFrameListener((fully, encode, render) -> {
+            long now = SystemClock.uptimeMillis(); if (fpsLast > 0 && now - fpsLast < 1000) fpsWorst = Math.max(fpsWorst, now - fpsLast); fpsLast = now; fpsFrames++;
+            if (fpsSince == 0) fpsSince = now;
+            if (now - fpsSince >= 2000) { android.util.Log.d("DaanviaFPS", "fps " + (fpsFrames * 1000 / (now - fpsSince)) + " worst " + fpsWorst + " ms"); fpsFrames = 0; fpsSince = now; fpsWorst = 0; }
+        });
         UiSettings u = map.getUiSettings(); u.setCompassEnabled(false); u.setLogoEnabled(false); u.setAttributionEnabled(false);
         map.setMinZoomPreference(5); map.setMaxZoomPreference(19.5);
         android.content.SharedPreferences prefs = getSharedPreferences("ui", 0);
@@ -1169,9 +1176,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         }
         // destination / pin
         GeoJsonSource dest = src(MapStyle.DEST), drop = src(MapStyle.DROP);
-        if (routeMode && destName != null || mode == Mode.RIDE) dest.setGeoJson(mode == Mode.RIDE ? MapStyle.point(s.destLat, s.destLon) : MapStyle.point(destLat, destLon)); else dest.setGeoJson(MapStyle.empty());
-        if (mode == Mode.PIN || mode == Mode.SAVE) drop.setGeoJson(MapStyle.point(dropLat, dropLon));
-        else if (mode == Mode.LOT && lot != null) drop.setGeoJson(MapStyle.point(lot.lat, lot.lon)); else drop.setGeoJson(MapStyle.empty());
+        String destKey = routeMode && destName != null || mode == Mode.RIDE ? (mode == Mode.RIDE ? s.destLat + "," + s.destLon : destLat + "," + destLon) : "";
+        if (!destKey.equals(drawnDest)) { drawnDest = destKey; if (destKey.isEmpty()) dest.setGeoJson(MapStyle.empty()); else dest.setGeoJson(mode == Mode.RIDE ? MapStyle.point(s.destLat, s.destLon) : MapStyle.point(destLat, destLon)); }
+        String dropKey = mode == Mode.PIN || mode == Mode.SAVE ? dropLat + "," + dropLon : mode == Mode.LOT && lot != null ? lot.lat + "," + lot.lon : "";
+        if (!dropKey.equals(drawnDrop)) { drawnDrop = dropKey; if (dropKey.isEmpty()) drop.setGeoJson(MapStyle.empty()); else drop.setGeoJson(mode == Mode.LOT && lot != null ? MapStyle.point(lot.lat, lot.lon) : MapStyle.point(dropLat, dropLon)); }
         // parking near the destination, before the ride and in the last kilometre
         List<JSONObject> lots = (showRoute && (mode == Mode.ROUTE || s.remaining < 1000)) ? s.nearbyParking : Collections.emptyList();
         if (lots != drawnParking || drawnParkingPalette != theme.palette) {
@@ -1241,7 +1249,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             if (mode == Mode.RIDE && follow) follow();
         });
         puckAnim.start();
-        if (mode == Mode.RIDE) stopPulse(); else startPulse();
+        stopPulse(); haloOn();
     }
     // During a ride the arrow moves every frame along the road at the rider's speed (the same motion as the bike
     // display), so it never trails a second behind the real position.
@@ -1264,9 +1272,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                     feature.addStringProperty("icon", "puck-arrow"); feature.addNumberProperty("bearing", shownBearing); feature.addNumberProperty("r0", 0);
                     puck.setGeoJson(feature); puckOnMap = true;
                 }
-                // The route line starts at the arrow, ten times a second.
+                // The route line starts at the arrow, four times a second; the arrow covers the few metres in between.
                 List<double[]> shape = s.shape;
-                if (now - routeSplitAt > 100 && shape.size() > 1) {
+                if (now - routeSplitAt > 250 && shape.size() > 1) {
                     routeSplitAt = now; drawnShape = shape; routeCleared = false;
                     GeoJsonSource route = src(MapStyle.ROUTE), done = src(MapStyle.DONE); int from = Math.min(rideMotion.routeFrom, shape.size() - 1); double[] here = {shownLat, shownLon};
                     if (route != null) route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, from + 1, shape.size(), here)));
@@ -1349,6 +1357,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             .zoom(s.remaining < 600 ? 17.4 : 16.8).padding(landscape ? panelW : 0, landscape ? h * 0.3 : h * 0.42, 0, 0).build();
         map.moveCamera(CameraUpdateFactory.newCameraPosition(pos));
     }
+    /** A still halo under the dot instead of an endless pulse, which kept the whole map redrawing every frame. */
+    private void haloOn() { Layer l = style == null ? null : style.getLayer("puck-pulse"); if (l != null) l.setProperties(circleRadius(22f), circleOpacity(mode == Mode.RIDE ? 0f : 0.16f)); }
     private void startPulse() {
         if (pulse != null && pulse.isRunning()) return;
         Layer l = style.getLayer("puck-pulse"); if (l == null) return;
@@ -1422,14 +1432,17 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void autoConnect() {
         if (!started || link == null || !link.profileReady() || StreamService.navigationActive || link.searching()) return;
         if (!getSharedPreferences("ui", 0).getBoolean("autoconnect", true)) return;
-        if (!link.hasPermissions()) { if (askedLinkPermissions) return; askedLinkPermissions = true; }
-        link.sendNavigation(); refresh();
+        if (!link.hasPermissions()) { if (askedLinkPermissions) return; askedLinkPermissions = true; link.askPermissions(); refresh(); return; }
+        link.autoNavigation(); refresh();
     }
+    /** Look for the bike every 15 s at first, then every 30 s, 1 min and 2 min while it isn't found. */
+    private long autoDelay = 15000;
     public void onStatus(String status) { refresh(); }
     public void onLog() {}
     public void onChanged() {
         refresh();
-        if (started && link != null && !link.searching() && !StreamService.navigationActive) { ui.removeCallbacks(retryConnect); ui.postDelayed(retryConnect, 15000); }
+        if (StreamService.navigationActive) autoDelay = 15000;
+        else if (started && link != null && !link.searching()) { ui.removeCallbacks(retryConnect); ui.postDelayed(retryConnect, autoDelay); autoDelay = Math.min(120000, autoDelay * 2); }
     }
     public void onPermissionsMissing() { notice("Allow Nearby devices and location so Daanvia can find your bike"); }
     public void onNavigationStarted() { link.settle(); notice("Connected. Daanvia is on the bike display."); refresh(); if (mode == Mode.RIDE) armBikeMode(); }

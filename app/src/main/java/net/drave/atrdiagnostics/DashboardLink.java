@@ -67,7 +67,7 @@ public final class DashboardLink {
     private void reconnectNow() {
         if (StreamService.navigationActive || !profileReady || !hasPermissions()) return;
         if (!context.getSharedPreferences("ui", 0).getBoolean("autoconnect", true) || reconnects > 22) return;
-        if (!running) { reconnects++; log("Reconnecting to the bike display (attempt " + reconnects + ")."); sendNavigation(); }
+        if (!running) { reconnects++; log("Reconnecting to the bike display (attempt " + reconnects + ")."); autoNavigation(); }
         main.postDelayed(reconnect, 8000);
     }
     private String SSID = "", MAC = "", password = "", model = "", qrAction = "";
@@ -166,8 +166,19 @@ public final class DashboardLink {
     /** Same as the old "Send Daanvia to dashboard" button. */
     public void sendNavigation() {
         if (!profileReady) { log("Scan your dashboard QR first"); return; }
-        pendingStream = MODE_NAVIGATION; permissions(true);
+        quiet = false; pendingStream = MODE_NAVIGATION; permissions(true);
     }
+    /**
+     * A background attempt (auto-connect, reconnect): Wi-Fi Direct only, never Android's "connect to device" Wi-Fi sheet,
+     * which would otherwise pop up every time the bike is off. Does nothing while Wi-Fi is off.
+     */
+    public void autoNavigation() {
+        if (!profileReady || wifi == null || !wifi.isWifiEnabled() || !hasPermissions()) return;
+        quiet = true; pendingStream = MODE_NAVIGATION; start(true);
+    }
+    private boolean quiet;
+    /** Ask for Nearby devices once for auto-connect; once allowed it searches the quiet way. */
+    public void askPermissions() { if (!profileReady) return; quiet = true; pendingStream = MODE_NAVIGATION; permissions(true); }
     /** Same as the old "Test connection" button. */
     public void testConnection() {
         if (!profileReady) { log("Scan your dashboard QR first."); return; }
@@ -270,7 +281,7 @@ public final class DashboardLink {
         int g = generation;
         // If P2P cannot establish the target, try the QR's AP credentials once.
         main.postDelayed(() -> {
-            if (running && g == generation && tested.isEmpty() && trustedInterface == null && !password.isEmpty()) joinAp();
+            if (running && g == generation && !quiet && tested.isEmpty() && trustedInterface == null && !password.isEmpty()) joinAp();
         }, 18000);
         deadline = () -> {
             if (running && g == generation) {

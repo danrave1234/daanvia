@@ -88,6 +88,17 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         look.addView(k.text("Auto switches to the night map after sunset where you are riding, and back at sunrise.", 12.5f, 500, MUTED));
         c.addView(look);
 
+        // ---- GPS
+        LinearLayout gps = GabiPage.card(k);
+        LinearLayout gpsHead = k.row(4); gpsHead.addView(k.label("GPS"), new LinearLayout.LayoutParams(0, -2, 1));
+        gpsHead.addView(k.info("Recalibrate clears the satellite data your phone saved and downloads fresh data, so GPS locks on again from scratch. Use it when your location is stuck, far off, or slow to find you. GPS check shows how accurate it is right now."));
+        gps.addView(gpsHead);
+        LinearLayout gpsRow = k.row(8);
+        gpsRow.addView(k.ghost("Recalibrate GPS", this::recalibrateGps), new LinearLayout.LayoutParams(0, -2, 1));
+        gpsRow.addView(k.ghost("GPS check", () -> startActivity(new Intent(this, SupportActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
+        gps.addView(gpsRow);
+        c.addView(gps);
+
         // ---- downloaded maps
         LinearLayout maps = GabiPage.card(k);
         LinearLayout mapsHead = k.row(4); mapsHead.addView(k.label("Maps"), new LinearLayout.LayoutParams(0, -2, 1));
@@ -235,6 +246,12 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             + (u[2] >= 1048576 ? ", " + mb(u[2]) + " saved from online maps and searches" : "") + (u[1] >= 1048576 ? ", " + mb(u[1]) + " for everything else" : "") + ".")); }).start();
     }
     private static String mb(long b) { return Math.max(0, Math.round(b / 1048576.0)) + " MB"; }
+    private void recalibrateGps() {
+        if (s.active) { android.widget.Toast.makeText(this, "End the ride first. Recalibrating restarts GPS from scratch.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        if (!Here.allowed(this)) { android.widget.Toast.makeText(this, "Allow location for Daanvia first.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        boolean ok = Here.recalibrate(this); s.fixAt = 0; s.accuracy = 999; s.signal();
+        android.widget.Toast.makeText(this, ok ? "GPS reset. Go outside; it can take a minute to lock." : "Fresh GPS data requested. Go outside to lock.", android.widget.Toast.LENGTH_LONG).show();
+    }
     private void freeUp() {
         AreaStore.State st = AreaStore.state();
         if (s.active || (st != null && st.running)) { storageText.setText("Finish the ride or download first, then try again."); return; }

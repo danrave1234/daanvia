@@ -66,6 +66,8 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         gpsCard.addView(gh);
         gpsText = k.num("Not running", 14, 600, INK); gpsCard.addView(gpsText);
         gpsBtn = k.ghost("Start GPS check", this::toggleGps); gpsCard.addView(gpsBtn);
+        gpsCard.addView(k.ghost("Recalibrate GPS", () -> { boolean ok = Here.recalibrate(this); fix = null; used = seen = 0; paintGps();
+            android.widget.Toast.makeText(this, ok ? "GPS reset. Watch the satellites count climb; outside it locks within a minute." : "Fresh GPS data requested.", android.widget.Toast.LENGTH_LONG).show(); }));
         c.addView(gpsCard);
 
         LinearLayout logs = GabiPage.card(k);

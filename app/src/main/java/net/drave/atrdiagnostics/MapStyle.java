@@ -7,6 +7,7 @@ import org.maplibre.android.style.expressions.Expression;
 import org.maplibre.android.style.layers.*;
 import org.maplibre.android.style.sources.GeoJsonSource;
 import org.maplibre.android.style.sources.VectorSource;
+import org.maplibre.android.style.sources.GeoJsonOptions;
 import org.maplibre.android.maps.Style;
 import org.maplibre.geojson.*;
 import org.maplibre.geojson.Point;
@@ -52,25 +53,27 @@ final class MapStyle {
 
     static void install(Context c, Style st, String roadsUri) {
         // Country overview (bundled): land and main roads, so riders can find their area before any map is downloaded.
-        st.addSource(new GeoJsonSource(OVERVIEW));
+        st.addSource(new GeoJsonSource(OVERVIEW, new GeoJsonOptions().withMaxZoom(9)));
         st.addLayer(new FillLayer("overview-land", OVERVIEW).withFilter(eq(get("kind"), literal("land"))).withProperties(fillAntialias(true)));
         st.addLayer(new LineLayer("overview-roads", OVERVIEW).withFilter(match(get("kind"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true)))
             .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(5, 0.6f, 9, 1.4f, 13, 2.6f))));
         // Coastline: land polygons over a sea-coloured background, then lakes and rivers. Empty until an area provides them.
-        st.addSource(new GeoJsonSource(LAND)); st.addSource(new GeoJsonSource(WATER));
+        st.addSource(new GeoJsonSource(LAND, new GeoJsonOptions().withMaxZoom(12))); st.addSource(new GeoJsonSource(WATER, new GeoJsonOptions().withMaxZoom(12)));
         st.addLayer(new FillLayer("land", LAND).withProperties(fillAntialias(true)));
         st.addLayer(new FillLayer("water-area", WATER).withProperties(fillAntialias(true)));
         st.addSource(new VectorSource(ONLINE, ONLINE_TILES));
         online(st, new FillLayer("online-water", ONLINE).withProperties(fillAntialias(true)), "water", 0);
         online(st, new FillLayer("online-park", ONLINE).withFilter(match(get("class"), literal(false), stop("park", true), stop("nature_reserve", true), stop("wood", true), stop("grass", true), stop("forest", true))).withProperties(fillOpacity(0.55f)), "park", 11);
-        online(st, new FillLayer("online-building", ONLINE).withProperties(fillAntialias(true)), "building", 14);
+        online(st, new FillLayer("online-building", ONLINE).withProperties(fillAntialias(true)), "building", 15);
         LineLayer onlineMinor = new LineLayer("online-road-minor", ONLINE).withFilter(match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true)))
             .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(12, 0.4f, 14, 2.2f, 16, 6, 18, 15)));
         online(st, onlineMinor, "transportation", 12);
         LineLayer onlineMajor = new LineLayer("online-road-major", ONLINE).withFilter(match(get("class"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true)))
             .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(8, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23)));
         online(st, onlineMajor, "transportation", 6);
-        GeoJsonSource roads = new GeoJsonSource(ROADS); st.addSource(roads); roads(roads, roadsUri);
+        // A downloaded area's roads are tens of megabytes: tile them only up to zoom 14 and let MapLibre stretch those tiles
+        // when zoomed in, instead of re-cutting the whole file at every zoom while the rider pans.
+        GeoJsonSource roads = new GeoJsonSource(ROADS, new GeoJsonOptions().withMaxZoom(14).withTolerance(0.45f)); st.addSource(roads); roads(roads, roadsUri);
         LineLayer path = new LineLayer("road-path", ROADS).withFilter(kinds(PATHS)).withProperties(lineWidth(width(15, 0.8f, 18, 2.4f)), lineDasharray(new Float[]{1.2f, 1.6f}));
         path.setMinZoom(15);
         st.addLayer(path);
@@ -82,7 +85,7 @@ final class MapStyle {
         online(st, new SymbolLayer("online-street-names", ONLINE).withFilter(has("name")).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), textField(get("name")), textFont(FONT),
             textSize(interpolate(linear(), zoom(), stop(13, 10f), stop(17, 13f))), textMaxAngle(30f), textPadding(4f)), "transportation_name", 13);
 
-        st.addSource(new GeoJsonSource(DONE)); st.addSource(new GeoJsonSource(ROUTE));
+        st.addSource(new GeoJsonSource(DONE, new GeoJsonOptions().withMaxZoom(16))); st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16)));
         st.addLayer(new LineLayer("route-done", DONE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 3, 14, 5, 17, 10))));
         st.addLayer(new LineLayer("route-glow", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineBlur(7f), lineWidth(width(10, 12, 14, 18, 17, 34))));
         st.addLayer(new LineLayer("route-case", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 6.5f, 14, 9, 17, 16))));
@@ -94,7 +97,7 @@ final class MapStyle {
             iconImage("poi-dot"), iconSize(interpolate(linear(), zoom(), stop(15, 0.8f), stop(18, 1.1f))), iconHaloWidth(1.2f),
             textField(get("name")), textFont(FONT), textSize(interpolate(linear(), zoom(), stop(15, 10.5f), stop(18, 12.5f))),
             textAnchor(Property.TEXT_ANCHOR_LEFT), textJustify(Property.TEXT_JUSTIFY_LEFT), textOffset(new Float[]{0.8f, 0f}), textMaxWidth(8f), textPadding(3f),
-            symbolSortKey(toNumber(get("rank")))), "poi", 15);
+            symbolSortKey(toNumber(get("rank")))), "poi", 16);
         online(st, new SymbolLayer("online-places", ONLINE).withFilter(match(get("class"), literal(false), stop("city", true), stop("town", true), stop("village", true), stop("suburb", true), stop("quarter", true), stop("neighbourhood", true), stop("hamlet", true)))
             .withProperties(textField(get("name")), textFont(FONT_BOLD), textTransform(Property.TEXT_TRANSFORM_UPPERCASE), textLetterSpacing(0.08f),
                 textSize(match(get("class"), literal(11f), stop("city", 15f), stop("town", 13.5f))), textMaxWidth(8f), textPadding(6f)), "place", 10);

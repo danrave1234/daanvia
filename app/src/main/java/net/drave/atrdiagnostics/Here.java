@@ -24,6 +24,18 @@ final class Here implements LocationListenerCompat {
 
     Here(Context c, NavSession s) { this.c = c.getApplicationContext(); this.s = s; }
 
+    /**
+     * Clear the phone's saved GPS assistance (satellite almanac, last position and time) and fetch fresh copies, like the
+     * "reset A-GPS" of GPS toolbox apps. Helps when the location is stuck, far off or slow to lock. The next fix is a cold
+     * start, so it needs a clear view of the sky and can take up to a minute.
+     */
+    static boolean recalibrate(Context c) {
+        LocationManager lm = c.getSystemService(LocationManager.class); if (lm == null) return false;
+        boolean cleared = false;
+        try { cleared = lm.sendExtraCommand(LocationManager.GPS_PROVIDER, "delete_aiding_data", null); } catch (Exception ignored) {}
+        for (String cmd : new String[]{"force_time_injection", "force_psds_injection", "force_xtra_injection"}) try { lm.sendExtraCommand(LocationManager.GPS_PROVIDER, cmd, null); } catch (Exception ignored) {}
+        return cleared;
+    }
     static boolean allowed(Context c) { return c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || c.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED; }
     static boolean precise(Context c) { return c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED; }
 
@@ -50,7 +62,8 @@ final class Here implements LocationListenerCompat {
     /** Network gives a fix indoors within seconds, GPS gives the precise one outside, fused blends both when present. */
     private List<String> providers() {
         ArrayList<String> out = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 31 && lm.hasProvider(LocationManager.FUSED_PROVIDER)) out.add(LocationManager.FUSED_PROVIDER);
+        // Fused already blends GPS, Wi-Fi and cell; listening to all three as well only made the dot jump 2-3 times a second.
+        if (Build.VERSION.SDK_INT >= 31 && lm.hasProvider(LocationManager.FUSED_PROVIDER)) { out.add(LocationManager.FUSED_PROVIDER); return out; }
         if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) out.add(LocationManager.NETWORK_PROVIDER);
         if (precise(c) && lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) out.add(LocationManager.GPS_PROVIDER);
         return out;
