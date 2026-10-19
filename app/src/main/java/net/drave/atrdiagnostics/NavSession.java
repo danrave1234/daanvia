@@ -1,4 +1,5 @@
 package net.drave.atrdiagnostics;
+import android.net.Uri;
 import android.content.*;
 import android.os.*;
 import org.json.*;
@@ -20,7 +21,7 @@ public final class NavSession {
     public volatile double viewLat=10.3157,viewLon=123.8854;public volatile float viewBearing;public volatile boolean snapped;
     public volatile long fixAt;
     public volatile List<double[]> shape=Collections.emptyList();
-    public volatile JSONArray parking=new JSONArray(),places=new JSONArray();
+    public volatile JSONArray parking=new JSONArray();public volatile Places places=Places.EMPTY;
     public volatile List<Road> roads=Collections.emptyList();
     public volatile List<JSONObject> nearbyParking=Collections.emptyList();
     public volatile JSONArray maneuvers=new JSONArray();
@@ -29,13 +30,24 @@ public final class NavSession {
     private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute;private int offRoute,requestId;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */
     public volatile List<Region> regions=Collections.emptyList();public volatile String regionId="";public volatile int regionVersion;
-    public volatile String roadsJson="{\"type\":\"FeatureCollection\",\"features\":[]}";
+    /** Where the map reads the area's roads (file:// or asset://); MapLibre parses the file itself, off the main thread. Null without a map. */
+    public volatile String roadsUri;
     public double minLat,maxLat,minLon,maxLon;
     public volatile String regionName="Offline region";public volatile double[] demoFrom={10.3157,123.8854},demoTo={10.2934,123.9019};public volatile String demoName="Sample route";
     public volatile double[] home;public double homeLat(){return home!=null?home[0]:ready?(minLat+maxLat)/2:lat;}public double homeLon(){return home!=null?home[1]:ready?(minLon+maxLon)/2:lon;}
     public float insetLeft,insetTop,insetRight,insetBottom,textScale=1;public String layout="Map focus";
-    public static final class Road {public final double[][] points;public final String name,kind;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;Road(double[][] p,String n,String k){points=p;name=n;kind=k;for(double[] a:p){minLat=Math.min(minLat,a[0]);maxLat=Math.max(maxLat,a[0]);minLon=Math.min(minLon,a[1]);maxLon=Math.max(maxLon,a[1]);}}}
+    /** A road line for the bike display, its points packed as lat,lon floats (about 1 m precision) to keep a large area in memory. */
+    public static final class Road {private final float[] xy;public final String name,kind;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
+        Road(float[] xy,String n,String k){this.xy=xy;name=n;kind=k;for(int i=0;i+1<xy.length;i+=2){minLat=Math.min(minLat,xy[i]);maxLat=Math.max(maxLat,xy[i]);minLon=Math.min(minLon,xy[i+1]);maxLon=Math.max(maxLon,xy[i+1]);}}
+        public int size(){return xy.length/2;} public double lat(int i){return xy[i*2];} public double lon(int i){return xy[i*2+1];}}
     /** One offline pack: region.json plus its graph and data, either bundled under assets/ or unpacked in a directory. Areas are [minLon,minLat,maxLon,maxLat] boxes. */
+    /** The area's place names for search, held as plain arrays rather than JSON objects. */
+    public static final class Places {
+        public static final Places EMPTY = new Places(new ArrayList<>(), new double[0], new double[0]);
+        public final List<String> names; public final double[] lat, lon;
+        Places(List<String> names, double[] lat, double[] lon) { this.names = names; this.lat = lat; this.lon = lon; }
+        public int size() { return names.size(); }
+    }
     public static final class Region {
         public final String id,name;public final double[] bounds;public final double[][] areas;final String asset;final File dir;
         Region(String id,String name,double[] bounds,double[][] areas,String asset,File dir){this.id=id;this.name=name;this.bounds=bounds;this.areas=areas==null||areas.length==0?new double[][]{bounds}:areas;this.asset=asset;this.dir=dir;}
@@ -53,6 +65,9 @@ public final class NavSession {
     private String asset(String p)throws Exception{return read(context.getAssets().open(p));}
     private static String read(InputStream stream)throws IOException{try(InputStream in=stream){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}}
     private String text(Region r,String file)throws Exception{return r.asset!=null?asset(r.asset+"/"+file):read(new FileInputStream(new File(r.dir,file)));}
+    /** A buffered reader over an area file, so large files stream instead of being copied into memory. */
+    private android.util.JsonReader json(Region r,String file)throws Exception{InputStream in=r.asset!=null?context.getAssets().open(r.asset+"/"+file):new FileInputStream(new File(r.dir,file));return new android.util.JsonReader(new InputStreamReader(new BufferedInputStream(in,1<<16),"UTF-8"));}
+    private static String uri(Region r,String file){return r.asset!=null?"asset://"+r.asset+"/"+file:Uri.fromFile(new File(r.dir,file)).toString();}
     /** Reads a data file such as "lots.json" from the pack now shown ({@link #regionId}); FileNotFoundException when that pack has none. Off the UI thread; reload when {@link #regionVersion} changes. */
     public String regionText(String file)throws Exception{Region r=shown;if(r==null)throw new FileNotFoundException(file);return text(r,file);}
     private static Region region(JSONObject j,String asset,File dir)throws JSONException{
@@ -75,21 +90,37 @@ public final class NavSession {
         String last=context.getSharedPreferences("offline-region",0).getString("shown","");for(Region r:list)if(r.id.equals(last))return r;return list.get(0);}
     /** Loads a pack's map, search and parking data as the shown region. Worker thread only. */
     private void display(Region r)throws Exception{
-        JSONObject region=new JSONObject(text(r,"region.json"));String json=text(r,"roads.geojson");ArrayList<Road> list=new ArrayList<>();
-        try(android.util.JsonReader reader=new android.util.JsonReader(new StringReader(json))){
-            reader.beginObject();while(reader.hasNext()){String key=reader.nextName();if(!"features".equals(key)){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){
-                String name="",kind="";ArrayList<double[]> points=new ArrayList<>();reader.beginObject();while(reader.hasNext()){String field=reader.nextName();
-                    if("properties".equals(field)){reader.beginObject();while(reader.hasNext()){String property=reader.nextName();if("name".equals(property))name=reader.nextString();else if("kind".equals(property))kind=reader.nextString();else reader.skipValue();}reader.endObject();}
-                    else if("geometry".equals(field)){reader.beginObject();while(reader.hasNext()){if(!"coordinates".equals(reader.nextName())){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){reader.beginArray();double longitude=reader.nextDouble(),latitude=reader.nextDouble();while(reader.hasNext())reader.skipValue();reader.endArray();points.add(new double[]{latitude,longitude});}reader.endArray();}reader.endObject();}
-                    else reader.skipValue();
-                }reader.endObject();list.add(new Road(points.toArray(new double[0][]),name,kind));
-            }reader.endArray();}reader.endObject();
-        }
-        JSONArray placeList=new JSONArray(text(r,"places.json")),parkingList=new JSONArray(text(r,"parking.json"));
+        JSONObject region=new JSONObject(text(r,"region.json"));
+        Places placeList=places(r);JSONArray parkingList=new JSONArray(text(r,"parking.json"));
         minLon=r.bounds[0];minLat=r.bounds[1];maxLon=r.bounds[2];maxLat=r.bounds[3];regionName=r.name;
         JSONObject demo=region.optJSONObject("demo");if(demo!=null){JSONArray f=demo.getJSONArray("from"),t=demo.getJSONArray("to");demoFrom=new double[]{f.getDouble(0),f.getDouble(1)};demoTo=new double[]{t.getDouble(0),t.getDouble(1)};demoName=demo.optString("name",demoName);}JSONArray hc=region.optJSONArray("home");home=hc!=null?new double[]{hc.getDouble(0),hc.getDouble(1)}:null;
-        roadsJson=json;roads=Collections.unmodifiableList(list);places=placeList;parking=parkingList;mergeSavedParking();
+        roadsUri=uri(r,"roads.geojson");roads=Collections.emptyList();places=placeList;parking=parkingList;mergeSavedParking();
         shown=r;regionId=r.id;regionVersion++;context.getSharedPreferences("offline-region",0).edit().putString("shown",r.id).apply();
+    }
+    /** Place names and positions, streamed from places.json. */
+    private Places places(Region r)throws Exception{
+        ArrayList<String> names=new ArrayList<>();double[] la=new double[1024],lo=new double[1024];int n=0;
+        try(android.util.JsonReader reader=json(r,"places.json")){
+            reader.beginArray();while(reader.hasNext()){String name=null;double a=0,b=0;reader.beginObject();while(reader.hasNext()){String k=reader.nextName();if("name".equals(k))name=reader.nextString();else if("lat".equals(k))a=reader.nextDouble();else if("lon".equals(k))b=reader.nextDouble();else reader.skipValue();}reader.endObject();
+                if(name==null)continue;if(n==la.length){la=Arrays.copyOf(la,n*2);lo=Arrays.copyOf(lo,n*2);}names.add(name);la[n]=a;lo[n]=b;n++;}
+            reader.endArray();
+        }
+        return new Places(names,Arrays.copyOf(la,n),Arrays.copyOf(lo,n));
+    }
+    /** The road lines the bike display draws, streamed from roads.geojson after the map is already usable. Worker thread. */
+    private void loadRoads(Region r){
+        try{ArrayList<Road> list=new ArrayList<>();
+            try(android.util.JsonReader reader=json(r,"roads.geojson")){
+                reader.beginObject();while(reader.hasNext()){String key=reader.nextName();if(!"features".equals(key)){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){
+                    String name="",kind="";float[] pts=new float[64];int np=0;reader.beginObject();while(reader.hasNext()){String field=reader.nextName();
+                        if("properties".equals(field)){reader.beginObject();while(reader.hasNext()){String property=reader.nextName();if("name".equals(property))name=reader.nextString();else if("kind".equals(property))kind=reader.nextString();else reader.skipValue();}reader.endObject();}
+                        else if("geometry".equals(field)){reader.beginObject();while(reader.hasNext()){if(!"coordinates".equals(reader.nextName())){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){reader.beginArray();double longitude=reader.nextDouble(),latitude=reader.nextDouble();while(reader.hasNext())reader.skipValue();reader.endArray();if(np+2>pts.length)pts=Arrays.copyOf(pts,pts.length*2);pts[np++]=(float)latitude;pts[np++]=(float)longitude;}reader.endArray();}reader.endObject();}
+                        else reader.skipValue();
+                    }reader.endObject();list.add(new Road(Arrays.copyOf(pts,np),name,kind));
+                }reader.endArray();}reader.endObject();
+            }
+            if(shown==r)roads=Collections.unmodifiableList(list);
+        }catch(Throwable e){android.util.Log.w("Daanvia","Bike display roads unavailable",e);}
     }
     /** Worker thread only. A bundled graph is copied out of the APK once (again when its bundled size changes); an unpacked pack's graph is read in place. */
     private Valhalla engine(Region r)throws Exception{Valhalla e=engines.get(r.id);if(e!=null)return e;
@@ -113,14 +144,14 @@ public final class NavSession {
     private volatile String preferred;
     /** Show the downloaded area at a map position the rider is looking at, so panning into another area swaps its roads, search and parking in. One area is held in memory at a time. */
     public void showAt(double lat,double lon){if(!ready||active||routing)return;Region r=Region.at(regions,lat,lon);if(r==null||r==shown)return;
-        worker.execute(()->{if(active||r==shown)return;try{display(r);routeRegion=r;message(regionName+" offline · choose a destination");}catch(Throwable e){android.util.Log.e("Daanvia","Area switch failed",e);}});}
+        worker.execute(()->{if(active||r==shown)return;try{display(r);routeRegion=r;message(regionName+" offline · choose a destination");loadRoads(r);}catch(Throwable e){android.util.Log.e("Daanvia","Area switch failed",e);}});}
     /** Drop a removed pack's routing engine so its files are no longer held. Worker thread. */
     public void forget(String id){worker.execute(()->engines.remove(id));}
     private void load(){try{
         List<Region> found=discover();regions=Collections.unmodifiableList(found);
-        if(found.isEmpty()){ready=false;noMap=true;shown=null;regionId="";regionVersion++;roads=Collections.emptyList();places=new JSONArray();parking=new JSONArray();roadsJson="{\"type\":\"FeatureCollection\",\"features\":[]}";message("No map installed");return;}
+        if(found.isEmpty()){ready=false;noMap=true;shown=null;regionId="";regionVersion++;roads=Collections.emptyList();places=Places.EMPTY;parking=new JSONArray();roadsUri=null;message("No map installed");return;}
         noMap=false;
-        Region first=null;if(preferred!=null)for(Region r:found)if(r.id.equals(preferred))first=r;if(first==null){android.content.SharedPreferences cam=context.getSharedPreferences("ui",0);if(cam.contains("cam_lat"))first=Region.at(found,cam.getFloat("cam_lat",0),cam.getFloat("cam_lon",0));}if(first==null)first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");
+        Region first=null;if(preferred!=null)for(Region r:found)if(r.id.equals(preferred))first=r;if(first==null){android.content.SharedPreferences cam=context.getSharedPreferences("ui",0);if(cam.contains("cam_lat"))first=Region.at(found,cam.getFloat("cam_lat",0),cam.getFloat("cam_lon",0));}if(first==null)first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");loadRoads(first);
     }catch(Throwable e){message("Offline region could not load: "+e.getClass().getSimpleName()+". Open Support.");android.util.Log.e("Daanvia","Offline load failed",e);}}
     public boolean inRegion(double a,double b){for(Region r:regions)if(r.contains(a,b))return true;return false;}
     public void plan(double a,double b,String name,boolean demo){
@@ -129,7 +160,7 @@ public final class NavSession {
         final Region r=Region.pick(regions,lat,lon,a,b);
         if(r==null){message(inRegion(a,b)&&inRegion(lat,lon)?"Start and destination are in different offline regions":regions.size()>1?"Outside the installed offline regions":"Outside the installed offline region ("+regionName+")");return;}
         simulation=demo;destLat=a;destLon=b;destination=name;routeRegion=r;
-        if(r!=shown)worker.execute(()->{try{display(r);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();});else refreshParking();
+        if(r!=shown)worker.execute(()->{try{display(r);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();loadRoads(r);});else refreshParking();
         route();
     }
     private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;final Region region=routeRegion;
@@ -144,8 +175,10 @@ public final class NavSession {
         }catch(Throwable e){synchronized(this){if(token!=requestId)return;shape=Collections.emptyList();}message("No offline route: "+e.getMessage());}finally{routing=false;signal();}});
     }
     public synchronized void stop(){active=false;simulation=false;fixAt=0;accuracy=999;requestId++;shape=Collections.emptyList();instruction="Choose a destination";message("Ride ended · tracking stopped");}
-    public synchronized void update(double a,double b,float acc,float direction,boolean demo){
-        accuracy=acc;if(acc>50&&!demo){signal();return;}lat=a;lon=b;bearing=direction;fixAt=SystemClock.elapsedRealtime();
+    public void update(double a,double b,float acc,float direction,boolean demo){update(a,b,acc,direction,demo,SystemClock.elapsedRealtime());}
+    /** {@code takenAt} is when the fix was taken (elapsedRealtime). Outside a ride any fix places the rider, however rough; during a ride only sharp ones count. */
+    public synchronized void update(double a,double b,float acc,float direction,boolean demo,long takenAt){
+        accuracy=acc;if(acc>50&&!demo&&active){signal();return;}lat=a;lon=b;bearing=direction;fixAt=Math.max(1,takenAt);
         viewLat=a;viewLon=b;viewBearing=direction;snapped=false;
         List<double[]> route=shape;if(!active||route.size()<2){signal();return;}
         double best=Double.MAX_VALUE;int nearest=progress;

@@ -161,12 +161,12 @@ public final class DashboardRenderer {
         float[] pt = new float[2];
         p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
         for (int pass = 0; pass < 2; pass++) for (NavSession.Road road : s.roads) {
-            if (road.points.length < 2 || path(road.kind)) continue;
+            if (road.size() < 2 || path(road.kind)) continue;
             boolean major = road.kind.contains("primary") || road.kind.contains("trunk") || road.kind.contains("motorway") || road.kind.contains("secondary");
             if ((pass == 1) != major) continue;
             if (road.maxLat < clat - dLat || road.minLat > clat + dLat || road.maxLon < clon - dLon || road.minLon > clon + dLon) continue;
             path.reset();
-            for (int j = 0; j < road.points.length; j++) { project(road.points[j][0], road.points[j][1], pt); if (j == 0) path.moveTo(pt[0], pt[1]); else path.lineTo(pt[0], pt[1]); }
+            for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); if (j == 0) path.moveTo(pt[0], pt[1]); else path.lineTo(pt[0], pt[1]); }
             p.setColor(road(road.kind)); p.setStrokeWidth(roadWidth(road.kind) * (float)(3.4 / mpp + 0.4)); c.drawPath(path, p);
         }
         if (route.size() > 1) {

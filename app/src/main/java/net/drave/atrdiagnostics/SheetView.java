@@ -35,7 +35,13 @@ public final class SheetView extends FrameLayout {
     }
     public void setListener(Listener l) { listener = l; }
     public void setPeek(int px) { peek = px; }
-    private void report() { if (listener != null) listener.onSheetMoved(getVisibility() == VISIBLE ? Math.max(0, getHeight() - getTranslationY()) : 0); }
+    private void report() { fadeRest(); if (listener != null) listener.onSheetMoved(getVisibility() == VISIBLE ? Math.max(0, getHeight() - getTranslationY()) : 0); }
+    /** As the sheet folds, everything under its first row fades out, so a folded sheet shows one clean row. */
+    private void fadeRest() {
+        if (!(current instanceof ViewGroup)) return;
+        float max = collapsedOffset(), f = max <= 0 ? 0 : Math.max(0, Math.min(1, getTranslationY() / max));
+        ViewGroup g = (ViewGroup)current; for (int i = 1; i < g.getChildCount(); i++) g.getChildAt(i).setAlpha(1 - f);
+    }
 
     /** Replace the sheet content with a lift-and-settle spring. */
     public void swap(View next) {
@@ -67,26 +73,46 @@ public final class SheetView extends FrameLayout {
     public boolean isCollapsed() { return collapsed; }
 
     // ---------------------------------------------------------------- drag
+    /** Fold the sheet down to its title row; the map gets the room. */
+    public void collapse() { if (getVisibility() != VISIBLE) return; collapsed = true; spring.animateToFinalPosition(collapsedOffset()); }
+    /** How far down the sheet slides when folded: just the handle and the content's first row stay above the gesture bar. */
+    private float collapsedOffset() {
+        int row = peek;
+        if (current instanceof ViewGroup && ((ViewGroup)current).getChildCount() > 0) row = current.getTop() + ((ViewGroup)current).getChildAt(0).getBottom() + kit.dp(12);
+        int below = getParent() instanceof View ? ((View)getParent()).getHeight() - getBottom() : 0;
+        androidx.core.view.WindowInsetsCompat insets = androidx.core.view.ViewCompat.getRootWindowInsets(this);
+        int nav = insets == null ? 0 : insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+        return Math.max(0, getHeight() + below - nav - row);
+    }
+
+    /** Drags that start on a row or button are taken over once they move; the handle, title and gaps drag directly. */
     public boolean onInterceptTouchEvent(MotionEvent e) {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: downY = e.getRawY(); startT = getTranslationY(); dragging = false; return false;
             case MotionEvent.ACTION_MOVE:
                 float dy = e.getRawY() - downY;
-                if (Math.abs(dy) > slop && (dy > 0 || collapsed) && e.getY() < kit.dp(120)) { dragging = true; spring.cancel(); velocity = VelocityTracker.obtain(); return true; }
+                if (Math.abs(dy) > slop && (dy > 0 || collapsed) && (collapsed || e.getY() < kit.dp(120))) { begin(); return true; }
                 return false;
             default: return false;
         }
     }
+    private void begin() { dragging = true; spring.cancel(); if (velocity == null) velocity = VelocityTracker.obtain(); }
     public boolean onTouchEvent(MotionEvent e) {
-        if (!dragging) return super.onTouchEvent(e);
         if (velocity != null) velocity.addMovement(e);
-        float max = Math.max(0, getHeight() - peek);
+        float max = collapsedOffset();
         switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                downY = e.getRawY(); startT = getTranslationY(); dragging = false;
+                if (velocity != null) velocity.recycle();
+                velocity = VelocityTracker.obtain(); velocity.addMovement(e);
+                return true;
             case MotionEvent.ACTION_MOVE:
+                if (!dragging) { if (Math.abs(e.getRawY() - downY) <= slop) return true; begin(); }
                 float t = startT + e.getRawY() - downY;
                 setTranslationY(t < 0 ? t * 0.25f : Math.min(t, max + kit.dp(20))); report(); return true;
             case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
                 float v = 0; if (velocity != null) { velocity.computeCurrentVelocity(1000); v = velocity.getYVelocity(); velocity.recycle(); velocity = null; }
+                if (!dragging) { if (e.getActionMasked() == MotionEvent.ACTION_UP && collapsed) expand(); return true; }
                 boolean down = v > 900 || (v > -900 && getTranslationY() > max * 0.4f);
                 collapsed = down;
                 spring.setStartVelocity(v).animateToFinalPosition(down ? max : 0);

@@ -225,15 +225,25 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         if (list.isEmpty() && (st == null || !st.running)) mapList.addView(k.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
     }
     private void paintStorage() {
-        new Thread(() -> { long[] u = Housekeeping.usage(this); runOnUiThread(() -> storageText.setText(u[1] < 1048576 ? "Daanvia uses " + mb(u[0]) + " on this phone, all of it maps." : "Daanvia uses " + mb(u[0] + u[1]) + " on this phone: " + mb(u[0]) + " of maps and " + mb(u[1]) + " for everything else.")); }).start();
+        new Thread(() -> { long[] u = Housekeeping.usage(this); runOnUiThread(() -> storageText.setText("Daanvia uses " + mb(u[0] + u[1] + u[2]) + " on this phone: " + mb(u[0]) + " of downloaded maps"
+            + (u[2] >= 1048576 ? ", " + mb(u[2]) + " saved from online maps and searches" : "") + (u[1] >= 1048576 ? ", " + mb(u[1]) + " for everything else" : "") + ".")); }).start();
     }
     private static String mb(long b) { return Math.max(0, Math.round(b / 1048576.0)) + " MB"; }
     private void freeUp() {
         AreaStore.State st = AreaStore.state();
         if (s.active || (st != null && st.running)) { storageText.setText("Finish the ride or download first, then try again."); return; }
         storageText.setText("Cleaning up…");
-        new Thread(() -> { long freed = Housekeeping.run(this, true); runOnUiThread(() -> { paintStorage();
-            android.widget.Toast.makeText(this, freed < 1048576 ? "Already tidy" : "Freed " + mb(freed), android.widget.Toast.LENGTH_SHORT).show(); }); }).start();
+        new Thread(() -> {
+            long freed = Housekeeping.run(this, true) + Housekeeping.savedOnline(this) - new java.io.File(getFilesDir(), "places-cache.json").length();
+            runOnUiThread(() -> {
+                // The saved online map is rebuilt as the rider looks around with signal; downloaded areas stay.
+                org.maplibre.android.MapLibre.getInstance(this);
+                org.maplibre.android.offline.OfflineManager.getInstance(this).clearAmbientCache(new org.maplibre.android.offline.OfflineManager.FileSourceCallback() {
+                    public void onSuccess() { done(); } public void onError(String message) { done(); }
+                    private void done() { paintStorage(); android.widget.Toast.makeText(SettingsActivity.this, freed < 1048576 ? "Already tidy" : "Freed " + mb(freed), android.widget.Toast.LENGTH_SHORT).show(); }
+                });
+            });
+        }).start();
     }
     private void updateArea(AreaStore.Area a) {
         ArrayList<AreaStore.Cell> cells = new ArrayList<>();

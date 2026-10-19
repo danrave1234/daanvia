@@ -7,8 +7,10 @@ Download `daanvia-<version>.apk` from the [latest release](https://github.com/da
 ## What it does
 
 - **Maps you choose to download.** Frame an area on the map, see its size in km and MB, and tap Download. Areas cover the whole Philippines and work without signal afterwards. Manage them in Settings › Maps.
+- **Like Google Maps with signal.** Zoomed in, the map shows buildings, shops, food and services by name, street names and neighbourhoods from OpenFreeMap's OpenStreetMap tiles. Search also asks Photon (OpenStreetMap search) for every branch and street in the country. What was seen online is kept on the phone (up to 200 MB of map, plus found places), so it still shows without signal.
+- **Finds you like Google Maps**: last known spot at once, then Wi-Fi, cell and GPS fixes with a circle showing how sure it is. Directions use high-accuracy GPS.
 - **Offline routing and rerouting** with Valhalla Mobile (scooter costing), turn-by-turn voice, and a follow camera.
-- **Search** places, towns and the parking lots inside them (for example SM City Cebu › its parking), with opening hours and a live check that a lot still exists on OpenStreetMap.
+- **Search** places, towns and the parking lots inside them (for example SM City Cebu › its parking), with opening hours and a live check that a lot still exists on OpenStreetMap. A place and its area work too: "chowking guadalupe".
 - **Saved places**, including places shared from Google Maps or opened from `geo:` and Maps links.
 - **Dashboard projection**: a landscape, Carbit-style scene rendered on the phone and streamed with the hardware H.264 encoder over the PXC transport. It connects on its own when the dashboard shows its QR screen. Fit, text size and safe insets are saved per bike in Settings › Bike display.
 - **Day and night themes** that follow the sun at the rider's position, with a manual override.

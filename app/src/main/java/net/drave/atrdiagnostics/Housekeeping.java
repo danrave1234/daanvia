@@ -40,11 +40,17 @@ public final class Housekeeping {
         return freed;
     }
 
-    /** Space Daanvia uses: downloaded maps, and everything else (app data and cache). */
+    /** Space Daanvia uses: downloaded maps, everything else (app data and cache), and what was saved from online maps and searches. */
     public static long[] usage(Context c) {
-        long maps = AreaStore.diskBytes(AreaStore.root(c));
-        long other = AreaStore.diskBytes(c.getFilesDir()) - maps + AreaStore.diskBytes(c.getCacheDir());
-        return new long[]{maps, Math.max(0, other)};
+        long maps = AreaStore.diskBytes(AreaStore.root(c)), saved = savedOnline(c);
+        long other = AreaStore.diskBytes(c.getFilesDir()) - maps - saved + AreaStore.diskBytes(c.getCacheDir());
+        return new long[]{maps, Math.max(0, other), saved};
+    }
+    /** MapLibre's cache of online map pieces, plus places found with online search. */
+    static long savedOnline(Context c) {
+        long n = 0; File f = c.getFilesDir();
+        for (String name : new String[]{"mbgl-offline.db", "mbgl-offline.db-journal", "mbgl-offline.db-wal", "places-cache.json"}) n += new File(f, name).length();
+        return n;
     }
 
     /** "daanvia-0.5.1-arm64-v8a.apk" → "0.5.1". */
