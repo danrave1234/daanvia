@@ -1,0 +1,866 @@
+ DAANVIA
+ Built-in navigation for your motorcycle display
+
+ Revision 3: offline navigation, parking pins and adaptive TFT layouts
+ Updated 19 October 2026 | Cebu first, Philippines
+
+ Decision
+ Move from the proven connection prototype to a navigation MVP. Preserve the working Wi-Fi Direct /
+ H.264 transport; keep the scanner and logs under setup and support. The baseline is open-source and
+ on-device. The owner prefers more engineering over recurring per-trip/provider fees. Commercial
+ navigation SDKs are alternatives only, not a prerequisite.
+
+ What is proven
+ Owner tests reported visible output from an independent app on one ATR 160 dashboard and one
+ OPPO Android 16 phone. The latest reported pattern and mirror sessions ran to their 45-second and
+ 90-second test limits. This establishes transport feasibility for that combination; it does not establish
+ long-ride reliability or support for every firmware revision.
+
+ What we are building
+ Connect bike > choose destination > compare routes > start ride. The phone owns GPS, routing,
+ voice and rendering. A dedicated navigation scene goes to the bike. Near the destination, arrival
+ mode passively shows parking pins with motorcycle prices directly on the map before arrival. No
+ parking footer, details panel or selection controls; missing prices have no price label. Final navigation
+ must work without screen-capturing another app.
+
+ Working identity
+ Daanvia combines the Filipino word for road with a route-oriented name. Three original visual
+ directions and logo concepts accompany this brief. The name is provisional: a web search is not
+ trademark clearance, domain ownership or app-store reservation. Do IPOPHL and relevant
+ international trademark searches before spending on launch branding. Generated artwork remains a
+ concept until refined and checked for distinctiveness.
+
+ Recommendation
+ Adopt OpenStreetMap-derived regional data and MapLibre Native. Evaluate Valhalla as the first
+ on-device routing candidate, with GraphHopper as a comparison; choose through an Android
+ integration spike, not a server-only demo. Include offline search and parking prices near the
+ destination in the MVP. Internet services and AI are optional enhancements, never required for a basic
+ ride.
+
+ Reading this brief
+ Published facts carry source IDs. Architecture, budgets, quality thresholds and rollout steps are
+ recommendations. Prices exclude tax and currency conversion. None of the vendor contacts, group
+ posts, purchases or paid subscriptions described here has been sent or created.
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                         1
+ DEVELOPMENT BRIEF / 01
+
+ Offline-first architecture: the baseline decision
+ The baseline must calculate routes, reroute, search downloaded places, announce turns and draw the
+ bike map without mobile data. The phone GPS supplies position; no paid cloud service is called per
+ GPS fix, map frame or trip. More engineering and local storage are accepted tradeoffs.
+
+   Component               Proposed implementation                         Verification gate
+
+   Geographic data         OSM-derived Cebu extract with required          Check motorcycle restrictions, one-way
+                           attribution and ODbL review.                    rules, routing access and parking
+                                                                           entrances.
+
+   Map display             MapLibre Native with a                          Offline map rendering at required
+                           licensed/self-produced vector map               zooms; adaptive safe viewport, custom
+                           package, style, glyphs, fonts and sprites.      screen layouts and screen-off operation.
+
+   Routing                 Valhalla first candidate via Android NDK/JNI;   Demonstrate a real local route and
+                           compare GraphHopper if necessary.               missed-turn reroute with networking
+                                                                           disabled. Native build, ABI, memory,
+                                                                           speed and licensing must pass.
+
+   Search / parking        SQLite spatial index / FTS with regional        Offline search and access-aware
+                           POIs, parking entrances and tariff records.     parking pins; unknown fields remain
+                                                                           unknown internally and missing prices
+                                                                           have no TFT label.
+
+   Guidance                Local progress/map matching, maneuver           Noisy GPS and complex junction tests;
+                           timing, reroute debounce and installed          do not repeat or skip maneuvers after
+                           offline Android TTS voice.                      reconnect.
+
+   Display link            Reuse tested Java Wi-Fi Direct/PXC/H.264        Independent rendering plus saved
+                           transport; Kotlin for new layers.               safe-area/layout profiles; reconnect and
+                                                                           thermal tests.
+
+   Updates                 Signed/versioned regional downloads from        Checksum, schema validation,
+                           our own hosting or a provider permitting        resumable download, atomic install and
+                           offline use.                                    rollback.
+
+
+
+ A region package is more than map tiles
+ Package map graphics, routing graph, POI/search indexes and parking/rate data with compatible
+ versions and separate layers. Map tiles alone cannot reroute. MBTiles/PMTiles may store map
+ graphics, subject to the selected Android reader; they are not the routing graph. Build and test an
+ actual supported local file reader. [S17,S26,S27]
+
+ Commercial providers remain optional
+ Google/TomTom/HERE/Mapbox are comparison or optional licensed enhancement paths. Do not
+ combine their route/POI/traffic content with an OSM map without checking the exact agreement. No
+ provider fee is required for the proposed offline baseline. Public OSM tile servers prohibit offline bulk
+ prefetch; use lawful packages or our own generation/hosting. [S6-S16,S32,S33]
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                  2
+ DEVELOPMENT BRIEF / 02
+
+ Libraries and reference repositories
+ Use native Android Kotlin for new app layers; retain the tested Java transport through normal
+ interoperability. Latest is a research input, not permission to upgrade every dependency at once. Lock
+ a compatible tested set in Gradle and maintain a dependency/license inventory.
+
+   Layer                Candidate / verified snapshot                  Use and caution
+
+   Phone UI             Kotlin 2.4.21; Compose BOM 2026.09.00;         Navigation planning and accessible settings.
+                        Material 3 [S20,S21]                           Confirm Android Gradle Plugin / Kotlin / SDK
+                                                                       compatibility at project bootstrap.
+
+   QR setup             CameraX stable 1.6.2; ZXing 3.5.4              Replace legacy camera integration when
+                        [S22,S41]                                      migrating setup; local QR decoding, strict
+                                                                       parser and credential redaction. Prototype
+                                                                       currently bundles ZXing 3.5.3.
+
+   Map rendering        MapLibre Native Android 13.7.1,                Flexible map styling. Do not force this
+                        BSD-2-Clause [S17]                             version if navigation dependencies require a
+                                                                       different tested version.
+
+   Navigation logic     MapLibre Navigation release 5.0.0; MIT         GitHub release and Maven core metadata
+                        [S18,S19]                                      disagree: latest published core is
+                                                                       5.0.0-pre14. Verify artifacts/API maturity
+                                                                       before treating the release as a drop-in
+                                                                       stable dependency. [S43]
+
+   Networking           OkHttp 5.5.0, Apache-2.0 [S42]                 HTTP API calls, timeouts and cancellation.
+                                                                       Keep proprietary dashboard framing isolated
+                                                                       from HTTP code.
+
+   Android services     Fused Location or platform                     Single location feed, dedicated hardware
+                        LocationManager; MediaCodec/EGL;               video encoding and voice. These platform
+                        TextToSpeech                                   choices do not require cloud AI per GPS
+                                                                       update.
+
+   Persistence /        Room; DataStore; WorkManager;                  Saved destinations, preferences and
+   support              structured redacted logs                       deferred maintenance. WorkManager is not
+                                                                       the active navigation/GPS loop. Choose
+                                                                       current compatible stable releases at
+                                                                       bootstrap.
+
+
+
+ Open-source repos to read, with boundaries
+ MOTO-HUB CORE (AGPL-3.0): pairing, network recovery, handlebar events and connection UX. Its
+ full navigation ADV-SOLO product is closed source, so it is not an open navigation codebase to copy.
+ ridedaemon-lib (GPL-3.0): session, heartbeat and media transport reference. open-cflink: protocol
+ documentation and sample flow; no top-level license detected, so do not copy its code without
+ permission. [S23-S25]
+ Valhalla 3.9.1 (MIT): route costing/server design. GraphHopper 11.1 (Apache-2.0): graph routing
+ and custom models. Organic Maps (main license Apache-2.0): offline-first navigation, search and UX
+ reference; it is a substantial app, not a small drop-in SDK. Review all bundled component and data
+ licenses. Repo activity/releases checked through official GitHub API. [S26-S28]
+ GPL/AGPL software can be sold, but distributing a derivative app can require corresponding source
+ and license compliance. Keeping a module separate does not automatically avoid those obligations.
+ For a closed-source product, audit provenance or seek an alternative license before reuse.
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                  3
+ DEVELOPMENT BRIEF / 03
+
+ A calm, usable navigation experience
+ Primary flow: one-time QR setup, destination search, route preview, Start ride, automatic dashboard
+ connection/recovery, and an obvious End ride action. No mandatory account for local-only navigation
+ unless a selected provider or commercial feature requires one.
+
+ Phone while parked
+ Use Material 3 conventions, familiar back behavior and one dominant action per screen. Show
+ destination entrance, travel time, distance and selected motorcycle profile before starting. Choose
+ planned parking duration, walking limit and price preference before departure; show a route preview
+ and expected parking costs. Arrival parking is a core feature, not a hidden optional screen. Request
+ camera, nearby-device and precise-location permissions only when the relevant feature needs them.
+
+ Bike while riding
+ Use 800x480 as the tested ATR transport canvas, not a universal physical or unobstructed display
+ size. Layout must use calibrated visible bounds and reserved areas. Prioritize turn arrow, distance to
+ maneuver, street name and a simplified 2D map. ETA and distance are secondary. Arrival mode adds
+ up to three stable parking pins with known prices attached directly to each pin; no parking footer or
+ selection panel. Hide developer controls and diagnostics. Preserve any original vehicle indicators or
+ warning areas that remain outside the projection viewport; do not imitate instrument readings or
+ assume the display supports touch.
+
+ Accessibility and legibility
+ Phone controls should provide at least 48x48 dp touch targets; use larger practical targets where
+ appropriate. Target WCAG AA text contrast, support font scaling and TalkBack on the phone, and
+ never convey route status by color alone. Driver-oriented guidance favors short text and glanceable
+ content; it is a design reference, not Android Auto certification of our custom protocol. Test daylight
+ glare, darkness and vibration on the actual bike. [S30,S31]
+
+ Honest states
+   Condition                        What the rider sees
+
+   Finding GPS                      Finding your location; Start ride waits for a usable position.
+
+   Poor / stale GPS                 Location signal weak; avoid showing an advancing position as if confirmed.
+
+   No data connection               Traffic unavailable; show cached guidance only if supported, and identify stale
+                                    information.
+
+   Bike disconnected                Voice continues if usable; phone indicates reconnecting with a clear stop
+                                    option.
+
+   Off route                        Recalculating; do not oscillate instructions after one noisy GPS point.
+
+   Parking arrival                  Known applicable rates appear on pins with their basis. Unknown or unreliable
+                                    rates have no price label; do not claim live occupancy.
+
+
+
+ Reference reviewed
+ The Mobbin Google Maps route-preview screen shows map-first planning, time/distance, a route
+ warning and a clear Start action. Use those hierarchy principles; retain original branding and layout.
+ The reviewed reference is linked in [S40]. The generated maps in our concepts are illustrative and
+ must be replaced by licensed geographic data.
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                  4
+ DEVELOPMENT BRIEF / 03A
+
+ Fit my TFT: adaptive layouts and saved profiles
+ Owner requirement: dashboards differ in aspect ratio, dimensions and native overlays. The ATR
+ currently shows a footer during mirroring that can hide content and make a portrait phone screen
+ appear cropped or distorted. Do not assume the full video canvas is visible or that the native footer
+ can be removed.
+
+ A navigation scene designed for the bike
+ Render a dedicated navigation view independently from the phone UI. Negotiate supported video
+ dimensions where the protocol permits, then reflow components into the calibrated safe viewport.
+ Preserve geometry and font proportions; never non-uniformly stretch the UI to fill a different shape.
+ Scale/letterbox when needed. Cropping may apply to map framing only, never hide turn instructions,
+ prices, attribution or status text.
+
+ Phone setup: Fit my TFT
+ While parked, select a saved bike/profile or start a generic profile. Read reported transport
+ capabilities and propose a canvas. Send a calibration screen with visible corner targets, grid, round
+ circle and readable size samples. The phone shows a preview and draggable safe-area edges plus
+ numeric/nudge controls for top, bottom, left and right. Reserve a footer or other overlay as an
+ exclusion area. Adjust zoom/offset only within validated bounds, then save or reset. The bike view
+ updates during calibration so the rider can compare it directly.
+
+ Reported size versus visible size
+ Show encoder canvas resolution separately from usable viewport and reserved insets. Manual
+ visible-area calibration remains necessary if the firmware does not report native overlays. Do not
+ label a phone preview as a live screenshot of the TFT unless we actually receive a display capture. A
+ saved profile is a user override, not automatic evidence of firmware behavior.
+
+   Editable setting                Behavior
+
+   Safe bounds / footer            Top/bottom/left/right insets and optional exclusion rectangles, saved in
+                                   normalized coordinates plus the source canvas size; validate a minimum useful
+                                   area.
+
+   Layout selection                Map focus, large-turn focus and arrival parking variants. Responsive rules
+                                   move/shrink secondary panels, reduce parking candidates and abbreviate labels
+                                   before reducing core readability.
+
+   Readability / appearance        Bounded text scale, day/night palette, map label density and contrast. Keep
+                                   units and distinctions for parking prices legible; do not allow hiding critical
+                                   guidance.
+
+   Profile identity                Store per saved dashboard with model/firmware metadata where known,
+                                   orientation, supported canvas, fit mode and layout preferences. Reconfirm if
+                                   capability/aspect changes; do not reuse stale pixel offsets blindly.
+
+   Safety / recovery               Editor available only while parked; Cancel restores previous configuration, Reset
+                                   uses safe defaults, changes persist after reconnect/restart. Roll back invalid
+                                   profiles.
+
+
+
+ Acceptance criteria
+ Verify known ATR footer reserved area on physical hardware; circles remain round and text
+ undistorted; all required labels fit. Simulate wide, compact and differently shaped viewports,
+ overlapping exclusions, font scaling and portrait phone rotation. No parking label or maneuver may
+ land under an overlay. If the usable area is too small, show a compact turn-first fallback and explain
+ the limit in setup rather than silently clipping content.
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                   5
+ DEVELOPMENT BRIEF / 04
+
+ Reliability and battery are core features
+ Architecture
+ Keep five clear modules: bike connection, navigation engine, location/voice service, display
+ renderer/encoder, and phone UI. Keep local routing and regional packages behind clear interfaces;
+ optional cloud enhancements must not break offline navigation or violate data licenses. Model session
+ state explicitly: connecting, connected, navigating, reconnecting, stopped. Own callbacks and sockets
+ within a single session; make start/stop idempotent.
+
+ Screen-off navigation is a development gate
+ Render our navigation scene into a dedicated encoder surface or supported offscreen map pipeline.
+ Avoid dependence on MediaProjection, a foreground phone Activity, screenshots of another app, or a
+ per-frame network map-image request. The chosen map SDK must both permit and technically
+ support this rendering path. Prototype it early; it is not yet proven by the screen-mirroring tests.
+
+ Battery strategy
+ Use one navigation location feed with suitable accuracy/update interval while moving and less activity
+ while stationary. Keep interpolation and display animation separate from GPS frequency. Prefer
+ simple 2D rendering and hardware H.264 at 800x480; evaluate roughly 10-15 fps rather than
+ assuming more frames improve navigation. Cache only as licensed. Stop location, encoding and
+ network work at trip end. Android documents frequent foreground navigation updates and reducing
+ unnecessary location work. [S29]
+
+ Proposed release gates - targets, not measured results
+   Test                          Acceptance evidence
+
+   1-2 hour navigation           Stable output with phone locked, no unhandled crash, no leaked connection, no
+                                 sustained thermal degradation.
+
+   Interruptions                 Incoming call, app switch, screen off/on, GPS loss, mobile-data loss, bike power
+                                 cycle and Wi-Fi coexistence. Recover with clear state; never duplicate sessions.
+
+   Offline correctness           Networking disabled: local search, route calculation, missed-turn reroute, voice,
+                                 parking rates and GPS progress. Review 20 local routes, restricted roads and
+                                 entrances.
+
+   Protocol resilience           Bounds on message/frame sizes, unknown commands, truncated traffic,
+                                 heartbeat timing, port reuse, reconnect and codec keyframe recovery. Audit
+                                 acknowledgments before shipping.
+
+   Privacy and updates           Logs redact QR secrets, identities and exact location by default. Consent before
+                                 support export. Verify signed update/rollback behavior.
+
+   Battery comparison            Same route, phone, brightness, temperature and network. Compare battery
+                                 energy/hour, device temperature, CPU/GPU time, data and disconnects. No
+                                 advertised savings until measured.
+
+
+ Keep the useful diagnostic report as a support tool. Add tests for real failure modes and navigation
+ behavior, not an endless sequence of new diagnostic screens. Test on multiple phones and ATR
+ firmware revisions before widening compatibility claims.
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                 6
+ DEVELOPMENT BRIEF / 05
+
+ Parking before arrival: required MVP behavior
+ The rider should see nearby motorcycle parking on the TFT before reaching the destination, including
+ comparable prices where reliable data exists. This is a primary product requirement. It must work
+ from the downloaded regional package when offline.
+
+ Journey and trigger
+ During route preview, select planned parking duration (for example two hours), maximum walking
+ distance and preference: cheapest known price or shortest walk. Prepare candidates then. Proposed
+ arrival trigger: remaining route distance at most 1 km OR route ETA at most 3 minutes. Tune with
+ rides; use debounce and hysteresis so GPS noise does not repeatedly switch modes. Preload
+ candidates earlier, not only when connectivity may already be lost.
+
+ TFT information hierarchy
+ Keep turn arrow, maneuver distance and next street visible. Show destination distinctly from parking.
+ Display one to three non-overlapping P parking pins according to the active display profile. Attach a
+ short known price and its basis directly to the pin, for example PHP40/2h. A lot with no reliable price
+ keeps its parking icon with no price text, question mark or unknown badge. No parking footer,
+ comparison strip, sidebar, selected-lot highlight, selection controls or automatic carousel. Parking is
+ passive information on the TFT. Hide or reduce parking detail near complex/imminent maneuvers;
+ retain the driving instruction.
+
+   Parking state                     Display rule
+
+   Current complete tariff           Calculate estimated total for selected duration/time and motorcycle category;
+                                     show basis on the pin, e.g. PHP40 / 2h. Phone details while parked retain
+                                     source and verification date.
+
+   Hourly / entry / first-period     Do not compare unlike prices as if totals. Show PHP20/hour, PHP30/entry, or
+   rate                              first-period wording if a full total cannot be calculated.
+
+   Old, partial or conflicting       Omit the price label for missing, stale beyond policy, conflicting or otherwise
+   tariff                            unreliable rates. Retain the P icon; never show unknown text, question marks
+                                     or PHP0 as a replacement.
+
+   Free parking                      Only label free when an explicit, applicable and sufficiently fresh record
+                                     supports it. Missing fee tags do not establish free parking.
+
+   Occupancy / opening hours         No occupancy footer or parking status strip. Do not imply spaces are free
+                                     without a current occupancy feed. Apply known access/hours to candidate
+                                     filtering; capacity is not a live space count.
+
+   Route choice                      Pins cannot be selected on the TFT and never change the destination
+                                     automatically. Any optional explicit parking destination is set on the phone
+                                     while parked; no TFT interaction is required.
+
+
+
+ Passive pins and the final meters
+ Route to the motorcycle entrance, not a building centroid or inaccessible back wall. Account for
+ one-way approach and public/customer/private access. If a parking destination was explicitly set on
+ the phone before riding, retain the original destination for a walking leg after parking. Otherwise keep
+ guiding to the original destination while displaying nearby pins. With no known suitable lots, show no
+ parking pins; never invent one. Required attribution may remain in the map safe area, but not as a
+ parking footer.
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                   7
+ DEVELOPMENT BRIEF / 05A
+
+ Parking data: ownership, pricing and offline
+ storage
+ Accurate fees and entrances are the main data challenge. Start with 10-20 surveyed/permissioned
+ Cebu lots around a few destinations rather than claiming complete city coverage. OSM includes
+ parking, motorcycle parking, entrance, access, fee and charge tags, but optional tags do not
+ guarantee complete or current local tariffs. [S44-S47]
+
+ Regional record design
+ Store stable lot ID, coordinates and entrance geometry; vehicle eligibility; access/public/customer
+ restrictions; opening hours/time zone; tariff currency and structured rules; source and
+ permission/license; verified-at and effective dates; freshness/confidence state; and any correction
+ status. Keep live occupancy in a separate expiring layer. Retain raw source evidence privately only
+ where permitted; do not publish reporter identities.
+
+ Tariff calculation is deterministic
+ Support first period plus subsequent increments, flat entry, daily caps, weekday/weekend and time
+ bands, motorcycle-specific rates and explicit grace periods. Calculate the planned stay against the
+ actual schedule and tariff version. If a reliable listed basis is usable, show that basis without inventing
+ a total. Otherwise omit the TFT price label; retain the data-quality reason in phone details. A changed
+ arrival time can change price; recalculate locally.
+
+ Initial data workflow
+ Use operator-published/permissioned information, direct verification and optional rider submissions.
+ Photograph a rate board only with appropriate permission and privacy handling; record the original
+ source, applicable vehicle and date. Moderation verifies and versions corrections. Do not scrape
+ Google Maps/Places into our permanent parking database.
+
+ Offline delivery and freshness
+ Ship parking POIs and rates as a versioned SQLite layer alongside maps/search/graph, allowing small
+ independent updates. Before departure, offer an update when available; retain the last good package
+ if download fails. A proposed initial policy marks tariffs older than 30 days stale in phone details and
+ suppresses their TFT amount until reverified; tune per operator reliability. The TFT retains the parking
+ icon without a missing/stale-price badge. These thresholds are product defaults, not guarantees that
+ a newer price is correct.
+
+ Data quality tests
+ Test motorcycles rejected, entrance across a one-way street, customer-only lots, overnight stays,
+ midnight/weekend boundaries, missing fees, stale tariffs, conflicting reports, no occupancy feed and
+ interrupted updates. Verify pin placement and price labels at calibrated ATR output and smaller/wider
+ profile simulations, in sunlight, without covering guidance or the native footer. Rate tests must
+ include fixture examples with known totals and boundary times.
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                           8
+ DEVELOPMENT BRIEF / 05B
+
+ Useful AI without a recurring dependency
+   Use                           Value and boundary
+
+   Parking preference            Interpret a parked request such as cheap motorcycle parking within five minutes
+   parsing                       walk for two hours. Convert it to explicit constraints for local search/ranking;
+                                 deterministic controls remain available without AI.
+
+   Rate-board extraction         Optional on-device OCR extracts text; optional AI proposes structured tariff fields.
+                                 A reviewer confirms vehicle category, time bands, amount and date before
+                                 publishing. This is an authoring aid, not a source of truth.
+
+   Explain a parking choice      Summarize verified fields: estimated PHP40 for two hours and 220m walk versus
+                                 PHP60 and 80m. A simple template already works offline; an LLM is not
+                                 necessary.
+
+   Closure notices               Optional AI extracts locations/times from permitted official notices for review. An
+                                 event or festival mention alone must not close a road in routing.
+
+   Trip planning                 Optional online AI can propose stops or interpret natural language when parked.
+                                 Display provenance and let local routing validate access and the route. Core
+                                 navigation survives AI failure.
+
+
+
+ What should not use an LLM
+ GPS tracking, graph search, route progress, safety restrictions, price arithmetic, tariff validity, pin
+ placement and parking ranking should use ordinary tested code. Cheapest/nearest ranking is
+ deterministic. AI cannot infer empty spaces, current fees or legal road access from the map.
+
+ Cost policy
+ Baseline app works with no AI account, no mandatory AI server and no paid inference calls. Prefer
+ local OCR and templates. Cloud AI, live traffic and occupancy feeds are individually opt-in, with
+ explicit budgets and a working off switch. A local LLM is a later experiment only if its memory, model
+ size, latency and battery cost are justified.
+
+ Interaction while riding
+ The TFT shows the result, not an AI conversation. At most a brief spoken arrival summary,
+ configurable before riding. Do not require riders to read long explanations, confirm a complex chat
+ response or enter tariff data while moving.
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                    9
+ DEVELOPMENT BRIEF / 06
+
+ Cost model: no mandatory per-trip services
+ Owner decision: accept more engineering in exchange for reducing ongoing costs. The selected
+ baseline has no paid navigation SDK, no billed cloud route request and no mandatory cloud AI call.
+ Software license fees of zero do not mean packaging, data verification and distribution cost nothing.
+
+   Cost item                Baseline design                              Remaining expense
+
+   GPS / guidance           Phone sensors, local logic and installed     Battery, engineering and testing; no
+                            offline TTS voice.                           per-fix cloud mapping fee.
+
+   Map display /            MapLibre plus permissively licensed engine   Map/graph build machine time,
+   routing                  and OSM-derived data.                        integration, ODbL/attribution
+                                                                         compliance and map updates.
+
+   Regional downloads       Versioned map, routing, search and parking   Storage and download bandwidth,
+                            packages.                                    even if every ride afterward is offline.
+
+   Parking prices           Curated local database with correction       Surveying, operator verification,
+                            workflow.                                    moderation and updates;
+                                                                         comprehensive accurate rates are not
+                                                                         automatically free.
+
+   Live traffic /           Optional licensed data modules.              Potential recurring provider fees; not
+   occupancy                                                             required to navigate or view saved
+                                                                         parking rates.
+
+   AI                       Templates/local OCR by default; cloud AI     Optional inference costs; local models
+                            optional.                                    also consume device resources.
+
+   Distribution /           Protected production signing and             Store fees where applicable, support,
+   support                  reproducible releases.                       testing devices, legal review and
+                                                                         development labor.
+
+
+
+ Download cost rather than trip cost
+ Budget formula: download bandwidth = active devices x downloaded package size x number of
+ full-equivalent downloads. For example, 100 devices downloading an illustrative 500 MB package
+ once is about 50 GB; 1,000 devices is about 500 GB, before retries/updates. 500 MB is an example,
+ not a measured Cebu package size. Measure actual map/graph/search size before committing to
+ storage requirements or a hosting plan.
+ Each additional ride on an already downloaded region need not make any map/navigation cloud
+ request. Updates can be optional Wi-Fi downloads with clear package age. Separate small parking
+ updates from larger map/graph releases. Prefer a budget-capped distribution service; free tiers are
+ conveniences, not long-term guarantees.
+
+ Planning allowance
+ Keep a provisional $0-30/month small-beta hosting allowance only as an internal estimate; a quote
+ needs measured package size, riders, downloads and bandwidth rates. Offline routing can require
+ more implementation work than the previous commercial-SDK plan, so do not treat its earlier labor
+ estimate as a fixed quote. Google Play registration is $25 once and applicable digital subscriptions
+ may incur store fees. [S37,S38]
+
+ Commercial pricing remains a fallback comparison
+ Google Navigation bills destinations rather than map-display minutes; existing-destination reroutes
+ are not separately charged under its documented SDK billing. Mapbox bills navigation sessions/users.
+ Saving data locally does not automatically remove SDK charges or grant offline content rights.
+ Neither SDK is in the offline baseline. [S48,S49]
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                                10
+ DEVELOPMENT BRIEF / 07
+
+ Can you market it in ATR 160 groups?
+ Potentially, but this research cannot establish unconditional permission or QJMotor
+ approval. An independent compatibility app and a misleading official product are different
+ propositions. No ATR-160-specific public third-party projection approval/prohibition was located on the
+ official Philippine site. That absence is not authorization. The actual owner manual, dealer warranty,
+ dashboard firmware terms and accepted Carbit agreement still need review. [S34]
+
+ Before public beta advertising
+ Use your own name and artwork. Describe the tested model/phone/firmware accurately and avoid
+ official/authorized/certified claims, QJMotor logos, copied Carbit artwork or unsupported warranty
+ promises. Ask the specific group administrator about promotional rules; membership alone does not
+ settle posting permission. Do not advertise all ATR 160 units as supported from a single successful
+ test.
+
+ Before charging or broad distribution
+ Obtain a Philippine IP/software review of protocol research, code provenance, contractual restrictions
+ and marketing language. Section 185 of the Philippine IP Code recognizes that interoperability
+ decompilation may constitute fair use under its criteria; it is not a blanket commercial exemption or a
+ substitute for analyzing contracts and other rights. Do not ship proprietary SDK binaries, extracted
+ keys/assets or activation bypasses. Review GPL/AGPL obligations before incorporating reference code.
+ [S35]
+ For any optional commercial map data, clear terms for commercial navigation and projection. For the
+ baseline, audit open-source component obligations, OSM attribution/ODbL and third-party data rights.
+ The open-source decision does not establish QJMotor/Carbit approval. Google specifically restricts
+ embedded vehicle use in general terms, while its SDK policies address permitted mobile navigation.
+ Do not assume Android Auto examples authorize EasyConn/PXC. TomTom and HERE also need
+ account-specific confirmation. [S6-S8]
+ Treat identifiable location/history and diagnostic uploads as personal information. Document purpose,
+ lawful basis, recipients, retention, security and deletion. Keep trip sharing and telemetry optional,
+ minimize collection and publish a truthful privacy notice. The Philippine Data Privacy Act requires
+ transparency, legitimate purpose and proportionality. [S36]
+ Review business/tax registration, consumer terms, refunds, digital purchase rules and support
+ obligations for the actual launch structure. Replace the prototype signing setup with a protected
+ production key and finalized application identity; the shared test key is unsuitable for commercial
+ release. Complete Play policies and testing, including the applicable new-personal-account closed test
+ requirement. [S37-S39]
+
+ Reviewable questions to send yourself - no messages sent
+ QJMotor/distributor: Does an independent Android navigation app connecting through the existing
+ dashboard projection interface, with no firmware modification or engine access, conflict with the
+ Philippine ATR 160 warranty or software terms? Please identify applicable terms and permitted
+ compatibility wording.
+ Map provider: May our commercial Android app render maps and guidance on the phone and
+ encode that scene as H.264 to an existing motorcycle TFT over Wi-Fi Direct/PXC, with the phone
+ screen off? Which license, attribution, storage limits and billing units apply? Does the exact API/SDK
+ support Philippine 160 cc routes and restrictions?
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                      11
+ DEVELOPMENT BRIEF / 08
+
+ Development sequence and launch evidence
+   Stage                 Deliverable                                    Exit condition
+
+   1. Local engine       Cebu map plus on-device route/search;          Networking disabled: calculate route, miss
+   spike                 dedicated dashboard rendering.                 a turn, reroute, voice and screen-off
+                                                                        rendering. Measure graph size, memory
+                                                                        and battery.
+
+   2. Navigation +       QR/saved bike, Fit my TFT calibration,         10-20 verified sample lots; correct
+   arrival MVP           adaptive layout, navigation, offline parking   motorcycle tariffs/entrances; arrival UI
+                         pins with inline known rates and no parking    readable before destination.
+                         footer or TFT selection.
+
+   3. Reliability        Atomic package updates, reconnect, stale       Long sessions and interruption tests
+   beta                  GPS, no-data states and production signing.    across selected phones/firmware; no
+                                                                        mandatory cloud dependency.
+
+   4. Rider beta         Small opt-in Cebu ATR testing with             Route, tariff and usability issues resolved;
+                         correction workflow.                           privacy, support and compatibility matrix
+                                                                        ready.
+
+   5. Paid launch        Provenance/licenses, final branding, offline   Cost caps, legal review and truthful
+                         packages, store distribution.                  marketing; recurring data promises match
+                                                                        budget.
+
+   6. Optional           Operator partnerships, traffic, occupancy      Licensed coverage, explicit costs and
+   enhancements          feeds and optional AI authoring/planning.      complete offline fallback; no guessed
+                                                                        rates or space availability.
+
+
+
+ Engineering preparation
+ Migrate packaging to a standard Android Gradle project with version catalog, reproducible builds, CI
+ compile/lint, protocol regression tests and recorded non-sensitive fixtures. Isolate display and
+ navigation from Activity lifecycle. Keep credentials out of the repo, bind dashboard traffic to the
+ correct interface, and leave Internet traffic on an available Internet network. Validate current Android
+ foreground location/connected-device rules and store target API at release time.
+
+ Product preparation
+ Create the selected phone and bike design as editable production UI; specify day/night colors, type
+ sizes, route symbols, state/error messages and attribution slots. Produce a clean standalone logo and
+ app icon after selecting the concept. Generated maps, timings and routes are illustrations, not
+ geographic assets or a functioning navigation build.
+
+ What remains unresolved
+ On-device engine integration and measured Cebu package size; 160 cc access correctness; screen-off
+ rendering; long-ride reliability; verified parking rate/entrance coverage and maintenance; actual ATR
+ warranty/software terms; name/trademark clearance. Optional traffic/occupancy/AI contracts are not
+ baseline blockers. These are concrete development/launch gates, not reasons to keep expanding the
+ diagnostic.
+
+ Research method
+ Official documentation, vendor pricing/terms, primary GitHub repositories/releases and Maven
+ metadata were reviewed. Mobbin supplied a route-planning UX reference. Product Design and built-in
+ image generation produced three visual/branding concepts. No competitor code or assets were
+ imported into the app during this research. Websites and metadata can change; re-check terms,
+ published artifacts and prices at integration and release.
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                               12
+ DEVELOPMENT BRIEF / REFERENCES
+
+ Sources 1-15
+ Checked 19 October 2026. Click a URL to open the source. Repository release/license snapshots are
+ not endorsements or support guarantees.
+ S1 - TomTom pricing: current monthly API allowances and SDK sales terms
+ https://docs.tomtom.com/pricing
+
+ S2 - TomTom legacy routing: motorcycle beta and restriction limitations
+ https://docs.tomtom.com/routing-api/documentation/tomtom-maps/v1/calculate-route
+
+ S3 - TomTom Orbis v3 migration: car and taxi travel modes
+ https://docs.tomtom.com/routing-api/documentation/tomtom-orbis-maps/v3/product-information/migration-guide
+
+ S4 - TomTom Android SDK 2.6 release notes
+ https://docs.tomtom.com/navigation/android/releases/versions/2.6
+
+ S5 - TomTom traffic country coverage
+ https://docs.tomtom.com/traffic-api/documentation/tomtom-maps/v1/product-information/market-coverage
+
+ S6 - Google Navigation SDK policies
+ https://developers.google.com/maps/documentation/navigation/android-sdk/policies
+
+ S7 - Google Maps Platform terms, section 3.2.3
+ https://cloud.google.com/maps-platform/terms
+
+ S8 - Google service-specific terms: Navigation, Places and Places UI Kit
+ https://cloud.google.com/maps-platform/terms/maps-service-terms
+
+ S9 - Google pricing: Navigation Request SKU
+ https://developers.google.com/maps/billing-and-pricing/pricing
+
+ S10 - Google supported two-wheel countries, including Philippines
+ https://developers.google.com/maps/documentation/routes/coverage-two-wheeled
+
+ S11 - HERE SDK Android routing and offline capabilities
+ https://docs.here.com/here-sdk/docs/android-routing
+
+ S12 - HERE scooter routing options
+ https://docs.here.com/here-sdk/docs/android-routing-options
+
+ S13 - HERE Android current guide version
+ https://docs.here.com/here-sdk/docs/android-readme
+
+ S14 - Mapbox pricing: Navigation SDK v3 metered trips
+ https://www.mapbox.com/pricing
+
+ S15 - Mapbox Directions: supported profiles
+ https://docs.mapbox.com/api/navigation/directions/
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                          13
+ DEVELOPMENT BRIEF / REFERENCES
+
+ Sources 16-30
+ Checked 19 October 2026. Click a URL to open the source. Repository release/license snapshots are
+ not endorsements or support guarantees.
+ S16 - Waze Transport SDK limitations and 1 November 2026 support end
+ https://developers.google.com/waze/intro-transport
+
+ S17 - MapLibre Android 13.7.1 release
+ https://github.com/maplibre/maplibre-native/releases/tag/android-v13.7.1
+
+ S18 - MapLibre Navigation Android: README and MIT license
+ https://github.com/maplibre/maplibre-navigation-android
+
+ S19 - MapLibre Navigation release 5.0.0
+ https://github.com/maplibre/maplibre-navigation-android/releases/tag/5.0.0
+
+ S20 - Kotlin release table
+ https://kotlinlang.org/docs/releases.html
+
+ S21 - Compose BOM official guide
+ https://developer.android.com/develop/ui/compose/bom
+
+ S22 - CameraX stable releases
+ https://developer.android.com/jetpack/androidx/releases/camera
+
+ S23 - MOTO-HUB open-source CORE and closed-source ADV-SOLO distinction
+ https://github.com/vincenzobpt/MOTO-HUB
+
+ S24 - ridedaemon transport reference
+ https://github.com/charliecharlieO-o/ridedaemon-lib
+
+ S25 - open-cflink repository: no top-level license detected
+ https://github.com/ionutradu252/open-cflink
+
+ S26 - Valhalla routing engine and MIT license
+ https://github.com/valhalla/valhalla
+
+ S27 - GraphHopper routing engine and Apache-2.0 license
+ https://github.com/graphhopper/graphhopper
+
+ S28 - Organic Maps offline navigation reference
+ https://github.com/organicmaps/organicmaps
+
+ S29 - Android location and battery scenarios
+ https://developer.android.com/develop/sensors-and-location/location/battery/scenarios
+
+ S30 - Android accessibility: contrast and 48 dp targets
+ https://developer.android.com/guide/topics/ui/accessibility/apps
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                 14
+ DEVELOPMENT BRIEF / REFERENCES
+
+ Sources 31-45
+ Checked 19 October 2026. Click a URL to open the source. Repository release/license snapshots are
+ not endorsements or support guarantees.
+ S31 - Google Design for Driving principles
+ https://developers.google.com/cars/design/design-foundations
+
+ S32 - OSM public tile usage policy
+ https://operations.osmfoundation.org/policies/tiles/
+
+ S33 - Public Nominatim usage policy
+ https://operations.osmfoundation.org/policies/nominatim/
+
+ S34 - QJMotor Philippines official site and distributor contact
+ https://www.qjmotorph.com/
+
+ S35 - Philippine IP Code amended edition: section 185 interoperability
+ https://wipolex-res.wipo.int/edocs/lexdocs/laws/en/ph/ph198en.html
+
+ S36 - National Privacy Commission: Data Privacy Act
+ https://privacy.gov.ph/data-privacy-act-/
+
+ S37 - Google Play developer registration fee
+ https://support.google.com/googleplay/android-developer/answer/6112435
+
+ S38 - Google Play service fees
+ https://support.google.com/googleplay/android-developer/answer/112622
+
+ S39 - Google Play testing requirements for new personal accounts
+ https://support.google.com/googleplay/android-developer/answer/14151465
+
+ S40 - Mobbin route preview reference reviewed
+ https://mobbin.com/screens/9fae97f1-4455-4041-bb5a-d8af97e4e4b0
+
+ S41 - ZXing latest release metadata
+ https://api.github.com/repos/zxing/zxing/releases/latest
+
+ S42 - OkHttp published version metadata
+ https://repo.maven.apache.org/maven2/com/squareup/okhttp3/okhttp/maven-metadata.xml
+
+ S43 - MapLibre Navigation published core metadata
+ https://repo.maven.apache.org/maven2/org/maplibre/navigation/navigation-core/maven-metadata.xml
+
+ S44 - OSM parking and entrance data
+ https://wiki.openstreetmap.org/wiki/Tag:amenity%3Dparking
+
+ S45 - OSM price/charge tag
+ https://wiki.openstreetmap.org/wiki/Key:charge
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                 15
+ DEVELOPMENT BRIEF / REFERENCES
+
+ Sources 46-49
+ Checked 19 October 2026. Click a URL to open the source. Repository release/license snapshots are
+ not endorsements or support guarantees.
+ S46 - OSM fee tag; missing values are not verified free parking
+ https://wiki.openstreetmap.org/wiki/Key:fee
+
+ S47 - OSM dedicated motorcycle parking
+ https://wiki.openstreetmap.org/wiki/Tag:amenity%3Dmotorcycle_parking
+
+ S48 - Google Navigation actual billing triggers
+ https://developers.google.com/maps/documentation/navigation/android-sdk/pricing
+
+ S49 - Mapbox actual navigation session billing
+ https://docs.mapbox.com/android/navigation/guides/pricing/
+
+
+
+
+DAANVIA / Rev 3: offline + parking pins + adaptive TFT / 19 Oct 2026                                 16
+
