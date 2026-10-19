@@ -1,6 +1,6 @@
 """Extract every OpenStreetMap parking lot in a region, with the details riders ask about, for place search.
 
-Usage: python tools/build_lots.py data-source/cebu.osm.pbf app/src/main/assets/cebu/lots.json [minLon minLat maxLon maxLat]
+Usage: python tools/build_lots.py region.osm.pbf lots.json [minLon minLat maxLon maxLat]
 
 Unlike parking.json (which feeds map and TFT pins and leaves out private lots), lots.json keeps private and
 customer-only lots so search can show them under the place they belong to, clearly marked. Every value is

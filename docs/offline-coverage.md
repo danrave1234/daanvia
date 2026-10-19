@@ -67,7 +67,6 @@ One directory per pack, named by its id.
   1. `files/regions/<id>/`
   2. `Android/data/…/files/regions/<id>/`
   3. `assets/regions/<id>/`
-  4. the legacy `assets/cebu/`
 
   The first copy of an id wins.
 - **Startup pack:** it shows the pack containing the last known location, else the one shown last time, else the first.
@@ -100,7 +99,7 @@ One directory per pack, named by its id.
 - **Coastlines:** `tools/build_packs.py` assembles OSM `natural=coastline` into land polygons. Nationwide that gives 7,915 islands, all closed, with no open chains. They are clipped per pack and simplified to about 3 m.
 - **Water:** lakes, reservoirs and river areas over about 20 m × 20 m go into `water.geojson`.
 - **Cost:** land plus water is cheap (Cebu 0.5 MB, nationwide 74 MB raw). Parks and forest are not cheap (see above).
-- **Shipped:** `land.geojson` (170 KB) and `water.geojson` (301 KB) are now in `assets/cebu/` and listed in `region.json`.
+- **Shipped:** every downloadable area includes `land.geojson` and `water.geojson`, listed in its `region.json`.
 - **Not drawn yet.** `MapStyle` needs:
   - a sea-coloured background
   - a fill layer for `land.geojson`, then one for `water.geojson`

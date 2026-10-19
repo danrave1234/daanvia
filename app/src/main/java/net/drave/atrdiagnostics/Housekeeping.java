@@ -30,8 +30,8 @@ public final class Housekeeping {
         if (regions != null) for (File d : regions) installed.add(d.getName());
         File[] engines = new File(files, "engines").listFiles();
         if (engines != null) for (File e : engines) if (!installed.contains(e.getName())) freed += remove(e);
-        // the copy of the old built-in Cebu graph, now that maps are downloaded instead
-        if (!assetExists(c, "cebu/region.json")) freed += remove(new File(files, "cebu-v1"));
+        // the copy of the first version's built-in Cebu map, now that maps are downloaded instead
+        freed += remove(new File(files, "cebu-v1"));
         File[] legacy = files.listFiles((dir, name) -> name.startsWith("region-"));
         if (legacy != null) for (File l : legacy) if (!assetExists(c, "regions/" + l.getName().substring(7) + "/region.json")) freed += remove(l);
         // support reports and leftovers in the cache

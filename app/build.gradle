@@ -9,8 +9,6 @@ android {
     buildTypes { debug { signingConfig signingConfigs.prototype }; release { signingConfig signingConfigs.prototype; minifyEnabled false } }
     // One APK per CPU type: phones get the smaller arm64 APK; x86_64 is for emulators.
     splits { abi { enable true; reset(); include 'arm64-v8a', 'x86_64'; universalApk false } }
-    // Map data is downloaded per area; the Cebu files in assets/cebu stay in the repo as build input only.
-    androidResources { ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~:!cebu' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {

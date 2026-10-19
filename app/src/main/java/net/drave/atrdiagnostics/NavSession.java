@@ -64,7 +64,6 @@ public final class NavSession {
         for(File base:new File[]{new File(context.getFilesDir(),"regions"),context.getExternalFilesDir("regions")}){File[] dirs=base==null?null:base.listFiles();if(dirs==null)continue;Arrays.sort(dirs);
             for(File d:dirs)try{if(new File(d,"valhalla_tiles.tar").isFile()||new File(d,"valhalla").isDirectory())add(list,ids,region(new JSONObject(read(new FileInputStream(new File(d,"region.json")))),null,d));}catch(Exception e){android.util.Log.w("Daanvia","Skipping offline pack "+d.getName(),e);}}
         try{String[] bundled=context.getAssets().list("regions");if(bundled!=null){Arrays.sort(bundled);for(String n:bundled)add(list,ids,region(new JSONObject(asset("regions/"+n+"/region.json")),"regions/"+n,null));}}catch(Exception e){android.util.Log.w("Daanvia","Bundled packs unreadable",e);}
-        try{add(list,ids,region(new JSONObject(asset("cebu/region.json")),"cebu",null));}catch(Exception ignored){}
         return list;}
     private static void add(List<Region> list,Set<String> ids,Region r){if(ids.add(r.id))list.add(r);}
     /** Opens on the pack the phone was last located in, else the one shown last time, else the first. */
@@ -94,7 +93,7 @@ public final class NavSession {
     }
     /** Worker thread only. A bundled graph is copied out of the APK once (again when its bundled size changes); an unpacked pack's graph is read in place. */
     private Valhalla engine(Region r)throws Exception{Valhalla e=engines.get(r.id);if(e!=null)return e;
-        File dir=new File(context.getFilesDir(),r.asset==null?"engines/"+r.id:"cebu".equals(r.asset)?"cebu-v1":"region-"+r.id);if(!dir.exists()&&!dir.mkdirs())throw new IOException("Cannot create offline storage");
+        File dir=new File(context.getFilesDir(),r.asset==null?"engines/"+r.id:"region-"+r.id);if(!dir.exists()&&!dir.mkdirs())throw new IOException("Cannot create offline storage");
         File tiles=r.asset==null?new File(r.dir,"valhalla_tiles.tar"):new File(dir,"valhalla_tiles.tar");
         if(r.asset!=null){JSONObject files=new JSONObject(text(r,"region.json")).optJSONObject("files");JSONObject spec=files==null?null:files.optJSONObject("valhalla_tiles.tar");long want=spec==null?-1:spec.optLong("bytes",-1);
             if(!tiles.exists()||want>0&&tiles.length()!=want){File temp=new File(dir,"tiles.part");try(InputStream in=context.getAssets().open(r.asset+"/valhalla_tiles.tar");FileOutputStream out=new FileOutputStream(temp)){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1)out.write(b,0,n);out.getFD().sync();}if(tiles.exists()&&!tiles.delete()||!temp.renameTo(tiles))throw new IOException("Cannot install region");}}
