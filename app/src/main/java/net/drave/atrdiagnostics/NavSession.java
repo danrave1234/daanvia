@@ -16,6 +16,8 @@ public final class NavSession {
     public volatile String status="Preparing offline maps…",instruction="Choose a destination",destination="";
     public volatile double lat=10.3157,lon=123.8854,destLat,destLon,remaining,seconds,distanceToTurn;
     public volatile float accuracy=999,bearing;
+    /** Where to draw the rider: on the route line while following it (snapped, heading along the road), else the raw fix. Routing always uses the raw fix. */
+    public volatile double viewLat=10.3157,viewLon=123.8854;public volatile float viewBearing;public volatile boolean snapped;
     public volatile long fixAt;
     public volatile List<double[]> shape=Collections.emptyList();
     public volatile JSONArray parking=new JSONArray(),places=new JSONArray();
@@ -139,10 +141,13 @@ public final class NavSession {
     public synchronized void stop(){active=false;simulation=false;fixAt=0;accuracy=999;requestId++;shape=Collections.emptyList();instruction="Choose a destination";message("Ride ended · tracking stopped");}
     public synchronized void update(double a,double b,float acc,float direction,boolean demo){
         accuracy=acc;if(acc>50&&!demo){signal();return;}lat=a;lon=b;bearing=direction;fixAt=SystemClock.elapsedRealtime();
+        viewLat=a;viewLon=b;viewBearing=direction;snapped=false;
         List<double[]> route=shape;if(!active||route.size()<2){signal();return;}
         double best=Double.MAX_VALUE;int nearest=progress;
         for(int i=Math.max(0,progress-8);i<route.size()-1;i++){double distance=GeoMath.segmentDistance(a,b,route.get(i),route.get(i+1));if(distance<best){best=distance;nearest=i;}}
-        if(best<Math.max(45,acc)){progress=Math.max(progress,nearest);offRoute=0;}else if(acc<35&&best>65){offRoute++;if(!demo&&offRoute>=3&&!routing&&SystemClock.elapsedRealtime()-lastReroute>12000){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
+        if(best<Math.max(45,acc)){progress=Math.max(progress,nearest);offRoute=0;}
+        // Draw the rider on the road being followed, pointing along it, like car navigation does; GPS scatter stays hidden.
+        if(best<Math.min(45,Math.max(25,acc))){double[] p1=route.get(nearest),p2=route.get(Math.min(nearest+1,route.size()-1));double[] on=GeoMath.project(a,b,p1,p2);viewLat=on[0];viewLon=on[1];if(p1!=p2)viewBearing=GeoMath.bearing(p1,p2);snapped=true;}else if(acc<35&&best>65){offRoute++;if(!demo&&offRoute>=3&&!routing&&SystemClock.elapsedRealtime()-lastReroute>12000){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
         double rem=GeoMath.distance(a,b,route.get(Math.min(progress+1,route.size()-1))[0],route.get(Math.min(progress+1,route.size()-1))[1]);
         for(int i=progress+1;i<route.size()-1;i++)rem+=GeoMath.distance(route.get(i)[0],route.get(i)[1],route.get(i+1)[0],route.get(i+1)[1]);remaining=rem;seconds=routeMeters>0?routeSeconds*remaining/routeMeters:0;
         try{

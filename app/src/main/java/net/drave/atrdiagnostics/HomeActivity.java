@@ -1059,7 +1059,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             drawnShape = null;
         } else if (mode == Mode.ROUTE && shape != drawnShape) { routeCleared = false; drawnShape = shape; done.setGeoJson(MapStyle.empty()); drawRouteIn(shape); ui.postDelayed(() -> { if (drawnShape == shape) fitRoute(shape); }, 120); }
         else if (mode == Mode.RIDE) {
-            drawnShape = shape; routeCleared = false; int prog = Math.min(s.progress, shape.size() - 1); double[] here = {s.lat, s.lon};
+            drawnShape = shape; routeCleared = false; int prog = Math.min(s.progress, shape.size() - 1); double[] here = {s.viewLat, s.viewLon};
             route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, prog + 1, shape.size(), here)));
             done.setGeoJson(Feature.fromGeometry(withHead(shape, prog, here)));
         }
@@ -1119,7 +1119,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!visible) { puck.setGeoJson(MapStyle.empty()); stopPulse(); haveShown = false; return; }
         if (s.fixAt == lastFix && haveShown) return;
         lastFix = s.fixAt;
-        double toLat = s.lat, toLon = s.lon; float toBearing = s.bearing;
+        double toLat = s.viewLat, toLon = s.viewLon; float toBearing = s.viewBearing;
         if (!haveShown) { haveShown = true; shownLat = toLat; shownLon = toLon; shownBearing = toBearing; }
         double fromLat = shownLat, fromLon = shownLon; float fromBearing = shownBearing;
         float turn = ((toBearing - fromBearing + 540) % 360) - 180;

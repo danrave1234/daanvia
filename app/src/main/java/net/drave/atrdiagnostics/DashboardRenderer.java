@@ -153,9 +153,9 @@ public final class DashboardRenderer {
         p.setStyle(Paint.Style.FILL); p.setColor(land()); c.drawRect(left, top, left + w, top + h, p);
         boolean heading = s.active;
         List<double[]> route = s.shape;
-        clat = s.lat; clon = s.lon; coslat = Math.cos(Math.toRadians(clat));
+        clat = s.viewLat; clon = s.viewLon; coslat = Math.cos(Math.toRadians(clat));
         mpp = s.active ? (s.remaining < 1000 ? 2.2 : 3.4) : 5.5;
-        double theta = heading ? Math.toRadians(-s.bearing) : 0; cos = (float)Math.cos(theta); sin = (float)Math.sin(theta);
+        double theta = heading ? Math.toRadians(-s.viewBearing) : 0; cos = (float)Math.cos(theta); sin = (float)Math.sin(theta);
         cx = left + w / 2; cy = top + h * (heading ? 0.70f : 0.5f);
         double reach = Math.hypot(w, h) * mpp, dLat = reach / 111195, dLon = reach / (111195 * coslat);
         float[] pt = new float[2];
@@ -182,7 +182,7 @@ public final class DashboardRenderer {
         if (!route.isEmpty() && (!s.active || s.remaining < 1000)) parking(c, left, top, w, h, pt);
         if (s.active || s.fixAt > 0) {
             project(clat, clon, pt);
-            c.save(); c.rotate(heading ? 0 : s.bearing, pt[0], pt[1]);
+            c.save(); c.rotate(heading ? 0 : s.viewBearing, pt[0], pt[1]);
             p.setStyle(Paint.Style.FILL); p.setColor(pal.night ? 0x40FFB020 : 0x30F5A300); c.drawCircle(pt[0], pt[1], 30, p);
             path.reset(); path.moveTo(pt[0], pt[1] - 20); path.lineTo(pt[0] + 15, pt[1] + 15); path.lineTo(pt[0], pt[1] + 7); path.lineTo(pt[0] - 15, pt[1] + 15); path.close();
             p.setColor(0xFFFFFFFF); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(6); c.drawPath(path, p);

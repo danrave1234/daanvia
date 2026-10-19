@@ -9,4 +9,6 @@ public class GeoMathTest {
     @Test public void headingDistinguishesEastFromNorth(){assertEquals(90,GeoMath.bearing(new double[]{10,123},new double[]{10,124}),.01);assertEquals(0,GeoMath.bearing(new double[]{10,123},new double[]{11,123}),.01);}
     private static String encode(double[][] points){StringBuilder b=new StringBuilder();long lat=0,lon=0;for(double[] p:points){long a=Math.round(p[0]*1e6),o=Math.round(p[1]*1e6);write(b,a-lat);write(b,o-lon);lat=a;lon=o;}return b.toString();}
     private static void write(StringBuilder b,long v){v=v<0?~(v<<1):v<<1;while(v>=32){b.append((char)((32|(v&31))+63));v>>=5;}b.append((char)(v+63));}
+    @Test public void projectionSnapsOntoTheRoadSegment(){double[] p=GeoMath.project(10.0002,123.5,new double[]{10,123},new double[]{10,124});assertEquals(10,p[0],1e-9);assertEquals(123.5,p[1],1e-6);
+        double[] end=GeoMath.project(10,125,new double[]{10,123},new double[]{10,124});assertEquals(124,end[1],1e-9);}
 }

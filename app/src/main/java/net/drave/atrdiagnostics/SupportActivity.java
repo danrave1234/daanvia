@@ -6,6 +6,7 @@ import android.content.*;
 import android.content.pm.PackageManager;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.*;
@@ -58,6 +59,15 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         steps.addView(r2);
         c.addView(steps);
 
+        // ---- GPS check: live accuracy and satellites from the phone, to confirm a good fix on the bike
+        LinearLayout gpsCard = GabiPage.card(k);
+        LinearLayout gh = k.row(4); gh.addView(k.label("GPS check"), new LinearLayout.LayoutParams(0, -2, 1));
+        gh.addView(k.info("Shows what the phone's GPS is reporting right now. Under 10 m is great for directions; over 30 m usually means you're indoors, under a roof or near tall buildings. Try it outside with a clear view of the sky."));
+        gpsCard.addView(gh);
+        gpsText = k.num("Not running", 14, 600, INK); gpsCard.addView(gpsText);
+        gpsBtn = k.ghost("Start GPS check", this::toggleGps); gpsCard.addView(gpsBtn);
+        c.addView(gpsCard);
+
         LinearLayout logs = GabiPage.card(k);
         logs.addView(k.label("Log"));
         logScroll = new ScrollView(this); log = k.text("", 11.5f, 500, INK_SOFT); log.setTypeface(android.graphics.Typeface.MONOSPACE); log.setTextIsSelectable(true);
@@ -67,7 +77,44 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         link = new DashboardLink(this, this);
         status.setText(link.status()); onLog(); onChanged();
     }
-    protected void onDestroy() { link.destroy(); super.onDestroy(); }
+    protected void onDestroy() { stopGps(); link.destroy(); super.onDestroy(); }
+    protected void onPause() { stopGps(); super.onPause(); }
+
+    // ---- GPS check
+    private TextView gpsText, gpsBtn; private android.location.LocationManager lm; private android.location.Location fix; private int used, seen; private boolean gpsOn;
+    private final android.os.Handler tick = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final android.location.LocationListener gpsListener = l -> { fix = l; paintGps(); };
+    private final android.location.GnssStatus.Callback gnss = new android.location.GnssStatus.Callback() {
+        public void onSatelliteStatusChanged(android.location.GnssStatus st) { int u = 0; for (int i = 0; i < st.getSatelliteCount(); i++) if (st.usedInFix(i)) u++; used = u; seen = st.getSatelliteCount(); paintGps(); }
+    };
+    private final Runnable every = new Runnable() { public void run() { paintGps(); if (gpsOn) tick.postDelayed(this, 1000); } };
+    private void toggleGps() {
+        if (gpsOn) { stopGps(); return; }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 74); return; }
+        lm = getSystemService(android.location.LocationManager.class);
+        try {
+            lm.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 1000, 0, gpsListener, getMainLooper());
+            lm.registerGnssStatusCallback(gnss, tick);
+        } catch (SecurityException e) { return; }
+        gpsOn = true; fix = null; used = seen = 0; gpsBtn.setText("Stop GPS check"); tick.post(every);
+    }
+    private void stopGps() {
+        if (!gpsOn) return; gpsOn = false; tick.removeCallbacks(every);
+        try { lm.removeUpdates(gpsListener); lm.unregisterGnssStatusCallback(gnss); } catch (Exception ignored) {}
+        gpsBtn.setText("Start GPS check");
+    }
+    private void paintGps() {
+        if (!gpsOn) return;
+        boolean located = lm != null && lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER);
+        if (!located) { gpsText.setText("Location is off. Turn it on in the phone's quick settings."); return; }
+        String sats = used + " of " + seen + " satellites in use";
+        if (fix == null) { gpsText.setText("Waiting for a fix… " + sats); return; }
+        long age = (android.os.SystemClock.elapsedRealtimeNanos() - fix.getElapsedRealtimeNanos()) / 1_000_000_000L;
+        float acc = fix.getAccuracy();
+        String quality = acc <= 10 ? "Great" : acc <= 20 ? "Good" : acc <= 35 ? "Fair" : "Weak";
+        gpsText.setText(quality + " · ±" + Math.round(acc) + " m\n" + sats + "\nLast fix " + age + " s ago" + (fix.hasSpeed() ? " · " + Math.round(fix.getSpeed() * 3.6f) + " km/h" : "")
+            + "\nDirections use " + (Build.VERSION.SDK_INT >= 31 && lm.hasProvider(android.location.LocationManager.FUSED_PROVIDER) ? "GPS + motion sensors" : "GPS"));
+    }
 
     private void askConfirm() {
         if (!link.sawFrames()) return;
@@ -102,6 +149,7 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         super.onRequestPermissionsResult(r, p, results);
         if (r == 20) { if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) scanCamera(); else link.note("Camera access denied. You can choose a QR photo instead."); }
         if (r == DashboardLink.PERMISSIONS) { permissionBanner.setVisibility(View.GONE); link.onPermissionsResult(); }
+        if (r == 74 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) toggleGps();
     }
 
     public void onStatus(String s) { status.setText(s); }
