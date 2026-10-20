@@ -35,7 +35,7 @@ for c in index['cells']:
     z = zipfile.ZipFile(dist / c['file']); parent = c['box']
     keys = [quarter(parent[0] + Q * i + Q / 2, parent[1] + Q * j + Q / 2) for j in range(2) for i in range(2)]
     kx0, ky0 = keys[0]; pick = lambda lon, lat: (min(max(quarter(lon, lat)[0], kx0), kx0 + 1), min(max(quarter(lon, lat)[1], ky0), ky0 + 1))  # rounding can land a point on the edge
-    part = {k: {'tiles': [], 'roads': [], 'places': [], 'parking': [], 'lots': [], 'land': [], 'water': []} for k in keys}
+    part = {k: {'tiles': [], 'roads': [], 'places': [], 'parking': [], 'lots': [], 'gates': [], 'land': [], 'water': []} for k in keys}
     for name in z.namelist():
         if not name.startswith('valhalla/2/'): continue
         tid = int(''.join(pathlib.PurePosixPath(name[len('valhalla/2/'):]).with_suffix('').parts)); row, col = divmod(tid, 1440)
@@ -44,7 +44,8 @@ for c in index['cells']:
         if f['properties']['kind'] == 'service' and not f['properties']['name']: continue
         pts = [[round(x, 5), round(y, 5)] for x, y in f['geometry']['coordinates']]; f['geometry']['coordinates'] = pts
         part[pick(*pts[0])]['roads'].append(js(f))
-    for n, key in (('places.json', 'places'), ('parking.json', 'parking'), ('lots.json', 'lots')):
+    for n, key in (('places.json', 'places'), ('parking.json', 'parking'), ('lots.json', 'lots'), ('gates.json', 'gates')):
+        if n not in z.namelist(): continue  # cells built before gates.json
         for x in json.loads(z.read(n)): part[pick(x['lon'], x['lat'])][key].append(js(x))
     for n, key in (('land.geojson', 'land'), ('water.geojson', 'water')):
         for f in json.loads(z.read(n))['features']:
@@ -60,7 +61,7 @@ for c in index['cells']:
         with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as out:
             for name, data in sorted(p['tiles']): out.writestr(name, data)
             out.writestr('roads.geojson', roads); out.writestr('places.json', arr(p['places'])); out.writestr('parking.json', arr(p['parking']))
-            out.writestr('lots.json', arr(p['lots'])); out.writestr('land.geojson', fc(p['land'])); out.writestr('water.geojson', fc(p['water']))
+            out.writestr('lots.json', arr(p['lots'])); out.writestr('gates.json', arr(p['gates'])); out.writestr('land.geojson', fc(p['land'])); out.writestr('water.geojson', fc(p['water']))
         inside = lambda t: b[0] <= t['lon'] < b[2] and b[1] <= t['lat'] < b[3]
         mid = ((b[1] + b[3]) / 2, (b[0] + b[2]) / 2); here = [t for t in towns if inside(t)]
         label = c['label'] if any(t['name'] == c['label'] for t in here) else min(here, key=lambda t: (t['kind'] != 'city', (t['lat'] - mid[0]) ** 2 + (t['lon'] - mid[1]) ** 2))['name'] if here else ''

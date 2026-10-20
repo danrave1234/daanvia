@@ -71,7 +71,7 @@ coast = {}; major = []; towns = []
 water_tmp = open(work / 'water.jsonl', 'w', encoding='utf-8')
 fp = (osmium.FileProcessor(args.pbf).with_locations('sparse_file_array,' + str(work / 'nodes.idx'))
       .with_areas(osmium.filter.KeyFilter('natural', 'waterway', 'landuse'))
-      .with_filter(osmium.filter.KeyFilter('highway', 'amenity', 'natural', 'name', 'waterway', 'landuse', 'place')))
+      .with_filter(osmium.filter.KeyFilter('highway', 'amenity', 'natural', 'name', 'waterway', 'landuse', 'place', 'barrier')))  # barrier: unnamed gates
 started = time.time()
 for o in fp:
     t = dict(o.tags)
