@@ -103,7 +103,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         theme.add(p -> Gabi.barIcons(w, p));
 
         root = new FrameLayout(this); theme.add(p -> root.setBackgroundColor(p.bg));
-        mapView = new MapView(this); mapView.onCreate(state); root.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
+        // Labels are checked for overlap only against labels of their own source: with streets, shops and places on
+        // screen at once, the all-against-all check was what made panning stutter when zoomed in.
+        mapView = new MapView(this, org.maplibre.android.maps.MapLibreMapOptions.createFromAttributes(this).crossSourceCollisions(false)); mapView.onCreate(state); root.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
         // While the camera follows a ride the rider is always at the camera's focal point, so the arrow is drawn there
         // on screen: no lag behind the map, which updates its own layers a little later.
         rideArrow = new ImageView(this); rideArrow.setImageBitmap(MapStyle.ridePuck(this)); rideArrow.setVisibility(View.GONE);
@@ -200,6 +202,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else map.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(12.3, 122.6), 5.2));
         map.setStyle(new org.maplibre.android.maps.Style.Builder().fromJson(MapStyle.base(theme.palette)), st -> { style = st; refresh(); if (mode == Mode.SELECT) centerSelect(null); });
         map.addOnMapLongClickListener(p -> { onLongPress(p.getLatitude(), p.getLongitude()); return true; });
+        map.addOnMapClickListener(this::tapLabel);
         map.addOnMapClickListener(p -> { if (mode == Mode.PIN) { go(Mode.EXPLORE); return true; } return false; });
         map.addOnCameraMoveListener(this::paintCompass);
         map.addOnCameraMoveListener(() -> { if (mode == Mode.SELECT) { ui.removeCallbacks(reselect); ui.postDelayed(reselect, 90); } });
@@ -924,6 +927,25 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         dropLat = lat; dropLon = lon;
         go(Mode.SAVE);
         if (map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(lat, lon), 16), 900);
+    }
+    /** Tapping a place's name on the map (a shop, a mall, a barangay) picks it as the destination, like Google Maps. */
+    private boolean tapLabel(LatLng p) {
+        if (map == null || s.active || !(mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.ROUTE)) return false;
+        android.graphics.PointF at = map.getProjection().toScreenLocation(p); float r = k.dp(16);
+        List<Feature> hits = map.queryRenderedFeatures(new android.graphics.RectF(at.x - r, at.y - r, at.x + r, at.y + r), "online-poi", "online-places");
+        Feature best = null; double bestD = Double.MAX_VALUE; double[] spot = null;
+        for (Feature f : hits) {
+            if (!(f.geometry() instanceof org.maplibre.geojson.Point) || !f.hasProperty("name") || f.getStringProperty("name").trim().isEmpty()) continue;
+            org.maplibre.geojson.Point pt = (org.maplibre.geojson.Point)f.geometry();
+            android.graphics.PointF sp = map.getProjection().toScreenLocation(new LatLng(pt.latitude(), pt.longitude()));
+            double d = Math.hypot(sp.x - at.x, sp.y - at.y); if (d < bestD) { bestD = d; best = f; spot = new double[]{pt.latitude(), pt.longitude()}; }
+        }
+        if (best == null) return false;
+        String name = best.getStringProperty("name").trim(); SearchIndex idx = index;
+        if (idx != null && idx.copies(name) > 1) name = Branches.label(name, spot[0], spot[1], s.roadIndex, towns);
+        root.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+        choose(spot[0], spot[1], name);
+        return true;
     }
     private void onLongPress(double lat, double lon) {
         if (s.active) { notice("End the ride before changing destination"); return; }

@@ -86,7 +86,7 @@ final class MapStyle {
         addRoad(st, "primary", PRIMARY, width(7, 0.9f, 14, 5.2f, 16, 11.5f, 18, 27), width(7, 1.4f, 14, 7.4f, 16, 14.5f, 18, 31), 0);
 
         online(st, new SymbolLayer("online-street-names", ONLINE).withFilter(has("name")).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), textField(get("name")), textFont(FONT),
-            textSize(interpolate(linear(), zoom(), stop(13, 10f), stop(17, 13f))), textMaxAngle(30f), textPadding(4f)), "transportation_name", 13);
+            textSize(interpolate(linear(), zoom(), stop(13, 10f), stop(17, 13f))), textMaxAngle(30f), textPadding(4f)), "transportation_name", 14.5f);
 
         st.addSource(new GeoJsonSource(DONE, new GeoJsonOptions().withMaxZoom(16))); st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16)));
         st.addLayer(new LineLayer("route-done", DONE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 3, 14, 5, 17, 10))));
@@ -96,8 +96,8 @@ final class MapStyle {
 
         // Shops, food and services: a coloured dot and its name placed together, so a name that doesn't fit takes its dot
         // with it. Better-known places (lower rank) win the space; more appear as the rider zooms in.
-        online(st, new SymbolLayer("online-poi", ONLINE).withFilter(all(has("name"), lte(toNumber(get("rank")), literal(60)))).withProperties(
-            iconImage("poi-dot"), iconSize(interpolate(linear(), zoom(), stop(15, 0.8f), stop(18, 1.1f))), iconHaloWidth(1.2f),
+        online(st, new SymbolLayer("online-poi", ONLINE).withFilter(all(has("name"), lte(toNumber(get("rank")), literal(45)))).withProperties(
+            iconImage(poiIcon()), iconSize(interpolate(linear(), zoom(), stop(15, 0.8f), stop(18, 1.05f))),
             textField(get("name")), textFont(FONT), textSize(interpolate(linear(), zoom(), stop(15, 10.5f), stop(18, 12.5f))),
             textAnchor(Property.TEXT_ANCHOR_LEFT), textJustify(Property.TEXT_JUSTIFY_LEFT), textOffset(new Float[]{0.8f, 0f}), textMaxWidth(8f), textPadding(3f),
             symbolSortKey(toNumber(get("rank")))), "poi", 16);
@@ -125,6 +125,8 @@ final class MapStyle {
         st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false)); st.addImage("puck-ride", ridePuck(c)); st.addImage("puck-heading", headingPuck(c));
         st.addImage("dest", dest(c)); st.addImage("drop", drop(c));
         st.addImage("poi-dot", poiDot(c), true);
+        st.addImage("poi-other", poiBadge(c, 0, 0xFF8A949E));
+        for (Object[] t : POI_TYPES) st.addImage("poi-" + t[0], poiBadge(c, (int)t[1], (int)t[2]));
     }
 
     private static void online(Style st, Layer layer, String sourceLayer, float minZoom) {
@@ -185,12 +187,39 @@ final class MapStyle {
         text(st, "online-street-names", n ? 0xFF9AA8B6 : 0xFF5E6670, n ? 0xFF0E151C : 0xFFFFFFFF);
         text(st, "online-poi", n ? 0xFFC9D3DC : 0xFF3A424B, n ? 0xFF0E151C : 0xFFFFFFFF);
         text(st, "online-places", n ? 0xFFDCE3EA : 0xFF2B323A, n ? 0xFF0E151C : 0xFFF7F4EC);
-        Layer dot = st.getLayer("online-poi");
-        if (dot != null) dot.setProperties(iconHaloColor(n ? 0xFF0E151C : 0xFFFFFFFF), iconColor(match(get("class"), color(n ? 0xFF8494A4 : 0xFF8A949E),
-            stop("fast_food", color(0xFFF08A24)), stop("restaurant", color(0xFFF08A24)), stop("cafe", color(0xFFF08A24)), stop("bakery", color(0xFFF08A24)), stop("ice_cream", color(0xFFF08A24)), stop("bar", color(0xFFF08A24)),
-            stop("shop", color(0xFF3D8BE0)), stop("grocery", color(0xFF3D8BE0)), stop("clothing_store", color(0xFF3D8BE0)), stop("hardware", color(0xFF3D8BE0)), stop("mall", color(0xFF3D8BE0)),
-            stop("fuel", color(0xFFE5484D)), stop("hospital", color(0xFFE5484D)), stop("doctors", color(0xFFE5484D)), stop("pharmacy", color(0xFF2FB07A)),
-            stop("bank", color(0xFF7B61D9)), stop("atm", color(0xFF7B61D9)), stop("school", color(0xFFB08A2F)), stop("college", color(0xFFB08A2F)), stop("place_of_worship", color(0xFF9A7B5C)), stop("lodging", color(0xFFD9618B)))));
+    }
+
+    // ---------------------------------------------------------------- place-type badges
+    /** Each kind of place: its badge name, glyph and colour, then the place classes of the map tiles it covers. */
+    private static final Object[][] POI_TYPES = {
+        {"food", IconDrawable.FOOD, 0xFFF08A24, "fast_food", "restaurant", "bar", "beer", "ice_cream", "bakery", "food_court"},
+        {"cafe", IconDrawable.CAFE, 0xFFF08A24, "cafe"},
+        {"shop", IconDrawable.BAG, 0xFF3D8BE0, "shop", "clothing_store", "hardware", "jewelry", "mobile_phone", "electronics", "furniture", "books", "alcohol_shop", "car", "bicycle", "florist", "garden_centre", "laundry", "mall", "music", "shoes", "gift"},
+        {"grocery", IconDrawable.CART, 0xFF3D8BE0, "grocery", "convenience", "supermarket"},
+        {"health", IconDrawable.HEALTH, 0xFFE5484D, "hospital", "doctors", "dentist", "veterinary", "clinic"},
+        {"pharmacy", IconDrawable.PILL, 0xFF2FB07A, "pharmacy"},
+        {"money", IconDrawable.PESO, 0xFF7B61D9, "bank", "atm", "bureau_de_change"},
+        {"school", IconDrawable.CAP, 0xFFA77B2B, "school", "college", "kindergarten", "university", "library"},
+        {"worship", IconDrawable.CHURCH, 0xFF6F7E91, "place_of_worship"},
+        {"lodging", IconDrawable.BED, 0xFFD9618B, "lodging", "campsite"},
+        {"fuel", IconDrawable.FUEL, 0xFF3F7FD6, "fuel"},
+        {"park", IconDrawable.TREE, 0xFF2FA65A, "park", "garden", "playground", "golf", "stadium", "swimming", "sports", "dog_park", "zoo", "pitch"},
+        {"transit", IconDrawable.BUS, 0xFF3F7FD6, "bus", "railway", "harbor", "ferry_terminal", "aerialway"},
+        {"civic", IconDrawable.CIVIC, 0xFF6B7785, "town_hall", "police", "post", "fire_station", "courthouse", "prison", "embassy"},
+    };
+    /** Which badge a place gets, from its class in the map tiles; anything else gets a plain grey badge. */
+    private static Expression poiIcon() {
+        ArrayList<Expression.Stop> stops = new ArrayList<>();
+        for (Object[] t : POI_TYPES) for (int i = 3; i < t.length; i++) stops.add(stop(t[i], "poi-" + t[0]));
+        return match(get("class"), literal("poi-other"), stops.toArray(new Expression.Stop[0]));
+    }
+    /** A coloured disc with a thin white ring and the type's white glyph. */
+    private static Bitmap poiBadge(Context c, int glyph, int color) {
+        float s = d(c); int size = Math.round(22 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint(); float cx = size / 2f;
+        p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 10.5f * s, p); p.setColor(color); cv.drawCircle(cx, cx, 9.3f * s, p);
+        if (glyph > 0) { IconDrawable g = new IconDrawable(glyph, 0xFFFFFFFF).stroke(2.4f); int in = Math.round(5 * s); g.setBounds(in, in, size - in, size - in); g.draw(cv); }
+        else { p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 3 * s, p); }
+        return b;
     }
     private static void text(Style st, String id, int color, int halo) { Layer l = st.getLayer(id); if (l != null) l.setProperties(textColor(color), textHaloColor(halo), textHaloWidth(1.4f)); }
     private static void line(Style st, String id, int color, float opacity) { Layer l = st.getLayer(id); if (l != null) l.setProperties(lineColor(color), lineOpacity(opacity)); }
