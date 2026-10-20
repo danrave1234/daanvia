@@ -59,6 +59,8 @@ public final class DashboardLink {
         synchronized (shared.hosts) { shared.hosts.remove(host); shared.hosts.add(0, host); }
         return shared;
     }
+    /** The app's link if a screen has created it, else null (for NavService, which has no screen). */
+    public static synchronized DashboardLink existing() { return shared; }
     /** A screen is closing: stop sending it updates. The connection itself stays. */
     public void detach(Host host) { synchronized (hosts) { hosts.remove(host); } }
     /** The app is ending the stream itself (Stop, a QR rescan), so its end is not a drop. Cleared when the next stream starts. */

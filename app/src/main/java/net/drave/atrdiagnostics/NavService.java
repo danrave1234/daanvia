@@ -17,11 +17,20 @@ public final class NavService extends Service {
             if("preview".equals(i.getAction())){subscribe();return START_NOT_STICKY;}
             s.active=true;s.simulation=demo;spoken=-1;filter.reset();
             if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();}
-            s.signal();
+            s.signal();handler.removeCallbacks(bikeSearch);handler.postDelayed(bikeSearch,20000);
         }catch(Exception e){s.message("Cannot start navigation: "+e.getMessage());stopSelf();}
         return START_NOT_STICKY;
     }
     /** Google's fused location where the phone has it (GPS steadied by Wi-Fi and the motion sensors), else the phone's own (see LocationFeed). */
+    /**
+     * While riding, keep looking for the bike display every 20 s, also with the phone in a pocket: a ride started before
+     * the bike was switched on, or a display that dropped, connects as soon as the bike is reachable.
+     */
+    private final Runnable bikeSearch=new Runnable(){public void run(){
+        if(s==null||!s.active)return;
+        DashboardLink link=DashboardLink.existing();
+        if(link!=null&&!StreamService.navigationActive&&!link.searching()&&getSharedPreferences("ui",0).getBoolean("autoconnect",true))link.autoNavigation();
+        handler.postDelayed(this,20000);}};
     private void subscribe(){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)throw new SecurityException("Precise location required");if(gps==null)gps=new LocationFeed(this,this::onLocationChanged,true);gps.stop();if(!gps.start())s.message("GPS is off · enable Location");else s.message("Waiting for GPS · offline region ready");}
     private void onLocationChanged(Location l){if(l.getElapsedRealtimeNanos()>0&&SystemClock.elapsedRealtimeNanos()-l.getElapsedRealtimeNanos()>12000000000L)return;
         // A fix that bounced off buildings would pull the rider off the route and start a reroute (see FixFilter).

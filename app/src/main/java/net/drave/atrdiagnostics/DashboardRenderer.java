@@ -71,7 +71,10 @@ public final class DashboardRenderer {
         target.drawColor(Color.BLACK);
         RectF r = scene(w, h); float width = r.width(), height = r.height();
         target.save(); target.clipRect(r); target.translate(r.left, r.top);
-        float scale = Math.min(width / 800f, height / 480f); float vw = width / scale, vh = height / scale; target.scale(scale, scale);
+        // A portrait display gets a portrait canvas (and, until the rider moves the cards, a portrait layout), so text keeps
+        // the same size on a tall screen as on a wide one.
+        boolean portrait = height > width * 1.1f; if (portrait) portraitLayout();
+        float scale = portrait ? Math.min(width / 480f, height / 800f) : Math.min(width / 800f, height / 480f); float vw = width / scale, vh = height / scale; target.scale(scale, scale);
         if (s.calibration) { grid(target, vw, vh); target.restore(); return; }
         drawMap(target, vw, vh);
         RectF turn = card(s.turnCard, vw, vh), trip = card(s.tripCard, vw, vh);
@@ -80,13 +83,18 @@ public final class DashboardRenderer {
         if (s.layoutEditing) outlines(target, turn, trip, s.arrowX * vw, s.arrowY * vh);
         target.restore();
     }
+    /** The landscape default cards don't suit a tall display: the turn across the top, the trip across the bottom. */
+    private void portraitLayout() {
+        if (!java.util.Arrays.equals(s.turnCard, NavSession.DEFAULT_TURN) || !java.util.Arrays.equals(s.tripCard, NavSession.DEFAULT_TRIP)) return;
+        s.turnCard = new float[]{0.03f, 0.02f, 0.94f, 0.26f}; s.tripCard = new float[]{0.03f, 0.85f, 0.94f, 0.12f}; s.arrowX = 0.5f; s.arrowY = 0.66f;
+    }
     private static RectF card(float[] f, float vw, float vh) { return new RectF(f[0] * vw, f[1] * vh, (f[0] + f[2]) * vw, (f[1] + f[3]) * vh); }
     private void cardBackground(Canvas c, RectF r) {
         p.setStyle(Paint.Style.FILL); p.setColor(panel()); c.drawRoundRect(r, 18, 18, p);
         p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.5f); p.setColor(pal.night ? 0x1FFFFFFF : 0x14000000); c.drawRoundRect(r, 18, 18, p);
     }
     /** Content grows and shrinks with the card the rider sized, and with the text size from Fit my TFT. */
-    private float unit(RectF r, float baseW, float baseH) { return Math.max(0.55f, Math.min(1.8f, Math.min(r.width() / baseW, r.height() / baseH) * s.textScale * ("Large turns".equals(s.layout) ? 1.15f : 1f))); }
+    private float unit(RectF r, float baseW, float baseH) { return Math.max(0.6f, Math.min(2.2f, Math.min(r.width() / baseW, r.height() / baseH) * s.textScale * ("Large turns".equals(s.layout) ? 1.15f : 1f))); }
 
     private void turnCard(Canvas c, RectF r, boolean sample) {
         cardBackground(c, r);
@@ -101,13 +109,13 @@ public final class DashboardRenderer {
         int thenIcon = sample ? 15 : next == null ? 8 : next.optInt("type", 8);
         boolean wide = r.width() > r.height() * 1.55f;
         float k = unit(r, wide ? 420 : 280, wide ? 150 : 270), pad = 16 * k;
-        float tile = wide ? Math.min(r.height() - pad * 2, 104 * k) : Math.min(100 * k, r.height() * 0.42f);
+        float tile = wide ? Math.min(r.height() - pad * 2, 112 * k) : Math.min(108 * k, r.height() * 0.4f);
         RectF box = new RectF(r.left + pad, r.top + pad, r.left + pad + tile, r.top + pad + tile);
         p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(box, tile * 0.22f, tile * 0.22f, p);
         IconDrawable arrow = new IconDrawable(Maneuvers.icon(type), 0xFF1A1203).stroke(2.8f);
         int inset = Math.round(tile * 0.16f); arrow.setBounds(Math.round(box.left) + inset, Math.round(box.top) + inset, Math.round(box.right) - inset, Math.round(box.bottom) - inset); arrow.draw(c);
         float x = wide ? box.right + pad : r.left + pad, textW = r.right - pad - x;
-        float ds = 52 * k, ss = 22 * k, ts = 17 * k;
+        float ds = 62 * k, ss = 29 * k, ts = 22 * k;
         float y = wide ? r.top + pad + ds * 0.86f : box.bottom + ds * 1.02f;
         text(c, fit(dist, textW, ds, black), x, y, ds, stale ? pal.danger : ink(), black);
         for (String line : wrap(street, textW, ss, bold, wide ? 1 : 2)) { if (y + ss * 1.25f > r.bottom - pad * 0.5f) break; y += ss * 1.25f; text(c, line, x, y, ss, soft(), bold); }
@@ -126,7 +134,10 @@ public final class DashboardRenderer {
         String[] u = {"MIN", "KM", "ARRIVE"};
         boolean row = r.width() >= r.height() * 1.25f;
         if (row) {
-            float k = unit(r, 280, 140), pad = 14 * k, col = (r.width() - pad * 2) / 3f, vs = 32 * k, us = 12 * k;
+            float k = unit(r, 280, 140), pad = 14 * k, col = (r.width() - pad * 2) / 3f, vs = Math.min(42 * k, r.height() * 0.5f), us = 14 * k;
+            // One size for all three numbers, as large as the widest of them fits its column ("12:45" is the usual one).
+            p.setTypeface(black); p.setTextSize(vs); float widest = 0; for (String t : v) widest = Math.max(widest, p.measureText(t));
+            if (widest > col - 6 * k) vs *= (col - 6 * k) / widest;
             float base = r.top + r.height() / 2f + vs * 0.25f;
             for (int i = 0; i < 3; i++) {
                 float x = r.left + pad + col * i;
@@ -134,7 +145,9 @@ public final class DashboardRenderer {
                 p.setLetterSpacing(0.12f); text(c, u[i], x, base + us * 1.9f, us, muted(), bold); p.setLetterSpacing(0);
             }
         } else {
-            float k = unit(r, 150, 260), pad = 14 * k, line = (r.height() - pad * 2) / 3f, vs = Math.min(30 * k, line * 0.55f), us = 11 * k;
+            float k = unit(r, 150, 260), pad = 14 * k, line = (r.height() - pad * 2) / 3f, vs = Math.min(40 * k, line * 0.58f), us = 13 * k;
+            p.setTypeface(black); p.setTextSize(vs); float widest = 0; for (String t : v) widest = Math.max(widest, p.measureText(t));
+            if (widest > r.width() - pad * 2) vs *= (r.width() - pad * 2) / widest;
             for (int i = 0; i < 3; i++) {
                 float y = r.top + pad + line * i + vs;
                 text(c, fit(v[i], r.width() - pad * 2, vs, black), r.left + pad, y, vs, i == 0 ? pal.accent : ink(), black);
@@ -200,8 +213,29 @@ public final class DashboardRenderer {
         float x = (float)((lon - clon) * coslat * 111195 / mpp), y = (float)(-(lat - clat) * 111195 / mpp);
         out[0] = cx + x * cos - y * sin; out[1] = cy + x * sin + y * cos;
     }
-    /** Where a place lands on screen after the tilt. */
-    private void screen(double lat, double lon, float[] out) { project(lat, lon, out); tiltMatrix.mapPoints(out); }
+    /** Where a place lands on screen after the tilt; far off screen when it lies behind the tilted view. */
+    private void screen(double lat, double lon, float[] out) { project(lat, lon, out); if (out[1] > yMax) { out[0] = out[1] = -9999; return; } tiltMatrix.mapPoints(out); }
+
+    // The tilt is a camera 720 px in front of the screen. A point far enough behind the arrow passes behind that camera and
+    // projects flipped, so a road crossing it became a huge wedge on the display. Lines are cut at yMax, a little past the
+    // bottom edge of the screen and well before the camera.
+    private float yMax = Float.MAX_VALUE, lastX, lastY; private boolean lastIn;
+    private void clipLimit(float h) {
+        double t = Math.toRadians(tilt), f = 720, below = Math.max(40, h - cy);
+        if (tilt < 1) { yMax = Float.MAX_VALUE; return; }
+        double bottom = below * f / (f * Math.cos(t) + below * Math.sin(t)), near = f / Math.sin(t);
+        yMax = cy + (float)Math.min(near * 0.8, bottom * 1.5 + 80);
+    }
+    private void point(Path l, float x, float y, boolean first) {
+        boolean in = y <= yMax;
+        if (first) { if (in) l.moveTo(x, y); }
+        else if (in && lastIn) l.lineTo(x, y);
+        else if (in != lastIn) {
+            float t = (yMax - lastY) / (y - lastY), ix = lastX + (x - lastX) * t;
+            if (lastIn) l.lineTo(ix, yMax); else { l.moveTo(ix, yMax); l.lineTo(x, y); }
+        }
+        lastX = x; lastY = y; lastIn = in;
+    }
 
     private void drawMap(Canvas c, float w, float h) {
         p.setStyle(Paint.Style.FILL); p.setColor(land()); c.drawRect(0, 0, w, h, p);
@@ -215,7 +249,7 @@ public final class DashboardRenderer {
         cx = s.arrowX * w; cy = s.arrowY * h;
         // Tilt the map away from the rider like the phone's 3D view: the road ahead recedes towards the horizon.
         lens.save(); lens.setLocation(0, 0, -10); lens.rotateX(tilt); lens.getMatrix(tiltMatrix); lens.restore();
-        tiltMatrix.preTranslate(-cx, -cy); tiltMatrix.postTranslate(cx, cy);
+        tiltMatrix.preTranslate(-cx, -cy); tiltMatrix.postTranslate(cx, cy); clipLimit(h);
         // How far the map reaches on screen: flat, the screen's corners; tilted, about 1,100 px ahead of the arrow before the
         // horizon squeezes everything (worked out from the lens: tilt 48-58 degrees, camera 10 inches away).
         double reach = Math.max(Math.hypot(w, h) * 1.05, tilt > 5 ? 1150 : 0) * mpp, dLat = reach / 111195, dLon = reach / (111195 * coslat);
@@ -233,15 +267,16 @@ public final class DashboardRenderer {
             if (road.maxLat - road.minLat < tiny && road.maxLon - road.minLon < tiny) continue;
             if (road.maxLat < clat - dLat || road.minLat > clat + dLat || road.maxLon < clon - dLon || road.minLon > clon + dLon) continue;
             Path l = layers[layer(road.kind)];
-            for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); if (j == 0) l.moveTo(pt[0], pt[1]); else l.lineTo(pt[0], pt[1]); }
+            for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); point(l, pt[0], pt[1], j == 0); }
         }
         String[] kinds = {"residential", "tertiary", "secondary", "primary"};
         for (int i = 0; i < layers.length; i++) { p.setColor(road(kinds[i])); p.setStrokeWidth(roadWidth(kinds[i]) * roadScale); c.drawPath(layers[i], p); }
         if (route.size() > 1) {
             int from = s.active ? Math.max(0, Math.min(motion.routeFrom, route.size() - 1)) : 0;
             path.reset();
-            if (s.active) { project(clat, clon, pt); path.moveTo(pt[0], pt[1]); }
-            for (int i = from + (s.active ? 1 : 0); i < route.size(); i++) { double[] a = route.get(i); project(a[0], a[1], pt); if (path.isEmpty()) path.moveTo(pt[0], pt[1]); else path.lineTo(pt[0], pt[1]); }
+            boolean first = true;
+            if (s.active) { project(clat, clon, pt); point(path, pt[0], pt[1], true); first = false; }
+            for (int i = from + (s.active ? 1 : 0); i < route.size(); i++) { double[] a = route.get(i); project(a[0], a[1], pt); point(path, pt[0], pt[1], first); first = false; }
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(17); p.setColor(pal.night ? 0xFF3B2804 : 0xFF8A5600); c.drawPath(path, p);
             p.setStrokeWidth(10); p.setColor(pal.accent); c.drawPath(path, p);
         }

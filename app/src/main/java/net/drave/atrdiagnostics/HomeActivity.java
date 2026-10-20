@@ -169,7 +169,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             getSharedPreferences("ui", 0).edit().putFloat("cam_lat", (float)c.target.getLatitude()).putFloat("cam_lon", (float)c.target.getLongitude()).putFloat("cam_zoom", (float)c.zoom).apply(); }
         mapView.onPause(); super.onPause();
     }
-    protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     protected void onDestroy() { ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
@@ -1062,7 +1062,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             // Kept until the ride ends, so a ride Android cut short (the app killed in the background) can be picked up again.
             try { getSharedPreferences("ui", 0).edit().putString("ride", new org.json.JSONObject().put("lat", destLat).put("lon", destLon).put("name", destName).put("at", System.currentTimeMillis()).toString()).apply(); } catch (org.json.JSONException ignored) {}
         }
-        link.allowAuto();
+        link.allowAuto(); autoDelay = 15000; ui.removeCallbacks(retryConnect); autoConnect();  // a ride connects the bike display straight away
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
     private boolean resumeOffered;
