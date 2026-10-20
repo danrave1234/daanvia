@@ -1,7 +1,7 @@
 package net.drave.atrdiagnostics;
 import android.*;import android.app.*;import android.content.*;import android.content.pm.*;import android.location.*;import android.os.*;import android.speech.tts.TextToSpeech;import java.util.*;
 public final class NavService extends Service {
-    private NavSession s;private LocationFeed gps;private TextToSpeech voice;private final Handler handler=new Handler(Looper.getMainLooper());private boolean voiceReady;private int spoken=-1,demoIndex;private List<double[]> spokenRoute;private long lastWarning;private Runnable simulator;
+    private NavSession s;private LocationFeed gps;private TextToSpeech voice;private final Handler handler=new Handler(Looper.getMainLooper());private boolean voiceReady;private final FixFilter filter=new FixFilter();private int spoken=-1,demoIndex;private List<double[]> spokenRoute;private long lastWarning;private Runnable simulator;
     public IBinder onBind(Intent i){return null;}
     @android.annotation.SuppressLint("MissingPermission") // removing location updates; subscribe() checks the permission itself
     public int onStartCommand(Intent i,int f,int id){
@@ -15,7 +15,7 @@ public final class NavService extends Service {
             startForeground(22,n,demo?android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE:android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
             if(voice==null)voice=new TextToSpeech(this,result->{voiceReady=result==TextToSpeech.SUCCESS;if(voiceReady)voice.setLanguage(Locale.US);});
             if("preview".equals(i.getAction())){subscribe();return START_NOT_STICKY;}
-            s.active=true;s.simulation=demo;spoken=-1;
+            s.active=true;s.simulation=demo;spoken=-1;filter.reset();
             if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();}
             s.signal();
         }catch(Exception e){s.message("Cannot start navigation: "+e.getMessage());stopSelf();}
@@ -24,6 +24,8 @@ public final class NavService extends Service {
     /** Google's fused location where the phone has it (GPS steadied by Wi-Fi and the motion sensors), else the phone's own (see LocationFeed). */
     private void subscribe(){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)throw new SecurityException("Precise location required");if(gps==null)gps=new LocationFeed(this,this::onLocationChanged,true);gps.stop();if(!gps.start())s.message("GPS is off · enable Location");else s.message("Waiting for GPS · offline region ready");}
     private void onLocationChanged(Location l){if(l.getElapsedRealtimeNanos()>0&&SystemClock.elapsedRealtimeNanos()-l.getElapsedRealtimeNanos()>12000000000L)return;
+        // A fix that bounced off buildings would pull the rider off the route and start a reroute (see FixFilter).
+        long now=SystemClock.elapsedRealtime(),at=l.getElapsedRealtimeNanos()>0?l.getElapsedRealtimeNanos()/1000000L:now;if(!filter.accept(l.getLatitude(),l.getLongitude(),l.getAccuracy(),at,now))return;
         // Heading from GPS is noise below walking speed; keep the last good one instead of snapping to north.
         boolean moving=l.hasBearing()&&(!l.hasSpeed()||l.getSpeed()>1.4f);
         s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():s.bearing,false);speak();}

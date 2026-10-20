@@ -30,12 +30,25 @@ public class RideUiTest {
         assertEquals(2,p.size());assertEquals("Chowking",p.get(0).name);assertEquals("M. Velez Street, Guadalupe, Cebu",p.get(0).address);assertEquals(10.3160895,p.get(0).lat,1e-9);
         assertEquals("6750 Ayala Avenue",p.get(1).name);assertEquals("Makati",p.get(1).address);
     }
-    @Test public void roughFixesWaitBeforeReplacingSharpOnes(){
-        assertTrue(Here.better(500,1000,999,0,1000));
-        assertFalse(Here.better(800,2000,8,1000,3000));
-        assertTrue(Here.better(800,12000,8,1000,12000));
-        assertTrue(Here.better(10,2000,25,1000,2000));
-        assertFalse(Here.better(5,500,25,1000,2000));
+    // 0.0045° of latitude is 500 m.
+    @Test public void roughFixesDontPullASharpDotAway(){
+        FixFilter f=new FixFilter();
+        assertTrue(f.accept(14.5560,121.03,8,1000,1000));
+        assertFalse(f.accept(14.5605,121.03,600,5000,5000));     // Wi-Fi fix 500 m off, 4 s later
+        assertFalse(f.accept(14.5605,121.03,600,20000,20000));   // still within 30 s of the GPS fix
+        assertTrue(f.accept(14.5561,121.03,10,21000,21000));     // GPS back: no jump happened
+        assertTrue(f.accept(14.5605,121.03,600,52000,52000));    // no GPS for 30 s: the rough fix is all there is
+    }
+    @Test public void aBounceFasterThanAnyRiderIsIgnoredUnlessItSticks(){
+        FixFilter f=new FixFilter();
+        assertTrue(f.accept(14.5560,121.03,8,1000,1000));
+        assertFalse(f.accept(14.5605,121.03,8,2000,2000));       // 500 m in a second
+        assertTrue(f.accept(14.5561,121.03,8,3000,3000));        // and back: it was a glitch
+        assertFalse(f.accept(14.5605,121.03,8,4000,4000));
+        assertFalse(f.accept(14.5605,121.03,8,5000,5000));
+        assertTrue(f.accept(14.5605,121.03,8,6000,6000));        // three in a row there: the rider really is there
+        assertTrue(f.accept(14.5607,121.03,8,7000,7000));        // riding on at 22 m/s is fine
+        assertFalse(f.accept(14.5600,121.03,8,6500,7000));       // a fix older than the last one
     }
     @Test public void searchNeedsEveryWordAndIgnoresAccents(){
         SearchIndex i=new SearchIndex(Arrays.asList("Osmeña Boulevard","Osmena Circle","Fuente Pension House"),new double[]{10,10,10},new double[]{123,123,123});

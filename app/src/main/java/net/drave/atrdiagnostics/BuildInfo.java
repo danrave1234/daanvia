@@ -1,6 +1,6 @@
 package net.drave.atrdiagnostics;
 
 public final class BuildInfo {
-    public static final String VERSION = "0.6.2";
+    public static final String VERSION = "0.6.3";
     private BuildInfo() {}
 }

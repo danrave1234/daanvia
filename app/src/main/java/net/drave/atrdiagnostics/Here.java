@@ -13,7 +13,7 @@ import androidx.core.location.LocationManagerCompat;
  * Rough fixes still place the dot, drawn with a circle showing how sure it is. During a ride, NavService owns location.
  */
 final class Here {
-    private final Context c; private final NavSession s; private final LocationFeed feed; private LocationManager lm;
+    private final Context c; private final NavSession s; private final LocationFeed feed; private final FixFilter filter = new FixFilter(); private LocationManager lm;
 
     Here(Context c, NavSession s) { this.c = c.getApplicationContext(); this.s = s; feed = new LocationFeed(c, this::feed, false); }
 
@@ -50,7 +50,7 @@ final class Here {
     private void feed(Location l, float acc) {
         if (s.active) return;
         long at = SystemClock.elapsedRealtime() - ageMillis(l);
-        if (!better(acc, at, s.accuracy, s.fixAt, SystemClock.elapsedRealtime())) return;
+        if (!filter.accept(l.getLatitude(), l.getLongitude(), acc, at, SystemClock.elapsedRealtime())) return; // rough fixes and GPS bounces (see FixFilter)
         // Lying still: the same spot again doesn't wake the screen or redraw the map; a fresh fix every 15 s keeps it current.
         if (s.fixAt > 0 && at - s.fixAt < 15_000 && Math.abs(acc - s.accuracy) < 3
             && GeoMath.distance(s.lat, s.lon, l.getLatitude(), l.getLongitude()) < Math.max(1.5, acc * 0.1)) return;
@@ -59,10 +59,4 @@ final class Here {
     }
     private static long ageMillis(Location l) { return l.getElapsedRealtimeNanos() > 0 ? Math.max(0, (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1_000_000L) : 0; }
 
-    /** A rougher fix only replaces a sharper one once the sharper one is 10 s old, so Wi-Fi doesn't drag a good GPS dot around. */
-    static boolean better(float acc, long at, float oldAcc, long oldAt, long now) {
-        if (oldAt <= 0) return true;
-        if (at < oldAt) return false;
-        return acc <= oldAcc * 1.5f + 5 || now - oldAt > 10_000;
-    }
 }
