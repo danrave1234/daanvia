@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The rider's dot outside rides: orange in a thin white ring, Google Maps sized (see HomeActivity.setUpLocationPuck). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape android:shape="oval"><solid android:color="#33000000" /><size android:width="24dp" android:height="24dp" /></shape></item>
+    <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp"><shape android:shape="oval"><solid android:color="#FFFFFFFF" /></shape></item>
+    <item android:left="3.5dp" android:top="3.5dp" android:right="3.5dp" android:bottom="3.5dp"><shape android:shape="oval"><solid android:color="#FFFFB020" /></shape></item>
+</layer-list>

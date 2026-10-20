@@ -245,7 +245,7 @@ public final class AreaStore {
      */
     static final class Merger implements Closeable {
         private static final String[][] FILES = {{"roads.geojson", "{\"type\":\"FeatureCollection\",\"features\":[", "]}"}, {"land.geojson", "{\"type\":\"FeatureCollection\",\"features\":[", "]}"},
-            {"water.geojson", "{\"type\":\"FeatureCollection\",\"features\":[", "]}"}, {"places.json", "[", "]"}, {"parking.json", "[", "]"}, {"lots.json", "[", "]"}};
+            {"water.geojson", "{\"type\":\"FeatureCollection\",\"features\":[", "]}"}, {"places.json", "[", "]"}, {"parking.json", "[", "]"}, {"lots.json", "[", "]"}, {"gates.json", "[", "]"}};
         private final File dir; private final Map<String, Writer> out = new HashMap<>(); private final Map<String, Boolean> any = new HashMap<>(); private final String root;
         Merger(File dir) throws IOException {
             this.dir = dir; root = dir.getCanonicalPath() + File.separator;

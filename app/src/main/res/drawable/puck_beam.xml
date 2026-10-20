@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The beam showing which way the phone faces, pointing up; the location puck turns it with the compass. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="84dp" android:height="84dp" android:viewportWidth="84" android:viewportHeight="84">
+    <path android:pathData="M42,42 L20.8,8.1 A40,40 0 0,1 63.2,8.1 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="42" android:centerY="42" android:gradientRadius="40">
+                <item android:offset="0.2" android:color="#AAFFB020" />
+                <item android:offset="0.6" android:color="#55FFB020" />
+                <item android:offset="1.0" android:color="#00FFB020" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

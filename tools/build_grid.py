@@ -7,7 +7,7 @@ COUNTRY_TILE_DIR is one Valhalla 3.9.0 tile_dir for the whole country (valhalla_
 A cell is DEG x DEG degrees aligned to Valhalla's 0.25 deg level-2 grid (0.5 = four level-2 tiles), and
 lives in only one level-1 (1 deg) and one level-0 (4 deg) tile. Output:
   cell_<minLon>_<minLat>.zip  valhalla/2/... (that cell's level-2 tiles, tile_dir layout), roads.geojson
-                              (motorable only), places.json, parking.json, lots.json, land.geojson, water.geojson
+                              (motorable only), places.json, parking.json, lots.json, gates.json, land.geojson, water.geojson
   base_l1_<id>.zip / base_l0_<id>.zip  valhalla/1/... and valhalla/0/..., shared by every cell under them
   areas-index.json            cells with box, file, bytes, sha256, roads_bytes, label and needed base files
 Each road, place, parking lot and lot belongs to exactly one cell (its first point), so merging cells by
@@ -40,7 +40,7 @@ def cell_box(c): return [round(c[0] * DEG - 180, 6), round(c[1] * DEG - 90, 6), 
 def cell_id(c): b = cell_box(c); return 'cell_%.2f_%.2f' % (b[0], b[1])
 
 class Cell:
-    def __init__(self, c): self.c = c; self.roads = None; self.nroads = 0; self.places = []; self.seen = set(); self.parking = []; self.lots = []; self.water = []; self.towns = []
+    def __init__(self, c): self.c = c; self.roads = None; self.nroads = 0; self.places = []; self.seen = set(); self.parking = []; self.lots = []; self.water = []; self.towns = []; self.gates = []
     def road(self, feat):
         if self.roads is None: self.roads = open(work / 'roads' / (cell_id(self.c) + '.geojson'), 'w', encoding='utf-8', newline='\n')
         self.roads.write((',' if self.nroads else '') + json.dumps(feat, separators=(',', ':'), ensure_ascii=False)); self.nroads += 1
@@ -54,6 +54,7 @@ cells = {}
 # Only shops, amenities (parking too) and tourism are branches; railways, rivers and other named lines repeat per segment.
 def is_poi(t): return 'highway' not in t and any(k in t for k in ('amenity', 'shop', 'tourism'))
 js = lambda x: json.dumps(x, separators=(',', ':'), ensure_ascii=False)  # cells keep serialized records to stay small in RAM
+GATES = ('gate', 'lift_gate', 'swing_gate', 'sliding_gate', 'entrance', 'toll_booth')
 def branch_name(t):
     """OSM names most chain branches just "Jollibee" and puts the branch in branch=: "Jollibee Vito Cruz", like Google Maps."""
     name, branch = t['name'].strip(), t.get('branch', '').strip()
@@ -78,6 +79,9 @@ for o in fp:
         if not o.location.valid(): continue
         lon, lat = o.location.lon, o.location.lat; k = cell(lon, lat); park = t.get('amenity') in ('parking', 'motorcycle_parking')
         if park: k.parking.append((t.get('access', 'unknown'), js(parking_record(str(o.id), lon, lat, t)))); k.lots.append(js(record('n%d' % o.id, lon, lat, t)))
+        # Gates and guardhouse barriers on roads, so the app can say when a route goes through a subdivision gate.
+        if t.get('barrier') in GATES and t.get('access') not in ('yes', 'permissive'):
+            k.gates.append(js({'lat': r6(lat), 'lon': r6(lon), 'access': t.get('access', ''), 'name': t.get('name', '')}))
         if t.get('name') and any(x in t for x in ('amenity', 'tourism', 'shop', 'place', 'public_transport')): k.place(branch_name(t), lon, lat, poi='place' not in t)
         if t.get('place') in ('city', 'town') and t.get('name'):
             try: pop = int(str(t.get('population', '0')).replace(',', '').split(';')[0] or 0)
@@ -172,7 +176,7 @@ for c in sorted(keep):
     target = out / (cid + '.zip')
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for p in sorted(l2_cells.get(c, [])): z.write(p, 'valhalla/' + p.relative_to(tiles).as_posix())
-        z.writestr('roads.geojson', roads); z.writestr('places.json', arr(k.places)); z.writestr('parking.json', arr(parking)); z.writestr('lots.json', arr(k.lots))
+        z.writestr('roads.geojson', roads); z.writestr('places.json', arr(k.places)); z.writestr('parking.json', arr(parking)); z.writestr('lots.json', arr(k.lots)); z.writestr('gates.json', arr(k.gates))
         z.writestr('land.geojson', fc(landf)); z.writestr('water.geojson', fc(k.water))
     label = sorted(k.towns, key=lambda x: (x['kind'] != 'city', -x['pop'], x['name']))
     index.append({'id': cid, 'box': cell_box(c), 'file': target.name, 'bytes': target.stat().st_size, 'sha256': sha256(target),

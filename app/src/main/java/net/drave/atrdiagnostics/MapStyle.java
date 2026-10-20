@@ -88,7 +88,7 @@ final class MapStyle {
         online(st, new SymbolLayer("online-street-names", ONLINE).withFilter(has("name")).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), textField(get("name")), textFont(FONT),
             textSize(interpolate(linear(), zoom(), stop(13, 10f), stop(17, 13f))), textMaxAngle(30f), textPadding(4f)), "transportation_name", 14.5f);
 
-        st.addSource(new GeoJsonSource(DONE, new GeoJsonOptions().withMaxZoom(16))); st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16)));
+        st.addSource(new GeoJsonSource(DONE, new GeoJsonOptions().withMaxZoom(16))); st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16).withLineMetrics(true)));
         st.addLayer(new LineLayer("route-done", DONE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 3, 14, 5, 17, 10))));
         st.addLayer(new LineLayer("route-glow", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineBlur(7f), lineWidth(width(10, 12, 14, 18, 17, 34))));
         st.addLayer(new LineLayer("route-case", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 6.5f, 14, 9, 17, 16))));
@@ -96,11 +96,11 @@ final class MapStyle {
 
         // Shops, food and services: a coloured dot and its name placed together, so a name that doesn't fit takes its dot
         // with it. Better-known places (lower rank) win the space; more appear as the rider zooms in.
-        online(st, new SymbolLayer("online-poi", ONLINE).withFilter(all(has("name"), lte(toNumber(get("rank")), literal(45)))).withProperties(
-            iconImage(poiIcon()), iconSize(interpolate(linear(), zoom(), stop(15, 0.8f), stop(18, 1.05f))),
-            textField(get("name")), textFont(FONT), textSize(interpolate(linear(), zoom(), stop(15, 10.5f), stop(18, 12.5f))),
-            textAnchor(Property.TEXT_ANCHOR_LEFT), textJustify(Property.TEXT_JUSTIFY_LEFT), textOffset(new Float[]{0.8f, 0f}), textMaxWidth(8f), textPadding(3f),
-            symbolSortKey(toNumber(get("rank")))), "poi", 16);
+        // Well-known places (low rank) win the space: they are a layer of their own, placed before the rest. (A
+        // symbol-sort-key would do the same, but it makes the map re-sort every label on every frame: panning over a
+        // busy street ran at 17 fps with it and smoothly without it.)
+        online(st, poiLayer("online-poi", all(gt(toNumber(get("rank")), literal(15)), lte(toNumber(get("rank")), literal(45)))), "poi", 16);
+        online(st, poiLayer("online-poi-major", lte(toNumber(get("rank")), literal(15))), "poi", 15);
         online(st, new SymbolLayer("online-places", ONLINE).withFilter(match(get("class"), literal(false), stop("city", true), stop("town", true), stop("village", true), stop("suburb", true), stop("quarter", true), stop("neighbourhood", true), stop("hamlet", true)))
             .withProperties(textField(get("name")), textFont(FONT_BOLD), textTransform(Property.TEXT_TRANSFORM_UPPERCASE), textLetterSpacing(0.08f),
                 textSize(match(get("class"), literal(11f), stop("city", 15f), stop("town", 13.5f))), textMaxWidth(8f), textPadding(6f)), "place", 10);
@@ -122,13 +122,19 @@ final class MapStyle {
         st.addLayer(new SymbolLayer("puck", PUCK).withProperties(iconImage(get("icon")), iconRotate(get("bearing")), iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP), iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
             iconAllowOverlap(true), iconIgnorePlacement(false)));
 
-        st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false)); st.addImage("puck-ride", ridePuck(c)); st.addImage("puck-heading", headingPuck(c));
+        st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false)); st.addImage("puck-ride", ridePuck(c)); st.addImage("puck-heading", headingPuck(c)); st.addImage("puck-beam", beam(c)); st.addImage("puck-none", Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
         st.addImage("dest", dest(c)); st.addImage("drop", drop(c));
         st.addImage("poi-dot", poiDot(c), true);
         st.addImage("poi-other", poiBadge(c, 0, 0xFF8A949E));
         for (Object[] t : POI_TYPES) st.addImage("poi-" + t[0], poiBadge(c, (int)t[1], (int)t[2]));
     }
 
+    private static SymbolLayer poiLayer(String id, Expression rank) {
+        return new SymbolLayer(id, ONLINE).withFilter(all(has("name"), rank)).withProperties(
+            iconImage(poiIcon()), iconSize(interpolate(linear(), zoom(), stop(15, 0.8f), stop(18, 1.05f))),
+            textField(get("name")), textFont(FONT), textSize(interpolate(linear(), zoom(), stop(15, 10.5f), stop(18, 12.5f))),
+            textAnchor(Property.TEXT_ANCHOR_LEFT), textJustify(Property.TEXT_JUSTIFY_LEFT), textOffset(new Float[]{1.3f, 0f}), textMaxWidth(8f), textPadding(3f));
+    }
     private static void online(Style st, Layer layer, String sourceLayer, float minZoom) {
         if (layer instanceof FillLayer) ((FillLayer)layer).setSourceLayer(sourceLayer);
         else if (layer instanceof LineLayer) ((LineLayer)layer).setSourceLayer(sourceLayer);
@@ -173,9 +179,11 @@ final class MapStyle {
         line(st, "road-primary-case", n ? 0xFF0A1016 : 0xFFD6B26A, 1f);
         line(st, "road-primary", n ? 0xFF3E4C5C : 0xFFFFDE93, 1f);
         line(st, "route-done", n ? 0xFF5E6B78 : 0xFFA9B1B9, 0.55f);
-        line(st, "route-glow", p.accent, n ? 0.38f : 0.22f);
+        line(st, "route-glow", p.accent, n ? 0.38f : 0.22f); routeGlowOpacity = n ? 0.38f : 0.22f;
         line(st, "route-case", n ? 0xFF3B2804 : 0xFF8A5600, 1f);
         line(st, "route-line", n ? 0xFFFFB020 : 0xFFFFAA0F, 1f);
+        routeLine = n ? 0xFFFFB020 : 0xFFFFAA0F; routeCase = n ? 0xFF3B2804 : 0xFF8A5600; routeGlow = p.accent; routeDone = n ? 0x995E6B78 : 0x99A9B1B9;
+        routeProgress(st, progressFrom, progressTo);
         Layer pulse = st.getLayer("puck-pulse"); if (pulse != null) pulse.setProperties(circleColor(p.accent));
         Layer acc = st.getLayer("puck-accuracy"); if (acc != null) acc.setProperties(circleColor(p.accent), circleStrokeColor(p.accent));
         // Online detail, toned to sit under the Gabi roads and route.
@@ -185,7 +193,7 @@ final class MapStyle {
         line(st, "online-road-minor", n ? 0xFF1C2733 : 0xFFFFFFFF, 1f);
         line(st, "online-road-major", n ? 0xFF313E4C : 0xFFFFF1CC, 1f);
         text(st, "online-street-names", n ? 0xFF9AA8B6 : 0xFF5E6670, n ? 0xFF0E151C : 0xFFFFFFFF);
-        text(st, "online-poi", n ? 0xFFC9D3DC : 0xFF3A424B, n ? 0xFF0E151C : 0xFFFFFFFF);
+        text(st, "online-poi", n ? 0xFFC9D3DC : 0xFF3A424B, n ? 0xFF0E151C : 0xFFFFFFFF); text(st, "online-poi-major", n ? 0xFFDCE3EA : 0xFF2B323A, n ? 0xFF0E151C : 0xFFFFFFFF);
         text(st, "online-places", n ? 0xFFDCE3EA : 0xFF2B323A, n ? 0xFF0E151C : 0xFFF7F4EC);
     }
 
@@ -220,6 +228,40 @@ final class MapStyle {
         if (glyph > 0) { IconDrawable g = new IconDrawable(glyph, 0xFFFFFFFF).stroke(2.4f); int in = Math.round(5 * s); g.setBounds(in, in, size - in, size - in); g.draw(cv); }
         else { p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 3 * s, p); }
         return b;
+    }
+    // ---------------------------------------------------------------- route progress
+    // The route is handed to the map once. Revealing it (drawing in from the start) and greying out the part already
+    // ridden only change how the line is painted, a gradient along it, the way car navigation apps do it: no
+    // re-processing of the line's data on every frame, which is what made both stutter.
+    private static int routeLine = 0xFFFFB020, routeCase = 0xFF3B2804, routeGlow = 0xFFFFB020, routeDone = 0x995E6B78;
+    private static float progressFrom = 0, progressTo = 1;
+    /** Paint the route from {@code from} to {@code to} (fractions of its length); before {@code from} it shows as ridden, after {@code to} not at all. */
+    static void routeProgress(Style st, float from, float to) {
+        from = Math.max(0, Math.min(1, from)); to = Math.max(from, Math.min(1, to)); progressFrom = from; progressTo = to;
+        gradient(st, "route-line", routeDone, routeLine, from, to);
+        gradient(st, "route-case", 0, routeCase, from, to);
+        gradient(st, "route-glow", 0, routeGlow, from, to);
+    }
+    /**
+     * A new route fades in over 400 ms. MapLibre runs the fade itself (a style transition), with no work per frame on
+     * the app's side; changing the route's gradient frame by frame cost 100-300 ms a frame.
+     */
+    static void routeFadeIn(Style st, android.os.Handler ui) {
+        String[] ids = {"route-glow", "route-case", "route-line"}; float[] to = new float[ids.length];
+        for (int i = 0; i < ids.length; i++) { LineLayer l = (LineLayer)st.getLayer(ids[i]); if (l == null) return;
+            Float o = l.getLineOpacity().getValue(); to[i] = o == null || o <= 0 ? (i == 0 ? routeGlowOpacity : 1f) : o;
+            l.setLineOpacityTransition(new org.maplibre.android.style.layers.TransitionOptions(0, 0)); l.setProperties(lineOpacity(0f)); }
+        ui.postDelayed(() -> { for (int i = 0; i < ids.length; i++) { LineLayer l = (LineLayer)st.getLayer(ids[i]); if (l == null) continue;
+            l.setLineOpacityTransition(new org.maplibre.android.style.layers.TransitionOptions(400, 0)); l.setProperties(lineOpacity(to[i])); } }, 50);
+    }
+    private static float routeGlowOpacity = 0.22f;
+    private static void gradient(Style st, String id, int before, int color, float from, float to) {
+        Layer l = st.getLayer(id); if (l == null) return;
+        ArrayList<Expression.Stop> stops = new ArrayList<>();
+        if (from > 0.0005f) stops.add(stop(from, color(color)));
+        if (to < 0.9995f) stops.add(stop(Math.max(to, from + 0.0001f), color(0x00000000)));
+        if (stops.isEmpty()) stops.add(stop(1f, color(color)));
+        l.setProperties(lineGradient(step(lineProgress(), color(from > 0.0005f ? before : color), stops.toArray(new Expression.Stop[0]))));
     }
     private static void text(Style st, String id, int color, int halo) { Layer l = st.getLayer(id); if (l != null) l.setProperties(textColor(color), textHaloColor(halo), textHaloWidth(1.4f)); }
     private static void line(Style st, String id, int color, float opacity) { Layer l = st.getLayer(id); if (l != null) l.setProperties(lineColor(color), lineOpacity(opacity)); }
@@ -284,6 +326,14 @@ final class MapStyle {
         Path beam = new Path(); beam.moveTo(cx, cx); beam.arcTo(new android.graphics.RectF(cx - r, cx - r, cx + r, cx + r), -90 - 32, 64); beam.close(); cv.drawPath(beam, p); p.setShader(null);
         p.setShadowLayer(3 * s, 0, 1 * s, 0x55000000); p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 11 * s, p); p.clearShadowLayer();
         p.setColor(0xFFFFB020); cv.drawCircle(cx, cx, 8.5f * s, p);
+        return b;
+    }
+    /** The compass beam alone, pointing up; MapLibre's location puck turns it and draws the dot on top. */
+    static Bitmap beam(Context c) {
+        float s = d(c); int size = Math.round(84 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
+        float cx = size / 2f, r = 40 * s;
+        p.setShader(new android.graphics.RadialGradient(cx, cx, r, new int[]{0xAAFFB020, 0x55FFB020, 0x00FFB020}, new float[]{0.2f, 0.6f, 1f}, android.graphics.Shader.TileMode.CLAMP));
+        Path beam = new Path(); beam.moveTo(cx, cx); beam.arcTo(new android.graphics.RectF(cx - r, cx - r, cx + r, cx + r), -90 - 32, 64); beam.close(); cv.drawPath(beam, p);
         return b;
     }
     /** The navigation arrow during a ride: larger, so it reads at a glance on a handlebar mount. */
