@@ -94,7 +94,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // ================================================================ lifecycle
     public void onCreate(Bundle state) {
         super.onCreate(state);
-        s = NavSession.get(this); MapLibre.getInstance(this); here = new Here(this, s); rideMotion = new RideMotion(s);
+        s = NavSession.get(this); MapLibre.getInstance(this); here = new Here(this, s); heading = new Heading(this, s, d -> paintHeading()); rideMotion = new RideMotion(s);
         // Online map pieces stay on the phone after they are seen, so those places still show without signal.
         org.maplibre.android.offline.OfflineManager.getInstance(this).setMaximumAmbientCacheSize(MAP_CACHE_BYTES, null);
         theme = new Gabi.Themer(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)); k = new Gabi.Kit(this, theme);
@@ -157,7 +157,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
-        if (!s.active) here.start(); boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
+        if (!s.active) { here.start(); heading.start(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
         // Android shows one permission request at a time; the location answer starts auto-connect (onRequestPermissionsResult).
         refresh(); if (!asking) autoConnect();
     }
@@ -167,7 +167,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             getSharedPreferences("ui", 0).edit().putFloat("cam_lat", (float)c.target.getLatitude()).putFloat("cam_lon", (float)c.target.getLongitude()).putFloat("cam_zoom", (float)c.zoom).apply(); }
         mapView.onPause(); super.onPause();
     }
-    protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); heading.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); link.pauseSearch(); try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     protected void onDestroy() { ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
@@ -1204,7 +1204,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         }
         if (!riding && bikeMode) leaveBikeMode();
         // During a ride the ride service follows GPS; the map's own listener would only duplicate it.
-        if (riding) here.stop(); else if (started) here.start();
+        // During a ride the arrow follows the road; standing around, the dot's beam follows the phone's compass.
+        if (riding) { here.stop(); heading.stop(); } else if (started) { here.start(); heading.start(); }
         if (riding && !bikeMode) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (riding) armBikeMode();
         if (prev == Mode.RIDE && !riding && map != null) map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder(map.getCameraPosition()).tilt(0).bearing(0).zoom(14.5).padding(0, 0, 0, 0).build()), 900);
@@ -1321,6 +1322,20 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
 
     // ================================================================ puck & camera
+    private Heading heading;
+    /** The dot as drawn now: with the compass beam when the phone has a heading, else an arrow from the GPS direction, else a plain dot. */
+    private Feature puckFeature() {
+        Feature feature = MapStyle.point(shownLat, shownLon); float faces = heading.degrees();
+        boolean beam = !s.active && !Float.isNaN(faces), arrow = s.active || s.bearing != 0;
+        feature.addStringProperty("icon", beam ? "puck-heading" : arrow ? "puck-arrow" : "puck-dot"); feature.addNumberProperty("bearing", beam ? faces : shownBearing);
+        feature.addNumberProperty("r0", s.active || s.accuracy <= 15 || s.accuracy > 5000 ? 0 : MapStyle.accuracyAtZoom0(s.accuracy, shownLat));
+        return feature;
+    }
+    /** The phone turned: turn the beam (the dot's position animates separately with each fix). */
+    private void paintHeading() {
+        if (!haveShown || s.active || !layersReady || (puckAnim != null && puckAnim.isRunning())) return;
+        GeoJsonSource puck = src(MapStyle.PUCK); if (puck != null) puck.setGeoJson(puckFeature());
+    }
     private void paintPuck() {
         GeoJsonSource puck = src(MapStyle.PUCK); if (puck == null) return;
         boolean visible = s.fixAt > 0 || s.active;
@@ -1338,11 +1353,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         puckAnim.addUpdateListener(a -> {
             float f = (float)a.getAnimatedValue();
             shownLat = fromLat + (toLat - fromLat) * f; shownLon = fromLon + (toLon - fromLon) * f; shownBearing = (fromBearing + turn * f + 360) % 360;
-            Feature feature = MapStyle.point(shownLat, shownLon);
-            boolean arrow = s.active || s.bearing != 0;
-            feature.addStringProperty("icon", arrow ? "puck-arrow" : "puck-dot"); feature.addNumberProperty("bearing", shownBearing);
-            feature.addNumberProperty("r0", s.active || s.accuracy <= 15 || s.accuracy > 5000 ? 0 : MapStyle.accuracyAtZoom0(s.accuracy, shownLat));
-            puck.setGeoJson(feature);
+            puck.setGeoJson(puckFeature());
             if (mode == Mode.RIDE && follow) follow();
         });
         puckAnim.start();

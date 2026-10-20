@@ -122,7 +122,7 @@ final class MapStyle {
         st.addLayer(new SymbolLayer("puck", PUCK).withProperties(iconImage(get("icon")), iconRotate(get("bearing")), iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP), iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
             iconAllowOverlap(true), iconIgnorePlacement(false)));
 
-        st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false)); st.addImage("puck-ride", ridePuck(c));
+        st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false)); st.addImage("puck-ride", ridePuck(c)); st.addImage("puck-heading", headingPuck(c));
         st.addImage("dest", dest(c)); st.addImage("drop", drop(c));
         st.addImage("poi-dot", poiDot(c), true);
     }
@@ -245,6 +245,16 @@ final class MapStyle {
             Path a = new Path(); a.moveTo(cx, cx - 5.5f * s); a.lineTo(cx + 4.2f * s, cx + 4.5f * s); a.lineTo(cx, cx + 2.2f * s); a.lineTo(cx - 4.2f * s, cx + 4.5f * s); a.close();
             p.setColor(0xFF1A1203); cv.drawPath(a, p);
         }
+        return b;
+    }
+    /** The dot with a beam showing which way the phone faces (from its compass), like Google Maps' blue dot. Drawn pointing up; the map turns it. */
+    static Bitmap headingPuck(Context c) {
+        float s = d(c); int size = Math.round(84 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
+        float cx = size / 2f, r = 40 * s;
+        p.setShader(new android.graphics.RadialGradient(cx, cx, r, new int[]{0xAAFFB020, 0x55FFB020, 0x00FFB020}, new float[]{0.2f, 0.6f, 1f}, android.graphics.Shader.TileMode.CLAMP));
+        Path beam = new Path(); beam.moveTo(cx, cx); beam.arcTo(new android.graphics.RectF(cx - r, cx - r, cx + r, cx + r), -90 - 32, 64); beam.close(); cv.drawPath(beam, p); p.setShader(null);
+        p.setShadowLayer(3 * s, 0, 1 * s, 0x55000000); p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 11 * s, p); p.clearShadowLayer();
+        p.setColor(0xFFFFB020); cv.drawCircle(cx, cx, 8.5f * s, p);
         return b;
     }
     /** The navigation arrow during a ride: larger, so it reads at a glance on a handlebar mount. */
