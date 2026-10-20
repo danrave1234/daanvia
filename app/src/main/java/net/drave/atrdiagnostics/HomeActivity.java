@@ -753,7 +753,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 String sub = parent[n] != -1 ? "Part of " + index.names[hits[parent[n]]] : near.isEmpty() ? around : (around == null ? "" : around + " \u00b7 ") + near.size() + " parking nearby";
                 shownNames.add(name); shownSpots.add(new double[]{la, lo});
                 results.addView(k.listRow(IconDrawable.PIN, highlight(label, q), sub, Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> choose(la, lo, label)));
-                addLots(results, near, label, la, lo, 3);
+                addLots(results, near, name, la, lo, 3);
             }
             // Places found online before: still here without signal.
             for (PlaceCache.Entry e : kept) {

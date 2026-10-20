@@ -14,5 +14,8 @@ public class BranchesTest {
         assertEquals("Jollibee",Branches.label("Jollibee",10.3,123.9,new RoadTiles.Index(),TOWNS));}
     @Test public void indexCountsBranchesOfAChain(){
         SearchIndex idx=new SearchIndex(Arrays.asList("Jollibee","Jollibee","SM City Cebu"),new double[]{14.55,14.58,10.31},new double[]{121.02,121.05,123.91});
-        assertEquals(2,idx.copies("jollibee"));assertEquals(1,idx.copies("SM City Cebu"));}
+        assertEquals(2,idx.copies("jollibee"));assertEquals(1,idx.copies("SM City Cebu"));
+        // the same mall mapped twice, 300 m apart, is one place, not a chain
+        SearchIndex mall=new SearchIndex(Arrays.asList("Glorietta","Glorietta"),new double[]{14.5510,14.5537},new double[]{121.0245,121.0245});
+        assertEquals(1,mall.copies("Glorietta"));}
 }

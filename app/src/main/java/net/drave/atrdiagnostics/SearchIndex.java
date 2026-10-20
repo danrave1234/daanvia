@@ -11,7 +11,7 @@ import java.util.*;
  */
 public final class SearchIndex {
     public final String[] names; public final double[] lat, lon; private final String[] folded;
-    static final double NEAR_METERS = 2000, SAME_PLACE_METERS = 150;
+    static final double NEAR_METERS = 2000, SAME_PLACE_METERS = 150, CHAIN_METERS = 1000;
 
     /** A result: an index into {@link #names}, and for "place in area" matches the area it was found near. */
     public static final class Hit { public final int i; public final String near; Hit(int i, String near) { this.i = i; this.near = near; } }
@@ -26,11 +26,18 @@ public final class SearchIndex {
             same.add(i); order.add(i);
         }
         int n = order.size(); this.names = new String[n]; this.lat = new double[n]; this.lon = new double[n]; this.folded = new String[n];
-        for (int k = 0; k < n; k++) { int i = order.get(k); this.names[k] = names.get(i); this.lat[k] = lat[i]; this.lon[k] = lon[i]; this.folded[k] = fold(names.get(i)); copies.merge(this.folded[k], 1, Integer::sum); }
+        for (int k = 0; k < n; k++) { int i = order.get(k); this.names[k] = names.get(i); this.lat[k] = lat[i]; this.lon[k] = lon[i]; this.folded[k] = fold(names.get(i)); }
+        // A chain has branches across town; a mall mapped twice (its building and a point inside) is still one place.
+        HashMap<String, List<Integer>> spots = new HashMap<>();
+        for (int k = 0; k < n; k++) {
+            List<Integer> seen = spots.computeIfAbsent(this.folded[k], x -> new ArrayList<>()); boolean near = false;
+            for (int j : seen) if (GeoMath.distance(this.lat[j], this.lon[j], this.lat[k], this.lon[k]) < CHAIN_METERS) { near = true; break; }
+            if (!near) { seen.add(k); copies.merge(this.folded[k], 1, Integer::sum); }
+        }
     }
 
     private final HashMap<String, Integer> copies = new HashMap<>();
-    /** How many places in the area have this name: more than one means a chain whose branches need telling apart (see Branches). */
+    /** How many places at least 1 km apart have this name: more than one means a chain whose branches need telling apart (see Branches). */
     public int copies(String name) { Integer n = copies.get(fold(name)); return n == null ? 0 : n; }
 
     public static String fold(String s) {
