@@ -51,10 +51,13 @@ class Pack:
         return any(not (box[2] < a[0] or box[0] > a[2] or box[3] < a[1] or box[1] > a[3]) for a in self.areas)
     def place(self, name, lon, lat, poi=False):
         # one entry per name per ~2 km cell for roads (segments repeat names); per ~50 m for shops, so every branch stays
+        if not any(ch.isalpha() for ch in name): return  # house or stall numbers ("5", "12-A")
         key = (name, round(lat * 2000), round(lon * 2000)) if poi else (name, round(lat * 50), round(lon * 50))
         if key in self.seen_places: return
         self.seen_places.add(key); self.write('places.json', {'name': name, 'lon': r6(lon), 'lat': r6(lat)})
 
+# Only shops, amenities (parking too) and tourism are branches; railways, rivers and other named lines repeat per segment.
+def is_poi(t): return 'highway' not in t and any(k in t for k in ('amenity', 'shop', 'tourism'))
 def branch_name(t):
     """OSM names most chain branches just "Jollibee" and puts the branch in branch=: "Jollibee Vito Cruz", like Google Maps."""
     name, branch = t['name'].strip(), t.get('branch', '').strip()
@@ -104,7 +107,7 @@ for o in fp:
                 n = p.write('roads.geojson', {'type': 'Feature', 'properties': {'name': t.get('name', ''), 'kind': hw}, 'geometry': {'type': 'LineString', 'coordinates': [[r6(x), r6(y)] for x, y in pts]}})
                 p.kind_bytes[hw] = p.kind_bytes.get(hw, 0) + n
             if park: p.parking.append(parking_record(str(o.id), sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts), t))
-            if t.get('name') and (hw or park or 'natural' not in t): p.place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=not hw)
+            if t.get('name') and (hw or park or 'natural' not in t): p.place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=is_poi(t))
     elif o.is_area():
         water, green = WATER(t), (not WATER(t)) and GREEN(t)
         if not (water or green): continue

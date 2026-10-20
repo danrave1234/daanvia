@@ -47,9 +47,12 @@ class Cell:
     def place(self, name, lon, lat, poi=False):
         # Streets repeat their name segment after segment: one entry per name per ~2 km. Shops and restaurants are each
         # their own place (a chain has many branches close together): one per name per ~50 m.
+        if not any(ch.isalpha() for ch in name): return  # house or stall numbers ("5", "12-A")
         key = (name, round(lat * 2000), round(lon * 2000)) if poi else (name, round(lat * 50), round(lon * 50))
         if key not in self.seen: self.seen.add(key); self.places.append(js({'name': name, 'lon': r6(lon), 'lat': r6(lat)}))
 cells = {}
+# Only shops, amenities (parking too) and tourism are branches; railways, rivers and other named lines repeat per segment.
+def is_poi(t): return 'highway' not in t and any(k in t for k in ('amenity', 'shop', 'tourism'))
 js = lambda x: json.dumps(x, separators=(',', ':'), ensure_ascii=False)  # cells keep serialized records to stay small in RAM
 def branch_name(t):
     """OSM names most chain branches just "Jollibee" and puts the branch in branch=: "Jollibee Vito Cruz", like Google Maps."""
@@ -92,7 +95,7 @@ for o in fp:
         if park:
             cx, cy = sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts); k = cell(cx, cy)
             k.parking.append((t.get('access', 'unknown'), js(parking_record(str(o.id), cx, cy, t)))); k.lots.append(js(record('w%d' % o.id, cx, cy, t)))
-        if t.get('name') and (hw or park or 'natural' not in t): cell(*pts[len(pts) // 2]).place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=not hw)
+        if t.get('name') and (hw or park or 'natural' not in t): cell(*pts[len(pts) // 2]).place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=is_poi(t))
     elif o.is_area():
         if not (t.get('natural') == 'water' or t.get('waterway') == 'riverbank' or t.get('landuse') in ('reservoir', 'basin')): continue
         try: polys = [[[[r6(n.lon), r6(n.lat)] for n in outer]] + [[[r6(n.lon), r6(n.lat)] for n in inner] for inner in o.inner_rings(outer)] for outer in o.outer_rings()]
