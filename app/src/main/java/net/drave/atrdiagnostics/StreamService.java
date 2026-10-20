@@ -138,6 +138,11 @@ public final class StreamService extends Service {
             if(f.command==0x10000||f.command==0x20000||f.command==0x10690||f.command==0x70000000)out.write(Pxc.encode(f.command+1,""));
             else if(f.command==Pxc.CLIENT_INFO) {
                 JSONObject bike=new JSONObject(f.text());String huid=bike.optString("HUID",bike.optString("huid",""));
+                // The bike's own screen: its panel pixels and the video size it shows, so the scene can be drawn for it.
+                int pw=bike.optInt("screenWidth",0),ph=bike.optInt("screenHeight",0),vw=bike.optInt("width",0),vh=bike.optInt("height",0);
+                if(pw<=0||ph<=0){pw=vw;ph=vh;}
+                NavSession.get(this).screenReport(pw,ph,vw,vh,0,bike.optString("screenType",bike.optString("productType","")));
+                log("Dashboard screen: panel "+pw+"x"+ph+", video "+vw+"x"+vh+", type "+bike.optString("screenType","?")+".");
                 if(huid.isEmpty()||huid.getBytes(StandardCharsets.UTF_8).length>100)throw new IOException("Missing or unsupported dashboard identity field");
                 Cipher rsa=Cipher.getInstance("RSA/ECB/PKCS1Padding");rsa.init(Cipher.ENCRYPT_MODE,identity.getPrivate());
                 String signed=Base64.encodeToString(rsa.doFinal(huid.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
@@ -171,6 +176,8 @@ public final class StreamService extends Service {
                     synchronized(encoderLock) {
                         if(encoder==null) {
                             width=cfg[0];height=cfg[1];encoder=new VideoEncoder(this::log);
+                            NavSession nav=NavSession.get(this);nav.screenReport(0,0,width,height,0,null);
+                            encoder.pace(nav.bikeFps,rate->{nav.screenReport(0,0,0,0,rate,null);log("Bike pulls about "+rate+" frames a second; drawing at that rate.");});
                             if("navigation".equals(mode))encoder.setNavigation(NavSession.get(this));
                             try{encoder.start(width,height,projection,getResources().getConfiguration().densityDpi);}
                             catch(Exception e){encoder.close();encoder=null;throw e;}

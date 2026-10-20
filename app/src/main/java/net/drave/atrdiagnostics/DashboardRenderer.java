@@ -66,7 +66,17 @@ public final class DashboardRenderer {
     /** The visible part of a w×h display after the safe insets, in display pixels. */
     public RectF scene(int w, int h) { double[] r = GeoMath.safeRect(w, h, s.insetLeft, s.insetTop, s.insetRight, s.insetBottom); return new RectF((float)r[0], (float)r[1], (float)r[2], (float)r[3]); }
 
+    /**
+     * The bike scales the video to fill its panel. When the panel's shape differs from the video's (a 1280×480 panel fed
+     * 800×480 video, say), everything would come out stretched, so the scene is drawn for the panel's shape and squeezed
+     * into the video by the same amount the bike will stretch it back.
+     */
     public void draw(Canvas target, int w, int h) {
+        float pa = s.panelAspect(), k = pa > 0 ? pa / ((float)w / h) : 1;
+        if (Math.abs(k - 1) < 0.03f) { scene(target, w, h); return; }
+        target.save(); target.scale(1 / k, 1); scene(target, Math.round(w * k), h); target.restore();
+    }
+    private void scene(Canvas target, int w, int h) {
         fonts(); palette();
         target.drawColor(Color.BLACK);
         RectF r = scene(w, h); float width = r.width(), height = r.height();

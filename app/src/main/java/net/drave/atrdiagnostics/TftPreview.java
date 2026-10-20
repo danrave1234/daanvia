@@ -9,8 +9,9 @@ public final class TftPreview extends View {
     private final DashboardRenderer renderer; private final Path clip = new Path(); private final float radius;
     private final NavSession s;
     public TftPreview(Context c, NavSession s) { super(c); this.s = s; renderer = new DashboardRenderer(s); radius = Gabi.dp(c, 14); }
-    protected void onMeasure(int w, int h) { int width = MeasureSpec.getSize(w); setMeasuredDimension(width, Math.round(width * 0.6f)); }
+    /** The bike's panel shape once a bike has connected (5:3 before that), so the preview looks like the real display. */
+    protected void onMeasure(int w, int h) { int width = MeasureSpec.getSize(w); float a = s.panelW > 0 && s.panelH > 0 ? (float)s.panelW / s.panelH : 5f / 3f; setMeasuredDimension(width, Math.round(width / Math.max(0.5f, Math.min(4f, a)))); }
     protected void onSizeChanged(int w, int h, int ow, int oh) { clip.reset(); clip.addRoundRect(0, 0, w, h, radius, radius, Path.Direction.CW); }
-    /** During a ride it keeps drawing at the bike display's 15 frames a second, so the preview moves as smoothly as the TFT. */
-    protected void onDraw(Canvas c) { c.save(); c.clipPath(clip); renderer.draw(c, getWidth(), getHeight()); c.restore(); if (s.active && isShown()) postInvalidateDelayed(66); }
+    /** During a ride it keeps drawing at the bike display's rate (up to 30 frames a second), so it moves like the TFT. */
+    protected void onDraw(Canvas c) { c.save(); c.clipPath(clip); renderer.draw(c, getWidth(), getHeight()); c.restore(); if (s.active && isShown()) postInvalidateDelayed(1000 / Math.max(15, Math.min(30, s.bikeFps > 0 ? s.bikeFps : 30))); }
 }

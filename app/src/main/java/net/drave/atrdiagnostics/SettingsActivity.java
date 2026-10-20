@@ -75,6 +75,14 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         tftHead.addView(k.info("This is what Daanvia sends to your bike’s screen. It updates live, but it’s drawn here on the phone, so colors may look a little different on the bike."));
         tft.addView(tftHead);
         preview = new TftPreview(this, s); tft.addView(preview, new LinearLayout.LayoutParams(-1, -2));
+        // What the bike reported about its screen when it last connected (see NavSession.screenReport).
+        screenText = k.text("", 13, 500, MUTED); screenText.setPadding(0, k.dp(10), 0, 0); tft.addView(screenText);
+        shapeRow = k.column(6);
+        shapeRow.addView(k.text("Match the bike's screen shape", 15, 650, INK));
+        boolean shape = getSharedPreferences("ui", 0).getBoolean("matchshape", true);
+        shapeRow.addView(k.segmented(new String[]{"On", "Off"}, shape ? 0 : 1, i -> { getSharedPreferences("ui", 0).edit().putBoolean("matchshape", i == 0).apply(); s.signal(); }));
+        shapeRow.addView(k.text("This bike's panel is a different shape from the video it asks for. On, Daanvia draws for the panel so nothing looks stretched. Turn it off if the display looks squeezed.", 13, 500, MUTED));
+        tft.addView(shapeRow);
         TextView layoutBtn = k.primary("Edit display layout", () -> { if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then edit the layout while parked.", android.widget.Toast.LENGTH_SHORT).show(); return; } startActivity(new Intent(this, TftLayoutActivity.class)); });
         tft.addView(layoutBtn);
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
@@ -143,7 +151,20 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     protected void onDestroy() { if (fitting) cancelFit(); progressAnim.cancel(); link.detach(this); super.onDestroy(); }
     public void finish() { super.finish(); overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out); }
 
+    private TextView screenText; private LinearLayout shapeRow;
+    private void paintScreen() {
+        if (screenText == null) return;
+        if (s.panelW <= 0) { screenText.setText("Connect to your bike once and Daanvia learns its screen size and frame rate, and draws for them."); shapeRow.setVisibility(View.GONE); return; }
+        StringBuilder b = new StringBuilder("Bike screen ").append(s.panelW).append(" × ").append(s.panelH);
+        if (s.videoW > 0 && (s.videoW != s.panelW || s.videoH != s.panelH)) b.append(" · video ").append(s.videoW).append(" × ").append(s.videoH);
+        if (s.bikeFps > 0) b.append(" · ").append(s.bikeFps).append(" frames a second");
+        if (!s.screenType.isEmpty()) b.append(" · ").append(s.screenType);
+        screenText.setText(b);
+        boolean differs = s.videoW > 0 && Math.abs((float)s.panelW / s.panelH - (float)s.videoW / s.videoH) > 0.03f;
+        shapeRow.setVisibility(differs ? View.VISIBLE : View.GONE);
+    }
     private void paint() {
+        paintScreen();
         if (link == null) return;
         boolean ready = link.profileReady(), live = StreamService.navigationActive, busy = link.searching();
         modelText.setText(ready ? (link.model() == null || link.model().isEmpty() ? "Saved bike" : link.model()) : "No bike saved yet");

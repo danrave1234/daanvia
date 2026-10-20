@@ -285,7 +285,21 @@ public final class NavSession {
         JSONArray saved=new JSONArray(context.getSharedPreferences("parking-local",0).getString("records","[]"));saved.put(lot);context.getSharedPreferences("parking-local",0).edit().putString("records",saved.toString()).apply();parking.put(lot);refreshParking();signal();
     }
     private String fitStore(){String raw=context.getSharedPreferences("saved-bike",0).getString("qr","");try{QrProfile p=QrProfile.parse(raw);return "display-fit-"+Integer.toHexString((p.mac+"/"+p.ssid+"/"+p.model).hashCode());}catch(Exception e){return "display-fit-generic";}}
-    public void loadFit(){android.content.SharedPreferences p=context.getSharedPreferences(fitStore(),0);insetLeft=p.getFloat("left",0);insetTop=p.getFloat("top",0);insetRight=p.getFloat("right",0);insetBottom=p.getFloat("bottom",0);textScale=p.getFloat("text",1);layout=p.getString("layout","Map focus");cards(p.getString("cards",""));}
+    /**
+     * What the bike told us about its screen, kept per bike: the panel's own pixels (CLIENT_INFO screenWidth/Height), the
+     * video size it asks for, the frame rate it actually pulls, and its screen type. 0 / "" until a bike has connected.
+     */
+    public volatile int panelW,panelH,videoW,videoH,bikeFps;public volatile String screenType="";
+    /** The panel's width÷height when it differs from the video's and correcting it is on; 0 to draw the video as it is. */
+    public float panelAspect(){return panelW>0&&panelH>0&&context.getSharedPreferences("ui",0).getBoolean("matchshape",true)?(float)panelW/panelH:0;}
+    /** Record what the bike reported (values ≤ 0 or null leave what is known). */
+    public void screenReport(int pw,int ph,int vw,int vh,int fps,String type){
+        if(pw>0&&ph>0){panelW=pw;panelH=ph;}if(vw>0&&vh>0){videoW=vw;videoH=vh;}if(fps>0)bikeFps=fps;if(type!=null&&!type.isEmpty())screenType=type;
+        context.getSharedPreferences(fitStore(),0).edit().putString("screen",panelW+","+panelH+","+videoW+","+videoH+","+bikeFps+","+screenType.replace(",",";")).apply();signal();}
+    private void loadScreen(android.content.SharedPreferences p){panelW=panelH=videoW=videoH=bikeFps=0;screenType="";
+        String[] v=p.getString("screen","").split(",",-1);if(v.length<6)return;
+        try{panelW=Integer.parseInt(v[0]);panelH=Integer.parseInt(v[1]);videoW=Integer.parseInt(v[2]);videoH=Integer.parseInt(v[3]);bikeFps=Integer.parseInt(v[4]);screenType=v[5];}catch(NumberFormatException ignored){}}
+    public void loadFit(){android.content.SharedPreferences p=context.getSharedPreferences(fitStore(),0);insetLeft=p.getFloat("left",0);insetTop=p.getFloat("top",0);insetRight=p.getFloat("right",0);insetBottom=p.getFloat("bottom",0);textScale=p.getFloat("text",1);layout=p.getString("layout","Map focus");cards(p.getString("cards",""));loadScreen(p);}
     public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).putString("cards",cards(turnCard,tripCard,arrowX,arrowY)).apply();signal();}
     public String routeJson(){try{JSONArray points=new JSONArray();for(double[] p:shape)points.put(new JSONArray().put(p[1]).put(p[0]));return new JSONObject().put("type","Feature").put("properties",new JSONObject()).put("geometry",new JSONObject().put("type","LineString").put("coordinates",points)).toString();}catch(Exception e){return "{\"type\":\"FeatureCollection\",\"features\":[]}";}}
 }
