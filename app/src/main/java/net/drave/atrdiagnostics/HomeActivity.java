@@ -203,11 +203,14 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         map.addOnMapClickListener(p -> { if (mode == Mode.PIN) { go(Mode.EXPLORE); return true; } return false; });
         map.addOnCameraMoveListener(this::paintCompass);
         map.addOnCameraMoveListener(() -> { if (mode == Mode.SELECT) { ui.removeCallbacks(reselect); ui.postDelayed(reselect, 90); } });
+        map.addOnCameraIdleListener(() -> { if (dragging) { dragging = false; paintHeading(); } });
         map.addOnCameraIdleListener(() -> {
-            updateNearRoads();
+            // Streets for the new view load a moment after the map settles, not between quick swipes (each load costs a frame).
+            ui.removeCallbacks(nearRoadsLater); ui.postDelayed(nearRoadsLater, 300);
             if (mode == Mode.SELECT) { reselect.run(); return; }
             if (mode == Mode.EXPLORE || mode == Mode.PIN) { LatLng t = map.getCameraPosition().target; s.showAt(t.getLatitude(), t.getLongitude()); }
         });
+        map.addOnCameraMoveStartedListener(reason -> { if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) { dragging = true; ui.removeCallbacks(nearRoadsLater); } });
         map.addOnCameraMoveStartedListener(reason -> {
             if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) { userMovedMap = true; centerOnFix = false; }
             if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE && mode == Mode.RIDE && follow) { follow = false; paintLocateFab(); }
@@ -467,7 +470,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         go(Mode.SELECT);
         centerSelect(at);
         catalog = AreaStore.cached(this); reselect.run();
-        worker.execute(() -> {
+        net.execute(() -> {
             try { AreaStore.Catalog c = AreaStore.fetch(this); ui.post(() -> { catalog = c; catalogError = null; reselect.run(); }); }
             catch (Exception e) { boolean missing = e.getMessage() != null && e.getMessage().contains("isn’t available"); ui.post(() -> { catalogError = missing ? "Maps aren’t available to download yet." : "Connect to the internet to download a map."; if (catalog.cells.isEmpty() && mode == Mode.SELECT) { selKm.setText(missing ? "Maps aren’t available to download yet." : "Connect to the internet to download a map."); selSize.setText("After that, Daanvia works without signal."); selBtn.setText("Try again"); selBtn.setAlpha(1f); selBtn.setOnClickListener(v -> openSelect(null)); } }); }
         });
@@ -1323,6 +1326,12 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     // ================================================================ puck & camera
     private Heading heading;
+    /**
+     * A finger is moving the map. Every change to the dot's data makes the map re-process it, and doing that 20 times a
+     * second while panning made the map skip; so the compass beam waits and fixes jump the dot in one step until the map stops.
+     */
+    private boolean dragging;
+    private final Runnable nearRoadsLater = this::updateNearRoads;
     /** The dot as drawn now: with the compass beam when the phone has a heading, else an arrow from the GPS direction, else a plain dot. */
     private Feature puckFeature() {
         Feature feature = MapStyle.point(shownLat, shownLon); float faces = heading.degrees();
@@ -1333,7 +1342,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     /** The phone turned: turn the beam (the dot's position animates separately with each fix). */
     private void paintHeading() {
-        if (!haveShown || s.active || !layersReady || (puckAnim != null && puckAnim.isRunning())) return;
+        if (dragging || !haveShown || s.active || !layersReady || (puckAnim != null && puckAnim.isRunning())) return;
         GeoJsonSource puck = src(MapStyle.PUCK); if (puck != null) puck.setGeoJson(puckFeature());
     }
     private void paintPuck() {
@@ -1349,6 +1358,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         float turn = ((toBearing - fromBearing + 540) % 360) - 180;
         if (GeoMath.distance(fromLat, fromLon, toLat, toLon) < 0.5 && Math.abs(turn) < 1 && haveShown && puckAnim != null) return;
         if (puckAnim != null) puckAnim.cancel();
+        if (dragging) { shownLat = toLat; shownLon = toLon; shownBearing = toBearing; puck.setGeoJson(puckFeature()); return; }
         puckAnim = ValueAnimator.ofFloat(0, 1); puckAnim.setDuration(mode == Mode.RIDE ? 950 : 600); puckAnim.setInterpolator(new LinearInterpolator());
         puckAnim.addUpdateListener(a -> {
             float f = (float)a.getAnimatedValue();

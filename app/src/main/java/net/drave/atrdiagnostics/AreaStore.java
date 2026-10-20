@@ -167,14 +167,20 @@ public final class AreaStore {
     private static void post(State s) { state = s; main().post(() -> { List<Listener> copy; synchronized (listeners) { copy = new ArrayList<>(listeners); } for (Listener l : copy) l.onArea(s); }); }
 
     /** Download the selection as a new area, or (with {@code replace}) refresh an existing one. One at a time. */
-    public static synchronized void download(Context context, Catalog cat, List<Cell> cells, String name, double[] home, Area replace) {
+    public static synchronized void download(Context context, Catalog chosen, List<Cell> chosenCells, String name, double[] home, Area replace) {
         if (state != null && state.running) return;
         Context c = context.getApplicationContext(); cancel.set(false);
-        LinkedHashSet<String> needs = new LinkedHashSet<>(); long total = 0;
-        for (Cell x : cells) { total += x.bytes; needs.addAll(Arrays.asList(x.needs)); }
-        for (String n : needs) { Base b = cat.base.get(n); if (b != null) total += b.bytes; }
-        long all = total; post(new State(name, 0, all, true, false, null));
+        post(new State(name, 0, 1, true, false, null));
         new Thread(() -> {
+            // The squares may have been picked from the index saved on the phone. If the maps were rebuilt since, its
+            // files no longer match their checksums ("damaged"): download by the current index, square by square.
+            Catalog cat = chosen; List<Cell> cells = chosenCells;
+            try { Catalog fresh = fetch(c); if (!fresh.built.equals(chosen.built)) { cat = fresh; cells = same(fresh, chosenCells); } } catch (Exception ignored) {}
+            if (cells.isEmpty()) { post(new State(name, 0, 1, false, false, "The maps were just updated. Choose your area again.")); return; }
+            LinkedHashSet<String> needs = new LinkedHashSet<>(); long total = 0;
+            for (Cell x : cells) { total += x.bytes; needs.addAll(Arrays.asList(x.needs)); }
+            for (String n : needs) { Base b = cat.base.get(n); if (b != null) total += b.bytes; }
+            long all = total; post(new State(name, 0, all, true, false, null));
             String id = replace != null ? replace.id : "area-" + System.currentTimeMillis();
             File tmp = new File(root(c), id + ".building"), target = new File(root(c), id), cache = new File(c.getCacheDir(), "area-download");
             long[] done = {0}; Merger merge = null;
@@ -298,6 +304,16 @@ public final class AreaStore {
     }
     static String readAll(InputStream in) throws IOException { ByteArrayOutputStream o = new ByteArrayOutputStream(); byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) o.write(b, 0, n); return o.toString("UTF-8"); }
     public static long diskBytes(File f) { if (f.isFile()) return f.length(); long s = 0; File[] k = f.listFiles(); if (k != null) for (File x : k) s += diskBytes(x); return s; }
+    /** The squares of {@code picked} in a newer index: the same ids, or the quarters a busy square was split into. */
+    static List<Cell> same(Catalog fresh, List<Cell> picked) {
+        ArrayList<Cell> out = new ArrayList<>();
+        for (Cell p : picked) {
+            boolean found = false; for (Cell f : fresh.cells) if (f.id.equals(p.id)) { out.add(f); found = true; break; }
+            if (!found) for (Cell f : fresh.cells) { double lon = (f.box[0] + f.box[2]) / 2, lat = (f.box[1] + f.box[3]) / 2;
+                if (lon >= p.box[0] && lon <= p.box[2] && lat >= p.box[1] && lat <= p.box[3] && !out.contains(f)) out.add(f); }
+        }
+        return out;
+    }
     private static void cancelled() throws IOException { if (cancel.get()) throw new IOException("Download cancelled"); }
     public static void delete(File f) { File[] k = f.listFiles(); if (k != null) for (File x : k) delete(x); f.delete(); }
     private static String hex(byte[] d) { StringBuilder s = new StringBuilder(); for (byte x : d) s.append(String.format(Locale.US, "%02x", x)); return s.toString(); }

@@ -53,9 +53,9 @@ final class Heading implements SensorEventListener {
         if (Math.abs(s.lat - declAt) > 0.5) { declAt = s.lat; declination = new GeomagneticField((float)s.lat, (float)s.lon, 0, System.currentTimeMillis()).getDeclination(); }
         float deg = (float)((Math.toDegrees(angles[0]) + declination + 360) % 360);
         smooth = Float.isNaN(smooth) ? deg : (smooth + turn(smooth, deg) * 0.25f + 360) % 360;
-        // Redraw only when it has turned enough to see, at most 20 times a second.
+        // Redraw only when it has turned enough to see, at most 10 times a second.
         long now = android.os.SystemClock.uptimeMillis();
-        if (Float.isNaN(sent) || Math.abs(turn(sent, smooth)) >= 2 && now - sentAt >= 50) { sent = smooth; sentAt = now; sink.heading(smooth); }
+        if (Float.isNaN(sent) || Math.abs(turn(sent, smooth)) >= 3 && now - sentAt >= 100) { sent = smooth; sentAt = now; sink.heading(smooth); }
     }
     public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
