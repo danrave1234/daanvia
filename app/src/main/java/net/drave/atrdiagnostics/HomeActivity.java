@@ -157,7 +157,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
-        if (!s.active) { here.start(); heading.start(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
+        if (!s.active) { here.start(); heading.start(); checkMapUpdates(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
         // Android shows one permission request at a time; the location answer starts auto-connect (onRequestPermissionsResult).
         refresh(); if (!asking) autoConnect();
     }
@@ -1523,6 +1523,29 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         super.onActivityResult(code, result, data);
         if (code == 74 && result == RESULT_OK) { here.stop(); here.start(); centerOnFix = true; }
         if (code == 75) { if (result == RESULT_OK && data != null) { link.mirror(data); notice("Putting your screen on the bike display…"); } else notice("Screen sharing cancelled"); }
+    }
+    /**
+     * When a newer map is published, offer to update the downloaded areas, so search, roads and parking stay current
+     * without a trip to Settings. Checked at most every 6 hours, never during a ride or a download.
+     */
+    private void checkMapUpdates() {
+        android.content.SharedPreferences p = getSharedPreferences("areas", 0);
+        if (System.currentTimeMillis() - p.getLong("update_checked", 0) < 6 * 3600_000L) return;
+        AreaStore.State st = AreaStore.state(); if (st != null && st.running) return;
+        net.execute(() -> {
+            AreaStore.Catalog cat; try { cat = AreaStore.fetch(this); } catch (Exception e) { return; }
+            p.edit().putLong("update_checked", System.currentTimeMillis()).apply();
+            AreaStore.Area old = null; for (AreaStore.Area a : AreaStore.installed(this)) if (a.outdated(cat)) { old = a; break; }
+            AreaStore.Area area = old; if (area == null) return;
+            ui.post(() -> {
+                if (isDestroyed() || s.active) return;
+                notice("New map data for " + area.name, "Update", () -> {
+                    AreaStore.State now = AreaStore.state();
+                    if (s.active || now != null && now.running) { notice("Finish the ride or download first"); return; }
+                    if (AreaStore.update(this, cat, area)) notice("Updating " + area.name + "…"); else notice("This area changed. Remove it in Settings › Maps and download it again.");
+                }, 15000);
+            });
+        });
     }
     /** Ask for location the first time the app opens, so the map can show where the rider is. */
     private boolean askLocationOnce() {

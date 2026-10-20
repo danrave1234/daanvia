@@ -82,6 +82,25 @@ public final class AreaStore {
         String json = new String(get(base(c) + "areas-index.json", null, null, null), StandardCharsets.UTF_8);
         Catalog cat = parse(json); c.getSharedPreferences("areas", 0).edit().putString("index", json).apply(); return cat;
     }
+    /**
+     * The squares that make up an installed area in a newer map. A busy square can be split into quarters in a newer
+     * build, so when some of the area's squares are gone, every square that now lies inside its old ones is taken.
+     */
+    public static List<Cell> updateCells(Catalog cat, Area a) {
+        ArrayList<Cell> cells = new ArrayList<>(); boolean all = true;
+        for (String id : a.cells) { boolean found = false; for (Cell c : cat.cells) if (c.id.equals(id)) { cells.add(c); found = true; } all &= found; }
+        if (!all) {
+            cells.clear();
+            for (Cell c : cat.cells) { double lon = (c.box[0] + c.box[2]) / 2, lat = (c.box[1] + c.box[3]) / 2;
+                for (double[] b : a.boxes) if (lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3]) { cells.add(c); break; } }
+        }
+        return cells;
+    }
+    /** Download an installed area again from a newer map. False when its squares can't be matched (then: remove and download it again). */
+    public static boolean update(Context c, Catalog cat, Area a) {
+        List<Cell> cells = updateCells(cat, a); if (cells.isEmpty()) return false;
+        download(c, cat, cells, a.name, a.home, a); return true;
+    }
     public static Catalog cached(Context c) {
         try { return parse(c.getSharedPreferences("areas", 0).getString("index", "{}")); } catch (JSONException e) { return new Catalog(Collections.emptyList(), Collections.emptyMap(), ""); }
     }

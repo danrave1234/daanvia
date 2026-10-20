@@ -274,16 +274,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     private void updateArea(AreaStore.Area a) {
         // The update replaces the files the ride is navigating with.
         if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then update the map.", android.widget.Toast.LENGTH_LONG).show(); return; }
-        ArrayList<AreaStore.Cell> cells = new ArrayList<>(); boolean all = true;
-        for (String id : a.cells) { boolean found = false; for (AreaStore.Cell c : catalog.cells) if (c.id.equals(id)) { cells.add(c); found = true; } all &= found; }
-        // A busy square can be split into smaller ones in a newer map: take every square that now lies inside the area's old ones.
-        if (!all) {
-            cells.clear();
-            for (AreaStore.Cell c : catalog.cells) { double lon = (c.box[0] + c.box[2]) / 2, lat = (c.box[1] + c.box[3]) / 2;
-                for (double[] b : a.boxes) if (lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3]) { cells.add(c); break; } }
-        }
-        if (cells.isEmpty()) { android.widget.Toast.makeText(this, "This area's map has changed. Remove it and download it again.", android.widget.Toast.LENGTH_LONG).show(); return; }
-        AreaStore.download(this, catalog, cells, a.name, a.home, a);
+        if (!AreaStore.update(this, catalog, a)) android.widget.Toast.makeText(this, "This area's map has changed. Remove it and download it again.", android.widget.Toast.LENGTH_LONG).show();
     }
     private void toggleLicenses() {
         if (licenseText.getVisibility() == View.VISIBLE) { licenseText.setVisibility(View.GONE); return; }
