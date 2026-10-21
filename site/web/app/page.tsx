@@ -219,7 +219,8 @@ const installSteps: React.ReactNode[] = [
     tap <strong>More details › Install anyway</strong>.
   </>,
   <>
-    Open Daanvia, allow location, then frame your area and tap <strong>Download</strong>. After that it works without signal.
+    Open Daanvia, allow location, then frame your area and tap <strong>Download</strong>. After that it works without signal. Had
+    the old Daanvia? Tap <strong>Move my maps and settings</strong> instead, then uninstall Daanvia (old).
   </>,
   <>
     To pair your bike: park, close Carbit Ride, keep the dashboard’s <strong>Android QR screen</strong> open, turn Wi-Fi on and hotspot
@@ -246,7 +247,19 @@ const faqs: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: 'How do I update?',
-    a: 'Settings › About › Check, or download again from this page and install over the old app. Your saved places and maps stay.',
+    a: 'Settings › About › Check, or download again from this page and install it over Daanvia. Your saved places and maps stay.',
+  },
+  {
+    q: 'I had Daanvia before 0.9.0. Why are there two apps now?',
+    a: (
+      <>
+        From 0.9.0 Daanvia is signed with a private key instead of a public test key, so Android installs it beside the old one,
+        which is renamed <strong>Daanvia (old)</strong>. Open the new Daanvia and tap <strong>Move my maps and settings</strong>:
+        your maps, saved places, bike pairing, display fit and settings come across. When it says they moved, tap{' '}
+        <strong>Uninstall</strong> to remove Daanvia (old). You need free space for one more copy of your maps while both are
+        installed.
+      </>
+    ),
   },
   {
     q: 'Is it safe to use while riding?',
