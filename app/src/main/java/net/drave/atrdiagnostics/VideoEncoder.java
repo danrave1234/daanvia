@@ -27,8 +27,9 @@ public final class VideoEncoder implements Closeable {
         width=w;height=h;
         MediaFormat f=MediaFormat.createVideoFormat("video/avc",w,h);
         f.setInteger(MediaFormat.KEY_COLOR_FORMAT,MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        f.setInteger(MediaFormat.KEY_BIT_RATE,2000000);f.setInteger(MediaFormat.KEY_FRAME_RATE,fps);
-        f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL,1);
+        f.setInteger(MediaFormat.KEY_BIT_RATE,1200000);  // a map scene of flat colours is sharp at 1.2 Mbps; less for the radio and the bike's decoder to do
+        f.setInteger(MediaFormat.KEY_FRAME_RATE,fps);
+        f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL,3);  // full pictures every 3 s (and on demand, see restart) instead of every second
         f.setInteger(MediaFormat.KEY_PROFILE,MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);
         f.setInteger(MediaFormat.KEY_LEVEL,MediaCodecInfo.CodecProfileLevel.AVCLevel31);
         f.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER,100000);
@@ -117,7 +118,7 @@ public final class VideoEncoder implements Closeable {
             int a=GLES20.glGetAttribLocation(program,"position"),b=GLES20.glGetAttribLocation(program,"uv");GLES20.glEnableVertexAttribArray(a);GLES20.glEnableVertexAttribArray(b);GLES20.glVertexAttribPointer(a,2,GLES20.GL_FLOAT,false,0,vertices);GLES20.glVertexAttribPointer(b,2,GLES20.GL_FLOAT,false,0,uv);
             int[] texture=new int[1];GLES20.glGenTextures(1,texture,0);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,texture[0]);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_CLAMP_TO_EDGE);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE);
             bitmap=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888);android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);GLES20.glViewport(0,0,width,height);
-            while(running){long frameStart=android.os.SystemClock.uptimeMillis();navigation.draw(canvas,width,height);android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);EGLExt.eglPresentationTimeANDROID(egl,window,System.nanoTime());if(!EGL14.eglSwapBuffers(egl,window))throw new IOException("Frame submit failed");long spare=1000/fps-(android.os.SystemClock.uptimeMillis()-frameStart);if(spare>0)Thread.sleep(spare);}
+            while(running){long frameStart=android.os.SystemClock.uptimeMillis();navigation.draw(canvas,width,height);android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);EGLExt.eglPresentationTimeANDROID(egl,window,System.nanoTime());if(!EGL14.eglSwapBuffers(egl,window))throw new IOException("Frame submit failed");long spare=interval()-(android.os.SystemClock.uptimeMillis()-frameStart);if(spare>0)Thread.sleep(spare);}
         }catch(Exception e){if(running)log.accept("Navigation renderer stopped: "+e.getClass().getSimpleName());running=false;}
         finally{if(bitmap!=null)bitmap.recycle();if(egl!=EGL14.EGL_NO_DISPLAY){EGL14.eglMakeCurrent(egl,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);if(window!=EGL14.EGL_NO_SURFACE)EGL14.eglDestroySurface(egl,window);if(context!=EGL14.EGL_NO_CONTEXT)EGL14.eglDestroyContext(egl,context);EGL14.eglTerminate(egl);}}
     }
@@ -134,7 +135,7 @@ public final class VideoEncoder implements Closeable {
                 android.graphics.Canvas c=surface.lockHardwareCanvas();
                 try{navigation.draw(c,width,height);}finally{surface.unlockCanvasAndPost(c);}
                 drew=true;drawn++;
-                next+=1000/fps;long spare=next-android.os.SystemClock.uptimeMillis();if(spare>0)Thread.sleep(spare);else next=android.os.SystemClock.uptimeMillis();
+                next+=interval();long spare=next-android.os.SystemClock.uptimeMillis();if(spare>0)Thread.sleep(spare);else next=android.os.SystemClock.uptimeMillis();
             }
             return true;
         }catch(Exception e){
@@ -143,6 +144,9 @@ public final class VideoEncoder implements Closeable {
         }
     }
     volatile int drawn;
+    /** Time to the next frame: the bike's rate while anything moves, 4 a second while the scene stands still. */
+    private long interval(){quiet=navigation!=null&&navigation.still();return quiet?250:1000/fps;}
+    private volatile boolean quiet;
     private int shader(int type,String source)throws IOException{int shader=GLES20.glCreateShader(type);GLES20.glShaderSource(shader,source);GLES20.glCompileShader(shader);int[] status=new int[1];GLES20.glGetShaderiv(shader,GLES20.GL_COMPILE_STATUS,status,0);if(status[0]==0)throw new IOException("Navigation shader failed");return shader;}
     // The bike pulls frames at its own pace. Frames waiting in the queue are frames the bike shows late, so once more than
     // three are waiting they are dropped and the encoder sends a fresh key frame; a P-frame can't be shown without the ones before it.
@@ -163,18 +167,20 @@ public final class VideoEncoder implements Closeable {
     // unwanted, slower (down to 10). Checked every 30 pulls; the rate the bike settles on is remembered for next time.
     private volatile int fps=15;private int pulls;private long waited;private int backlog;private java.util.function.IntConsumer onRate;
     /** Start at the rate this bike settled on last time; {@code onRate} hears each change. */
-    public void pace(int start,java.util.function.IntConsumer onRate){fps=Math.max(10,Math.min(30,start>0?start:15));this.onRate=onRate;}
+    public void pace(int start,java.util.function.IntConsumer onRate){fps=Math.max(10,Math.min(24,start>0?start:15));this.onRate=onRate;}
     public int fps(){return fps;}
     /** Android's thermal status (PowerManager.THERMAL_STATUS_*), or null to ignore heat. */
     private java.util.function.IntSupplier heat;
     public void heat(java.util.function.IntSupplier heat){this.heat=heat;}
     private void pace(int waiting,long waitMs){
+        if(quiet){pulls=0;waited=0;backlog=0;return;}
         pulls++;waited+=waitMs;if(waiting>=2)backlog++;
         if(pulls<30)return;
         long avgWait=waited/pulls;int old=fps;
-        if(backlog>pulls/3&&fps>10)fps-=5;else if(avgWait>=12&&fps<30)fps+=5;
+        // 24 frames a second looks as smooth as 30 on the bike display for about a fifth less work.
+        if(backlog>pulls/3&&fps>10)fps-=5;else if(avgWait>=12&&fps<24)fps=Math.min(24,fps+5);
         // A phone in the sun on a handlebar can run hot: as Android reports heat, draw less (15 fps, then 10) until it cools.
-        int t=heat==null?0:heat.getAsInt();int cap=t>=android.os.PowerManager.THERMAL_STATUS_SEVERE?10:t>=android.os.PowerManager.THERMAL_STATUS_MODERATE?15:30;
+        int t=heat==null?0:heat.getAsInt();int cap=t>=android.os.PowerManager.THERMAL_STATUS_SEVERE?10:t>=android.os.PowerManager.THERMAL_STATUS_MODERATE?15:24;
         if(fps>cap)fps=cap;
         pulls=0;waited=0;backlog=0;
         if(fps!=old&&onRate!=null)onRate.accept(fps);

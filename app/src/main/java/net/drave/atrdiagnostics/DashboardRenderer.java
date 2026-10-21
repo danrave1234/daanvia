@@ -158,11 +158,17 @@ public final class DashboardRenderer {
                 em[i] = Math.max(vw, lw); sum += em[i];
             }
             float vs = Math.min(Math.min(60 * k, r.height() * 0.52f), avail / sum), us = vs * ratio;
-            float block = vs * 0.74f + us * 1.45f, base = r.top + (r.height() - block) / 2f + vs * 0.74f, x = r.left + pad;
+            float block = vs * 0.74f + us * 1.45f, base = r.top + (r.height() - block) / 2f + vs * 0.74f;
+            // Whatever width the numbers don't need is shared evenly between the columns, and each label sits centred under
+            // its number, so the three read as one balanced row however long "11:12" or "10" is.
+            float space = (r.width() - pad * 2 - sum * vs) / 2f, x = r.left + pad;
             for (int i = 0; i < 3; i++) {
-                text(c, v[i], x, base, vs, i == 0 ? pal.accent : ink(), black);
-                p.setLetterSpacing(0.08f); text(c, u[i], x, base + us * 1.35f, us, soft(), bold); p.setLetterSpacing(0);
-                x += em[i] * vs + gap;
+                float mid = x + em[i] * vs / 2f;
+                p.setTypeface(black); p.setTextSize(vs); float vw = p.measureText(v[i]);
+                text(c, v[i], mid - vw / 2f, base, vs, i == 0 ? pal.accent : ink(), black);
+                p.setTypeface(bold); p.setTextSize(us); p.setLetterSpacing(0.08f); float lw = p.measureText(u[i]);
+                text(c, u[i], mid - lw / 2f, base + us * 1.35f, us, soft(), bold); p.setLetterSpacing(0);
+                x += em[i] * vs + space;
             }
         } else {
             float k = unit(r, 150, 260), pad = 12 * k, line = (r.height() - pad * 2) / 3f, room = r.width() - pad * 2;
@@ -219,6 +225,16 @@ public final class DashboardRenderer {
     private static int layer(String kind) { return kind.contains("primary") || kind.contains("trunk") || kind.contains("motorway") ? 3 : kind.contains("secondary") ? 2 : kind.contains("tertiary") ? 1 : 0; }
     private float cx, cy, cos, sin, tilt; private double clat, clon, mpp = 3, coslat; private long lastFrame;
     private final android.graphics.Camera lens = new android.graphics.Camera(); private final Matrix tiltMatrix = new Matrix();
+    private List<NavSession.Road> nearCache; private Object nearIndex; private double nearLat, nearLon, nearReach;
+    /**
+     * True when the next frame would look like the last one: the rider standing still (a red light, parked), zoom and
+     * tilt settled. The bike display then needs only a few frames a second; the encoder repeats the picture in between.
+     */
+    public boolean still() {
+        if (s.layoutEditing || s.calibration) return false;
+        boolean moving = s.active && (s.simulation || motion.speed > 1.0);
+        return !moving && Math.abs(targetMpp() - mpp) < 0.02 * mpp && Math.abs(targetTilt() - tilt) < 0.3f;
+    }
     /** Metres per pixel: close like Google Maps, a little wider at speed, closer for a turn and when arriving. */
     private double targetMpp() {
         if (!s.active) return 3.0;
@@ -278,7 +294,14 @@ public final class DashboardRenderer {
         float roadScale = (float)Math.max(0.6, Math.min(1.8, 2.0 / mpp));
         // Every road of one kind goes into one path and is drawn in a single call: thousands of separate draws per frame
         // were most of the cost. Roads shorter than about two pixels are skipped.
-        List<NavSession.Road> nearby = s.roadIndex.near(clat - dLat, clon - dLon, clat + dLat, clon + dLon);
+        // The roads around are looked up for a box a quarter larger than the view and reused until the rider has moved a
+        // fifth of the way across it, instead of on every frame.
+        if (nearCache == null || nearIndex != s.roadIndex || Math.abs(clat - nearLat) * 111195 > reach * 0.2 || Math.abs(clon - nearLon) * 111195 * coslat > reach * 0.2
+            || reach > nearReach || reach < nearReach * 0.6) {
+            double q = 1.25; nearCache = s.roadIndex.near(clat - dLat * q, clon - dLon * q, clat + dLat * q, clon + dLon * q);
+            nearIndex = s.roadIndex; nearLat = clat; nearLon = clon; nearReach = reach * q;
+        }
+        List<NavSession.Road> nearby = nearCache;
         for (Path l : layers) l.reset();
         double tiny = 2 * mpp / 111195;
         for (NavSession.Road road : nearby) {
