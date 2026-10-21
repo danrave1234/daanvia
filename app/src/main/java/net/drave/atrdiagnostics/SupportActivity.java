@@ -75,6 +75,7 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         logScroll = new ScrollView(this); log = k.text("", 11.5f, 500, INK_SOFT); log.setTypeface(android.graphics.Typeface.MONOSPACE); log.setTextIsSelectable(true);
         logScroll.addView(log); logs.addView(logScroll, new LinearLayout.LayoutParams(-1, k.dp(260)));
         logs.addView(k.ghost("Copy log", this::copyLog));
+        logs.addView(k.ghost("Copy bike details", this::copyBikeDetails));
         c.addView(logs);
 
         link = DashboardLink.attach(this, this);
@@ -136,6 +137,24 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         } catch (Exception e) { link.note("Could not share report: " + e.getMessage()); }
     }
 
+    /**
+     * A short summary for support, small enough to paste in one piece: the phone, its clock, how the app last ended, and
+     * what the dashboard sent on its last connection (identity fields removed).
+     */
+    private void copyBikeDetails() {
+        StringBuilder t = new StringBuilder("Daanvia " + BuildInfo.VERSION + " · " + Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE + "\n");
+        t.append("Phone time now: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", java.util.Locale.US).format(new java.util.Date())).append(' ').append(java.util.TimeZone.getDefault().getID()).append('\n');
+        t.append("Kept running during rides: ").append(KeepAlive.allowed(this) ? "allowed" : "not allowed").append('\n');
+        t.append(DashboardLink.lastExits(this, 3));
+        try {
+            org.json.JSONObject r = new org.json.JSONObject(getSharedPreferences("bike-info", 0).getString("requests", "{}"));
+            if (r.length() == 0) t.append("No dashboard connection recorded yet. Connect to the bike once, then copy again.\n");
+            for (java.util.Iterator<String> it = r.keys(); it.hasNext(); ) { String key = it.next(); t.append(key).append(": ").append(r.optString(key)).append('\n'); }
+        } catch (Exception ignored) {}
+        ClipboardManager cb = getSystemService(ClipboardManager.class); if (cb == null) return;
+        cb.setPrimaryClip(ClipData.newPlainText("Daanvia bike details", t.toString()));
+        if (Build.VERSION.SDK_INT < 33) Toast.makeText(this, "Bike details copied", Toast.LENGTH_SHORT).show();
+    }
     /** The whole log on the clipboard as plain text. */
     private void copyLog() {
         ClipboardManager cb = getSystemService(ClipboardManager.class); if (cb == null) return;

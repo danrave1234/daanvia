@@ -63,6 +63,11 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
         bike.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
         bike.addView(k.text("When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn and may turn off, to save battery. Tap it to bring the map back. The moon button on the ride screen does it right away.", 12.5f, 500, MUTED));
+        bike.addView(k.text("Keep Daanvia running during rides", 14, 650, INK));
+        keepText = k.text("", 12.5f, 500, MUTED); bike.addView(keepText);
+        keepButton = k.ghost("Allow Daanvia to keep running", () -> KeepAlive.ask(this)); bike.addView(keepButton);
+        bike.addView(k.ghost("Open Daanvia's app info", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))));
+        paintKeep();
         permissionBanner = k.column(10); permissionBanner.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(permissionBanner, 16, DANGER_SOFT); permissionBanner.setVisibility(View.GONE);
         permissionBanner.addView(k.text("Android needs Nearby devices and precise location for the Wi-Fi connection. Daanvia does not collect GPS positions for this.", 13, 550, INK));
         permissionBanner.addView(k.ghost("Open app settings", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))));
@@ -144,6 +149,14 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         paint();
     }
 
+    private TextView keepText, keepButton;
+    private void paintKeep() {
+        boolean ok = KeepAlive.allowed(this);
+        keepText.setText(ok ? "Allowed. Android won't hold Daanvia back to save battery. On OPPO, realme and OnePlus phones, also turn on Allow background activity under App info → Battery, and lock Daanvia in the recent apps."
+            : "Some phones close apps to save battery, even mid-ride, which cuts off the bike display. Allow Daanvia to keep running. On OPPO, realme and OnePlus phones, also turn on Allow background activity under App info → Battery.");
+        keepButton.setVisibility(ok ? View.GONE : View.VISIBLE);
+    }
+    protected void onResume() { super.onResume(); paintKeep(); }  // Android's Allow dialog only pauses this screen
     protected void onStart() {
         super.onStart(); AppUpdate.listen(updateListener); paintUpdate(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps();
         new Thread(() -> { try { AreaStore.Catalog fresh = AreaStore.fetch(this); runOnUiThread(() -> { catalog = fresh; paintMaps(); }); } catch (Exception ignored) {} }).start(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }

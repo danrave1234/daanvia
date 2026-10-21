@@ -172,6 +172,14 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     protected void onDestroy() { ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
+    /*
+     * The phone hidden in a pocket, or Android short of memory: let the map drop the tiles it keeps in memory. A smaller
+     * app is less likely to be the one Android closes mid-ride, which would cut off the bike display.
+     */
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_UI_HIDDEN || level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) mapView.onLowMemory();
+    }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
 
     @SuppressWarnings("deprecation")
@@ -1065,6 +1073,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             try { getSharedPreferences("ui", 0).edit().putString("ride", new org.json.JSONObject().put("lat", destLat).put("lon", destLon).put("name", destName).put("at", System.currentTimeMillis()).toString()).apply(); } catch (org.json.JSONException ignored) {}
         }
         link.allowAuto(); autoDelay = 15000; ui.removeCallbacks(retryConnect); autoConnect();  // a ride connects the bike display straight away
+        if (!demo) KeepAlive.askForRide(this);
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
     private boolean resumeOffered;
@@ -1364,11 +1373,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 for (String id : ids.split(",")) { Layer l = style.getLayer(id); if (l != null) l.setProperties(org.maplibre.android.style.layers.PropertyFactory.visibility(key.equals("hide") ? org.maplibre.android.style.layers.Property.NONE : org.maplibre.android.style.layers.Property.VISIBLE)); } }
             if (i.hasExtra("puck")) showLocationPuck(i.getBooleanExtra("puck", true));
             // Encode the bike scene for a few seconds as if a bike pulled frames at the given rate, and log the result.
-            if (i.hasExtra("encode")) { int want = i.getIntExtra("encode", 30); new Thread(() -> {
+            if (i.hasExtra("encode")) { int want = i.getIntExtra("encode", 30), secs = i.getIntExtra("secs", 5); new Thread(() -> {
                 VideoEncoder e = new VideoEncoder(m -> android.util.Log.d("DaanviaEncode", m)); e.setNavigation(s); e.pace(want, null);
-                try { e.start(800, 480, null, 160); long t0 = SystemClock.uptimeMillis(), until = t0 + 5000; int got = 0; long bytes = 0;
+                try { e.start(800, 480, null, 160); long t0 = SystemClock.uptimeMillis(), until = t0 + secs * 1000L; int got = 0; long bytes = 0;
                     while (SystemClock.uptimeMillis() < until) { byte[] f = e.next(); got++; bytes += f.length; Thread.sleep(Math.max(0, 1000 / want - 2)); }
-                    android.util.Log.d("DaanviaEncode", "pulled " + got + " frames in 5 s (" + (got / 5) + "/s), drawn " + e.drawn + ", rate now " + e.fps() + ", " + (bytes / Math.max(1, got)) + " bytes/frame");
+                    android.util.Log.d("DaanviaEncode", "pulled " + got + " frames in " + secs + " s (" + (got / secs) + "/s), drawn " + e.drawn + ", rate now " + e.fps() + ", " + (bytes / Math.max(1, got)) + " bytes/frame");
                 } catch (Exception x) { android.util.Log.e("DaanviaEncode", "encode test", x); } finally { e.close(); } }, "encode-test").start(); }
         } }, new IntentFilter("net.drave.atrdiagnostics.DEBUG_MAP"), androidx.core.content.ContextCompat.RECEIVER_EXPORTED);
     }

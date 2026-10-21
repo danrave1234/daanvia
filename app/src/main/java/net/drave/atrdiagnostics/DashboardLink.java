@@ -274,6 +274,16 @@ public final class DashboardLink {
             if (prior != null) prior.uncaughtException(t, x);
         });
     }
+    /** The last few times Android ended the app, newest first, one line each. */
+    static String lastExits(Context c, int count) {
+        if (Build.VERSION.SDK_INT < 30) return "App exits: not recorded on this Android version\n";
+        StringBuilder out = new StringBuilder();
+        try { for (android.app.ApplicationExitInfo e : c.getSystemService(android.app.ActivityManager.class).getHistoricalProcessExitReasons(null, 0, count))
+            out.append(new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date(e.getTimestamp()))).append("  App ended: ").append(exitReason(e.getReason()))
+               .append(" (").append(e.getDescription() == null ? "" : e.getDescription()).append(", importance ").append(e.getImportance()).append(")\n");
+        } catch (Exception ignored) {}
+        return out.length() == 0 ? "App exits: none recorded\n" : out.toString();
+    }
     private static String exitReason(int r) {
         switch (r) {
             case 1: return "exited by itself"; case 2: return "stopped by a system signal"; case 3: return "low memory";
