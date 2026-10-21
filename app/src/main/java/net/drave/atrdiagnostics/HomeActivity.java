@@ -94,6 +94,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // ================================================================ lifecycle
     public void onCreate(Bundle state) {
         super.onCreate(state);
+        // First launch with the old Daanvia still installed: offer to move its maps and settings before anything loads.
+        if (MoveActivity.shouldOffer(this)) { moving = true; startActivity(new Intent(this, MoveActivity.class)); finish(); return; }
+        if (getIntent().getBooleanExtra("moved", false)) offerUninstallOld = true;
         s = NavSession.get(this); MapLibre.getInstance(this); here = new Here(this, s); rideMotion = new RideMotion(s);
         // Online map pieces stay on the phone after they are seen, so those places still show without signal.
         org.maplibre.android.offline.OfflineManager.getInstance(this).setMaximumAmbientCacheSize(MAP_CACHE_BYTES, null);
@@ -170,14 +173,16 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         mapView.onPause(); super.onPause();
     }
     protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
-    protected void onDestroy() { ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
-    public void onLowMemory() { super.onLowMemory(); mapView.onLowMemory(); }
+    /** This launch only opened the move screen: nothing was set up, so there is nothing to tear down. */
+    private boolean moving, offerUninstallOld;
+    protected void onDestroy() { if (moving) { super.onDestroy(); return; } ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
+    public void onLowMemory() { super.onLowMemory(); if (mapView != null) mapView.onLowMemory(); }
     /*
      * The phone hidden in a pocket, or Android short of memory: let the map drop the tiles it keeps in memory. A smaller
      * app is less likely to be the one Android closes mid-ride, which would cut off the bike display.
      */
     public void onTrimMemory(int level) {
-        super.onTrimMemory(level);
+        super.onTrimMemory(level); if (mapView == null) return;
         if (level >= TRIM_MEMORY_UI_HIDDEN || level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) mapView.onLowMemory();
     }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
@@ -1282,6 +1287,12 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else dotChip(bikeChip, model == null ? "Set up your bike" : model + " · not connected", MUTED);
         paintMirror();
         if (pendingDemo && s.ready) { pendingDemo = false; demo(); }
+        if (offerUninstallOld && s.ready && mode == Mode.EXPLORE) {
+            // Just moved from the old Daanvia: its copy of the maps is no longer needed. Android asks before uninstalling.
+            offerUninstallOld = false; resumeOffered = true; getSharedPreferences("ui", 0).edit().remove("ride").apply();
+            if (MoveActivity.oldVersion(this) >= 0) notice("Your maps and settings moved over. Uninstall the old Daanvia to free its space", "Uninstall",
+                () -> { try { startActivity(new Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:" + MoveActivity.OLD_APP))); } catch (Exception ignored) {} }, 30000);
+        }
         if (!resumeOffered && s.ready && !s.active && mode == Mode.EXPLORE) { resumeOffered = true; offerResume(); }
         exploreStatus.setText(!s.ready ? "Getting the map ready…" : s.status.startsWith("Offline region could not load") ? "The map couldn't load. Open Settings › Support." : "");
         exploreStatus.setVisibility(exploreStatus.length() == 0 ? View.GONE : View.VISIBLE);

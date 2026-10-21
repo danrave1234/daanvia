@@ -1,12 +1,24 @@
 plugins { id 'com.android.application' }
+def releaseKey = new File(System.getProperty('user.home'), '.daanvia/signing.properties')
+def releaseProps = new Properties(); if (releaseKey.isFile()) releaseKey.withInputStream { releaseProps.load(it) }
+gradle.taskGraph.whenReady { graph ->
+    if (!releaseKey.isFile() && graph.allTasks.any { it.name ==~ /(package|assemble|bundle)Release/ })
+        throw new GradleException("Release signing key missing: " + releaseKey + ". Releases must be signed with Daanvia's private key.")
+}
 android {
     namespace 'net.drave.atrdiagnostics'
     compileSdk 36
     buildToolsVersion "35.0.0"
-    defaultConfig { applicationId 'net.drave.atrdiagnostics'; minSdk 29; targetSdk 35; versionCode 39; versionName '0.8.1'; ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' } }
-    signingConfigs { prototype { storeFile file('../signing/prototype.p12'); storePassword 'atr-local-test'; keyAlias 'atr'; keyPassword 'atr-local-test' } }
-    // Release is signed with the same public prototype TEST key so it installs over earlier test builds. Not a production key.
-    buildTypes { debug { signingConfig signingConfigs.prototype; ndk { abiFilters 'x86_64' } }; release { signingConfig signingConfigs.prototype; minifyEnabled false } }
+    // From 0.9.0 the app id is net.drave.daanvia and releases are signed with a private key kept off GitHub; the old id
+    // (net.drave.atrdiagnostics, signed with the public test key) hands its data over to it (MoveActivity).
+    defaultConfig { applicationId 'net.drave.daanvia'; minSdk 29; targetSdk 35; versionCode 40; versionName '0.9.0'; ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' } }
+    // Debug builds use the public test key. Releases use the private key named in ~/.daanvia/signing.properties (storeFile,
+    // storePassword, keyAlias, keyPassword), which never goes into this repository; without it a release build stops.
+    signingConfigs {
+        prototype { storeFile file('../signing/prototype.p12'); storePassword 'atr-local-test'; keyAlias 'atr'; keyPassword 'atr-local-test' }
+        if (releaseKey.isFile()) release { storeFile file(releaseProps.storeFile); storePassword releaseProps.storePassword; keyAlias releaseProps.keyAlias; keyPassword releaseProps.keyPassword }
+    }
+    buildTypes { debug { signingConfig signingConfigs.prototype; ndk { abiFilters 'x86_64' } }; release { if (releaseKey.isFile()) signingConfig signingConfigs.release; minifyEnabled false } }
     // One APK for every Android phone (64-bit and 32-bit ARM). Only debug builds add x86_64, for testing on a PC emulator.
     // Compress the native libraries inside the APK so the one-for-all download stays small; Android unpacks them on install.
     packaging { jniLibs { useLegacyPackaging true } }

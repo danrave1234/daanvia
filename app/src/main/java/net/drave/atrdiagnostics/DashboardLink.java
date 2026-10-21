@@ -714,7 +714,7 @@ public final class DashboardLink {
         synchronized(report) { j.put("log", report.toString()); }
         File out = new File(context.getCacheDir(), "atr-report.json");
         try (FileOutputStream f = new FileOutputStream(out)) { f.write(j.toString(2).getBytes(StandardCharsets.UTF_8)); }
-        return Uri.parse("content://net.drave.atrdiagnostics.report/atr-report.json");
+        return Uri.parse("content://" + context.getPackageName() + ".report/atr-report.json");
     }
 
 
