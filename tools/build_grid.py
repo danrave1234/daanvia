@@ -6,17 +6,23 @@ usage: python tools/build_grid.py philippines-latest.osm.pbf COUNTRY_TILE_DIR di
 COUNTRY_TILE_DIR is one Valhalla 3.9.0 tile_dir for the whole country (valhalla_build_tiles, no tar).
 A cell is DEG x DEG degrees aligned to Valhalla's 0.25 deg level-2 grid (0.5 = four level-2 tiles), and
 lives in only one level-1 (1 deg) and one level-0 (4 deg) tile. Output:
-  cell_<minLon>_<minLat>.zip  valhalla/2/... (that cell's level-2 tiles, tile_dir layout), roads.geojson
+  cell_<minLon>_<minLat>-<sha12>.zip  valhalla/2/... (that cell's level-2 tiles, tile_dir layout), roads.geojson
                               (motorable only), places.json, parking.json, lots.json, gates.json, land.geojson, water.geojson
-  base_l1_<id>.zip / base_l0_<id>.zip  valhalla/1/... and valhalla/0/..., shared by every cell under them
-  areas-index.json            cells with box, file, bytes, sha256, roads_bytes, label and needed base files
-Each road, place, parking lot and lot belongs to exactly one cell (its first point), so merging cells by
-concatenating the arrays never duplicates anything. Land and water are clipped to the cell box.
+  base_l1_<id>-<sha12>.zip / base_l0_<id>-<sha12>.zip  valhalla/1/... and valhalla/0/..., shared by every cell under them
+  areas-index.json            the generation (id, OSM timestamp, build time, Valhalla and package-schema versions) and
+                              its cells with box, file, bytes, sha256, roads_bytes, label and needed base files
+Files are named after their sha256 and zipped with fixed metadata, so unchanged contents keep their name between
+builds (see tools/mapgen.py). Roads are cut at each cell's box and run mapgen.EDGE (~110 m) past it, so a road that
+crosses into a cell is in that cell even when the neighbour it comes from is not downloaded; next to a shared edge
+both cells hold the same short pieces. Named streets and other named lines get a search entry in every cell they
+pass through. Places, parking lots, lots and gates are points and belong to the one cell that holds the point (a
+lot's centre), so merging cells never duplicates them. Land and water are clipped to the cell box.
 --overview writes overview.geojson (land ~150 m + motorway/trunk/primary) and towns.json for choosing an area.
 Then run tools/split_grid.py to quarter the densest cells, and tools/verify_grid.py to merge and route.
 """
-import argparse, ast, datetime, hashlib, json, math, pathlib, shutil, time, zipfile
+import argparse, ast, datetime, json, math, pathlib, shutil, time
 import osmium
+from mapgen import EDGE, PACKAGE_SCHEMA, clip, coords, engine_version, generation_id, line, middle, osm_timestamp, sha256, write_zip
 from shapely.geometry import Polygon, LineString, box as sbox, mapping, shape
 from shapely.ops import unary_union, linemerge
 from shapely.strtree import STRtree
@@ -27,6 +33,7 @@ ap.add_argument('--overview', default=''); ap.add_argument('--deg', type=float, 
 args = ap.parse_args()
 DEG = args.deg; assert abs(DEG / 0.25 - round(DEG / 0.25)) < 1e-9 and 1 % DEG == 0, 'cell size must be a multiple of 0.25 that divides 1 degree'
 tiles = pathlib.Path(args.tiles); out = pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True)
+for old in [*out.glob('cell_*.zip'), *out.glob('base_l*.zip'), *out.glob('*.zip.part')]: old.unlink()  # an earlier build here
 work = pathlib.Path(args.work or out / '_work'); shutil.rmtree(work, ignore_errors=True); (work / 'roads').mkdir(parents=True)
 NOT_MOTORABLE = {'footway', 'path', 'steps', 'pedestrian', 'cycleway', 'bridleway', 'corridor', 'elevator', 'platform',
                  'proposed', 'construction', 'abandoned', 'razed', 'disused', 'bus_stop', 'via_ferrata'}
@@ -40,7 +47,7 @@ def cell_box(c): return [round(c[0] * DEG - 180, 6), round(c[1] * DEG - 90, 6), 
 def cell_id(c): b = cell_box(c); return 'cell_%.2f_%.2f' % (b[0], b[1])
 
 class Cell:
-    def __init__(self, c): self.c = c; self.roads = None; self.nroads = 0; self.places = []; self.seen = set(); self.parking = []; self.lots = []; self.water = []; self.towns = []; self.gates = []
+    def __init__(self, c): self.c = c; self.roads = None; self.nroads = 0; self.core = 0; self.places = []; self.seen = set(); self.parking = []; self.lots = []; self.water = []; self.towns = []; self.gates = []
     def road(self, feat):
         if self.roads is None: self.roads = open(work / 'roads' / (cell_id(self.c) + '.geojson'), 'w', encoding='utf-8', newline='\n')
         self.roads.write((',' if self.nroads else '') + json.dumps(feat, separators=(',', ':'), ensure_ascii=False)); self.nroads += 1
@@ -59,10 +66,22 @@ def branch_name(t):
     """OSM names most chain branches just "Jollibee" and puts the branch in branch=: "Jollibee Vito Cruz", like Google Maps."""
     name, branch = t['name'].strip(), t.get('branch', '').strip()
     return name + ' ' + branch if branch and branch.lower() not in name.lower() else name
-def cell(lon, lat):
-    c = cell_of(lon, lat)
+def cell_at(c):
     if c not in cells: cells[c] = Cell(c)
     return cells[c]
+def cell(lon, lat): return cell_at(cell_of(lon, lat))
+def cut(pts):
+    """Every cell a line reaches, counting EDGE past each box: (cell, rounded pieces, middle of its part inside the box or None)."""
+    xs = [x for x, _ in pts]; ys = [y for _, y in pts]
+    a = cell_of(min(xs) - EDGE, min(ys) - EDGE); b = cell_of(max(xs) + EDGE, max(ys) + EDGE)
+    if a == b: return [(a, [[[r6(x), r6(y)] for x, y in pts]], pts[len(pts) // 2])]  # well inside one cell (most roads)
+    g = line(pts); found = []
+    for cx in range(a[0], b[0] + 1):
+        for cy in range(a[1], b[1] + 1):
+            box = cell_box((cx, cy)); grown = [q for q in (coords(p) for p in clip(g, box, EDGE)) if q]
+            if not grown: continue
+            core = clip(g, box); found.append(((cx, cy), grown, middle(core) if core else None))
+    return found
 def parking_record(oid, lon, lat, t):
     return {'id': oid, 'lon': r6(lon), 'lat': r6(lat), 'name': t.get('name', 'Parking'), 'source': 'OpenStreetMap',
             'motorcycle': t.get('amenity') == 'motorcycle_parking', 'access': t.get('access', 'unknown')}
@@ -93,13 +112,23 @@ for o in fp:
         if len(pts) < 2: continue
         if t.get('natural') == 'coastline': coast[o.id] = (o.nodes[0].ref, o.nodes[-1].ref, pts); continue
         hw = t.get('highway'); park = t.get('amenity') in ('parking', 'motorcycle_parking')
-        if hw and hw not in NOT_MOTORABLE:
-            cell(*pts[0]).road({'type': 'Feature', 'properties': {'name': t.get('name', ''), 'kind': hw}, 'geometry': {'type': 'LineString', 'coordinates': [[r6(x), r6(y)] for x, y in pts]}})
+        road = hw and hw not in NOT_MOTORABLE
+        # Streets, rivers, railways: lines that can cross cells. Shops and parking areas are one place each (below).
+        named_line = bool(t.get('name')) and bool(hw or 'natural' not in t) and not park and not is_poi(t)
+        spread = cut(pts) if road or named_line else []
+        if road:
+            props = {'name': t.get('name', ''), 'kind': hw}
+            for c, pieces, mid in spread:
+                k = cell_at(c); k.core += mid is not None
+                for p in pieces: k.road({'type': 'Feature', 'properties': props, 'geometry': {'type': 'LineString', 'coordinates': p}})
             if hw in MAJOR: major.append((hw, [(round(x, 5), round(y, 5)) for x, y in pts]))
         if park:
             cx, cy = sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts); k = cell(cx, cy)
             k.parking.append((t.get('access', 'unknown'), js(parking_record(str(o.id), cx, cy, t)))); k.lots.append(js(record('w%d' % o.id, cx, cy, t)))
-        if t.get('name') and (hw or park or 'natural' not in t): cell(*pts[len(pts) // 2]).place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=is_poi(t))
+        if named_line:
+            for c, _, mid in spread:
+                if mid: cell_at(c).place(t['name'] if hw else branch_name(t), *mid)
+        elif t.get('name') and (hw or park or 'natural' not in t): cell(*pts[len(pts) // 2]).place(t['name'] if hw else branch_name(t), *pts[len(pts) // 2], poi=is_poi(t))
     elif o.is_area():
         if not (t.get('natural') == 'water' or t.get('waterway') == 'riverbank' or t.get('landuse') in ('reservoir', 'basin')): continue
         try: polys = [[[[r6(n.lon), r6(n.lat)] for n in outer]] + [[[r6(n.lon), r6(n.lat)] for n in inner] for inner in o.inner_rings(outer)] for outer in o.outer_rings()]
@@ -132,7 +161,7 @@ tile_files = {lvl: {int(''.join(p.relative_to(tiles / str(lvl)).with_suffix('').
 l2_cells = {}
 for tid, p in tile_files[2].items():
     row, col = divmod(tid, 1440); l2_cells.setdefault(cell_of(-180 + col * 0.25 + 0.01, -90 + row * 0.25 + 0.01), []).append(p)
-keep = set(l2_cells) | {c for c, k in cells.items() if k.nroads}
+keep = set(l2_cells) | {c for c, k in cells.items() if k.core}  # not cells reached only by a neighbour's road edge
 lon0, lat0 = cell_of(min(g.bounds[0] for g in land), min(g.bounds[1] for g in land)) if land else (0, 0); lon1, lat1 = cell_of(max(g.bounds[2] for g in land), max(g.bounds[3] for g in land)) if land else (-1, -1)
 for cx in range(lon0, lon1 + 1):
     for cy in range(lat0, lat1 + 1):
@@ -152,16 +181,13 @@ with open(work / 'water.jsonl', encoding='utf-8') as f:
                 part = g.intersection(sbox(*cell_box((cx, cy))))
                 if not part.is_empty and part.area >= 4e-8: cells[(cx, cy)].water.append(js({'type': 'Feature', 'properties': {'kind': w['kind']}, 'geometry': geo(part)}))
 
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for blk in iter(lambda: f.read(1 << 20), b''): h.update(blk)
-    return h.hexdigest()
 def l1_of(c): b = cell_box(c); return math.floor(b[1] + 90 + 1e-9) * 360 + math.floor(b[0] + 180 + 1e-9)
 def l0_of(c): b = cell_box(c); return math.floor((b[1] + 90) / 4 + 1e-9) * 90 + math.floor((b[0] + 180) / 4 + 1e-9)
 fc = lambda feats: '{"type":"FeatureCollection","features":[' + ','.join(x if isinstance(x, str) else js(x) for x in feats) + ']}'
 arr = lambda items: '[' + ','.join(x if isinstance(x, str) else js(x) for x in items) + ']'
-built = datetime.datetime.now(datetime.timezone.utc).isoformat(); index = []; needed_base = set()
+built_at = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0); built = built_at.isoformat(); index = []; needed_base = set()
+engines = {engine_version(p) for lvl in (0, 1, 2) for p in tile_files[lvl].values()}
+assert len(engines) == 1, f'tiles from more than one Valhalla build: {engines}'  # one compatible country graph
 for c in sorted(keep):
     k = cells[c]; cid = cell_id(c); b = sbox(*cell_box(c))
     landf = []
@@ -173,23 +199,25 @@ for c in sorted(keep):
     parking = [rec for acc, rec in k.parking if acc not in ('private', 'no', 'permit')]  # pins never show private lots; lots.json keeps them
     needs = [n for n, ok in (('base_l1_%d.zip' % l1_of(c), l1_of(c) in tile_files[1]), ('base_l0_%d.zip' % l0_of(c), l0_of(c) in tile_files[0])) if ok]
     needed_base.update(needs)
-    target = out / (cid + '.zip')
-    with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        for p in sorted(l2_cells.get(c, [])): z.write(p, 'valhalla/' + p.relative_to(tiles).as_posix())
-        z.writestr('roads.geojson', roads); z.writestr('places.json', arr(k.places)); z.writestr('parking.json', arr(parking)); z.writestr('lots.json', arr(k.lots)); z.writestr('gates.json', arr(k.gates))
-        z.writestr('land.geojson', fc(landf)); z.writestr('water.geojson', fc(k.water))
+    target, digest = write_zip(out, cid, [('valhalla/' + p.relative_to(tiles).as_posix(), p.read_bytes()) for p in sorted(l2_cells.get(c, []))] + [
+        ('roads.geojson', roads), ('places.json', arr(k.places)), ('parking.json', arr(parking)), ('lots.json', arr(k.lots)), ('gates.json', arr(k.gates)),
+        ('land.geojson', fc(landf)), ('water.geojson', fc(k.water))])
     label = sorted(k.towns, key=lambda x: (x['kind'] != 'city', -x['pop'], x['name']))
-    index.append({'id': cid, 'box': cell_box(c), 'file': target.name, 'bytes': target.stat().st_size, 'sha256': sha256(target),
+    index.append({'id': cid, 'box': cell_box(c), 'file': target.name, 'bytes': target.stat().st_size, 'sha256': digest,
                   'roads_bytes': len(roads.encode('utf-8')), 'label': label[0]['name'] if label else '', 'needs': needs})
 base = []
 for lvl in (1, 0):
     for tid, p in sorted(tile_files[lvl].items()):
-        name = 'base_l%d_%d.zip' % (lvl, tid); target = out / name
-        with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z: z.write(p, 'valhalla/' + p.relative_to(tiles).as_posix())
-        base.append({'file': name, 'bytes': target.stat().st_size, 'sha256': sha256(target)})
-(out / 'areas-index.json').write_text(json.dumps({'version': 2, 'cell_deg': DEG, 'built': built, 'source': 'OpenStreetMap / Geofabrik ' + pathlib.Path(args.pbf).name,
+        target, digest = write_zip(out, 'base_l%d_%d' % (lvl, tid), [('valhalla/' + p.relative_to(tiles).as_posix(), p.read_bytes())])
+        base.append({'file': target.name, 'bytes': target.stat().st_size, 'sha256': digest})
+base_name = {b['file'].rsplit('-', 1)[0] + '.zip': b['file'] for b in base}  # "needs" names base zips by their published name
+for x in index: x['needs'] = [base_name[n] for n in x['needs']]
+pbf = pathlib.Path(args.pbf)
+(out / 'areas-index.json').write_text(json.dumps({'version': 2, 'package_schema': PACKAGE_SCHEMA, 'generation': generation_id(built_at), 'built': built,
+    'osm_timestamp': osm_timestamp(pbf), 'source': 'OpenStreetMap / Geofabrik ' + pbf.name, 'source_bytes': pbf.stat().st_size, 'source_sha256': sha256(pbf),
+    'engine': {'name': 'valhalla', 'version': engines.pop()}, 'cell_deg': DEG, 'edge_deg': EDGE,
     'license': 'ODbL-1.0', 'attribution': '© OpenStreetMap contributors', 'cells': index, 'base': base}, indent=1, ensure_ascii=False) + '\n', encoding='utf-8')
-print(f'{len(index)} cells, {len(base)} base files, {sum(x["bytes"] for x in index)+sum(x["bytes"] for x in base):,} bytes; base files nobody needs: {sorted({x["file"] for x in base}-needed_base)[:5]}', flush=True)
+print(f'{len(index)} cells, {len(base)} base files, {sum(x["bytes"] for x in index)+sum(x["bytes"] for x in base):,} bytes; base files nobody needs: {sorted({x["file"] for x in base}-{base_name[n] for n in needed_base})[:5]}', flush=True)
 
 if args.overview:
     ov = pathlib.Path(args.overview); ov.mkdir(parents=True, exist_ok=True); feats = []
