@@ -74,6 +74,7 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         logs.addView(k.label("Log"));
         logScroll = new ScrollView(this); log = k.text("", 11.5f, 500, INK_SOFT); log.setTypeface(android.graphics.Typeface.MONOSPACE); log.setTextIsSelectable(true);
         logScroll.addView(log); logs.addView(logScroll, new LinearLayout.LayoutParams(-1, k.dp(260)));
+        logs.addView(k.ghost("Copy log", this::copyLog));
         c.addView(logs);
 
         link = DashboardLink.attach(this, this);
@@ -129,10 +130,20 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
     private void shareReport() {
         try {
             Uri uri = link.writeReport();
-            Intent send = new Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            // The log also goes as plain text, so pasting it into a chat keeps every line readable.
+            Intent send = new Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_TEXT, tail(link.reportText())).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             send.setClipData(ClipData.newRawUri("Daanvia diagnostic report", uri)); startActivity(Intent.createChooser(send, "Share diagnostic report"));
         } catch (Exception e) { link.note("Could not share report: " + e.getMessage()); }
     }
+
+    /** The whole log on the clipboard as plain text. */
+    private void copyLog() {
+        ClipboardManager cb = getSystemService(ClipboardManager.class); if (cb == null) return;
+        cb.setPrimaryClip(ClipData.newPlainText("Daanvia log", tail(link.reportText())));
+        if (Build.VERSION.SDK_INT < 33) Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show();
+    }
+    /** The last 60,000 characters: the most recent events, kept under what sharing and the clipboard reliably carry. */
+    private static String tail(String s) { return s.length() <= 60000 ? s : "(earlier lines left out)" + s.substring(s.length() - 60000); }
 
     private void scanCamera() {
         link.resetForScan();

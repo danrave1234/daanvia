@@ -279,7 +279,8 @@ public final class DashboardLink {
             case 1: return "exited by itself"; case 2: return "stopped by a system signal"; case 3: return "low memory";
             case 4: return "crash"; case 5: return "native crash"; case 6: return "not responding (ANR)"; case 7: return "failed to start";
             case 8: return "permission changed"; case 9: return "too much CPU or battery use"; case 10: return "closed by the user";
-            case 11: return "a dependency died"; case 12: return "other"; case 13: return "frozen"; case 14: return "package state changed"; case 15: return "app updated";
+            case 11: return "stopped by the user"; case 12: return "a dependency died"; case 13: return "other"; case 14: return "frozen";
+            case 15: return "package state changed"; case 16: return "app updated";
             default: return "unknown (" + r + ")";
         }
     }
