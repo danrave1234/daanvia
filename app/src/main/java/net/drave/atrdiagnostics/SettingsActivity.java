@@ -58,7 +58,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         bike.addView(k.text("Connect automatically when Daanvia opens", 14, 650, INK));
         boolean auto = getSharedPreferences("ui", 0).getBoolean("autoconnect", true);
         bike.addView(k.segmented(new String[]{"On", "Off"}, auto ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("autoconnect", i == 0).apply()));
-        bike.addView(k.text("While the app is open, and all through a ride even with the phone in your pocket, Daanvia keeps looking for the saved dashboard and connects as soon as its QR screen is waiting.", 12.5f, 500, MUTED));
+        bike.addView(k.text("While the app is open, and all through a ride even with the phone in your pocket, Daanvia keeps looking for the saved dashboard and connects when its QR screen is waiting. If the bike stays off, it looks less often, up to every 3 minutes, to save battery.", 12.5f, 500, MUTED));
         bike.addView(k.text("Rest the phone while riding", 14, 650, INK));
         boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
         bike.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));

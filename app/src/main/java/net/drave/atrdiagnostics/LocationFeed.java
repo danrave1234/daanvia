@@ -38,14 +38,17 @@ final class LocationFeed {
 
     boolean running() { return on; }
 
-    /** Start updates every second at the best accuracy; also asks once for a fresh fix right away. False if nothing could listen. */
+    /**
+     * Start updates at the best accuracy, every second on a ride and every two seconds while browsing the map (the dot glides
+     * between fixes); also asks once for a fresh fix right away. False if nothing could listen.
+     */
     @SuppressLint("MissingPermission") // callers check the permission first; a SecurityException is caught below
     boolean start() {
         if (on) return true;
         if (google(c)) try {
             fused = LocationServices.getFusedLocationProviderClient(c);
             callback = new LocationCallback() { public void onLocationResult(LocationResult r) { for (Location l : r.getLocations()) sink.fix(l); } };
-            fused.requestLocationUpdates(new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000).setMinUpdateIntervalMillis(gpsOnly ? 1000 : 500).setWaitForAccurateLocation(false).build(), callback, Looper.getMainLooper());
+            fused.requestLocationUpdates(new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, gpsOnly ? 1000 : 2000).setMinUpdateIntervalMillis(1000).setWaitForAccurateLocation(false).build(), callback, Looper.getMainLooper());
             // The repeating request can take a few seconds to deliver its first fix; this one is answered as soon as possible.
             fused.getCurrentLocation(new CurrentLocationRequest.Builder().setPriority(Priority.PRIORITY_HIGH_ACCURACY).setMaxUpdateAgeMillis(15000).build(), null)
                 .addOnSuccessListener(l -> { if (l != null && on) sink.fix(l); });

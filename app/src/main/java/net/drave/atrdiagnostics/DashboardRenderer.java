@@ -337,7 +337,11 @@ public final class DashboardRenderer {
             path.reset();
             boolean first = true;
             if (s.active) { project(clat, clon, pt); point(path, pt[0], pt[1], true); first = false; }
-            for (int i = from + (s.active ? 1 : 0); i < route.size(); i++) { double[] a = route.get(i); project(a[0], a[1], pt); point(path, pt[0], pt[1], first); first = false; }
+            // Only the stretch that can be on screen: on a long trip, walking the route to the far destination every frame
+            // was wasted work. The point just past the limit is kept so the line still runs off the edge.
+            double[] cum = s.cumulative; boolean measured = cum.length == route.size();
+            double limit = measured ? cum[Math.min(from, cum.length - 1)] + reach * 1.5 : Double.MAX_VALUE;
+            for (int i = from + (s.active ? 1 : 0); i < route.size(); i++) { double[] a = route.get(i); project(a[0], a[1], pt); point(path, pt[0], pt[1], first); first = false; if (measured && cum[i] > limit) break; }
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(17); p.setColor(pal.night ? 0xFF3B2804 : 0xFF8A5600); c.drawPath(path, p);
             p.setStrokeWidth(10); p.setColor(pal.accent); c.drawPath(path, p);
         }

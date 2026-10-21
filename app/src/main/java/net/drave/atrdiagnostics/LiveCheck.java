@@ -6,8 +6,9 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Asks the OpenStreetMap API (free, no key) whether a lot is still mapped, with its current tags and last edit
- * date. A deleted lot answers 410 Gone. Runs only when the rider opens a lot; never during a ride. Call off the main thread.
+ * Asks Overpass, OpenStreetMap's public read-only query service (free, no key), whether a lot is still mapped, with its
+ * current tags and last edit date; a deleted lot comes back with no elements. (OpenStreetMap's own API is meant for
+ * editors, not apps reading data.) Runs only when the rider opens a lot; never during a ride. Call off the main thread.
  */
 public final class LiveCheck {
     public static final class Result {
@@ -19,11 +20,19 @@ public final class LiveCheck {
     public static Result check(String id) {
         if (id == null || id.length() < 2) return new Result(false, false, null, null);
         String type = id.charAt(0) == 'w' ? "way" : id.charAt(0) == 'r' ? "relation" : "node";
+        long number;
+        try { number = Long.parseLong(id.substring(1)); } catch (NumberFormatException e) { return new Result(false, false, null, null); }
+        // The main Overpass server first, then a second public one if the first is busy.
+        for (String server : SERVERS) { Result r = ask(server, type + "(" + number + ")"); if (r.reachable) return r; }
+        return new Result(false, false, null, null);
+    }
+    private static final String[] SERVERS = {"https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"};
+    private static Result ask(String server, String element) {
         try {
-            HttpURLConnection c = (HttpURLConnection)new URL("https://api.openstreetmap.org/api/0.6/" + type + "/" + Long.parseLong(id.substring(1)) + ".json").openConnection();
-            c.setConnectTimeout(8000); c.setReadTimeout(10000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION + " (motorcycle navigation)");
+            String query = "[out:json][timeout:10];" + element + ";out tags meta;";
+            HttpURLConnection c = (HttpURLConnection)new URL(server + "?data=" + URLEncoder.encode(query, "UTF-8")).openConnection();
+            c.setConnectTimeout(8000); c.setReadTimeout(15000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION + " (motorcycle navigation)");
             int code = c.getResponseCode();
-            if (code == 410 || code == 404) { c.disconnect(); return new Result(true, false, null, null); }
             if (code != 200) { c.disconnect(); return new Result(false, false, null, null); }
             String body;
             try (InputStream in = c.getInputStream()) { ByteArrayOutputStream o = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n; while ((n = in.read(b)) > 0) o.write(b, 0, n); body = o.toString(StandardCharsets.UTF_8.name()); }

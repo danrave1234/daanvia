@@ -1011,6 +1011,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else if (mine) {
             routeEta.setText(Gabi.minutes(s.seconds)); routeMeta.setText(Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
             routeStatus.setText(s.simulation ? "Demo route ready" : s.privateRoad ? "This place is inside a private subdivision. Expect a guardhouse and have your ID ready, or ride to a spot outside the gate."
+                : s.endsShort > 80 ? "The route ends at the nearest road it can reach, " + Gabi.distance(s.endsShort) + " from the place. The way in may be private or customers-only."
                 : s.gates > 0 ? "The route passes " + (s.gates == 1 ? "a guardhouse gate" : s.gates + " guardhouse gates") + ". Have your ID ready." : "");
         } else { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText(friendly(s.status)); }
         routeStatus.setVisibility(routeStatus.length() == 0 ? View.GONE : View.VISIBLE);

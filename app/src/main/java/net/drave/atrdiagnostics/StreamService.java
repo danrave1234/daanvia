@@ -44,10 +44,15 @@ public final class StreamService extends Service {
     private Runnable deadline;
     private PowerManager.WakeLock navigationWake;
     private volatile long lastFrameAt; private volatile boolean controlOpen;
+    /** When the video frame now being sent started sending; 0 when none is. A send stuck this long means a stalled link. */
+    private volatile long writingSince;
     /** The display stream has no time limit, so end it (and let the app reconnect) when the bike stops talking to it. */
     private final Runnable watchdog=new Runnable(){public void run(){if(!running)return;long now=System.currentTimeMillis();
         if(frames==0&&now-startedAt>45000){log("The display never asked for video within 45 s.");stopSelf();return;}
         if(frames>0&&!controlOpen&&now-lastFrameAt>15000){log("The display stopped asking for video.");stopSelf();return;}
+        // A video send that never finishes (the Wi-Fi link stalled) can leave the control channel looking healthy, so it is
+        // caught on its own; ending the session lets auto-connect start a fresh one.
+        long w=writingSince;if(w>0&&now-w>15000){log("Sending video to the display has been stuck for 15 s; restarting the connection.");stopSelf();return;}
         main.postDelayed(this,5000);}};
     public IBinder onBind(Intent i){return null;}
     private void event(String kind,String message) {
@@ -223,7 +228,7 @@ public final class StreamService extends Service {
                 case 114: {
                     VideoEncoder current; synchronized(encoderLock){current=encoder;}
                     if(current==null)throw new IOException("Dashboard requested frames before configuration");
-                    byte[] frame=current.next();MediaWire.writeVideo(out,frame);frames++;bytes+=frame.length;lastFrameAt=System.currentTimeMillis();
+                    byte[] frame=current.next();writingSince=System.currentTimeMillis();MediaWire.writeVideo(out,frame);writingSince=0;frames++;bytes+=frame.length;lastFrameAt=System.currentTimeMillis();
                     if(frames==1||frames%30==0)event("frames","Sent "+frames+" H.264 frames ("+bytes+" bytes) in response to dashboard pulls. Rendering is not automatically verified.");
                     break;
                 }

@@ -31,9 +31,15 @@ public final class NavService extends Service {
         DashboardLink link=DashboardLink.existing();
         if(StreamService.navigationActive)searches=0;
         else if(link!=null&&!link.searching()&&getSharedPreferences("ui",0).getBoolean("autoconnect",true)){link.autoNavigation();searches++;}
-        // Every 20 s at first, easing off to once a minute when the bike stays off: each search keeps Wi-Fi scanning.
-        handler.postDelayed(this,Math.min(60000,20000+Math.max(0,searches-3)*10000L));}};
+        // Back off while the bike stays off (see searchGap): each search keeps Wi-Fi scanning.
+        handler.postDelayed(this,searchGap(searches));}};
     private int searches;
+    /**
+     * Wait before the next search for the bike. A search keeps Wi-Fi scanning for up to 45 s, so a bike that stays off
+     * shouldn't be looked for back to back: every 20 s for the first three tries (a link that just dropped comes straight
+     * back), then 20 s longer each time, up to every 3 minutes. Starting a ride or reconnecting starts over.
+     */
+    static long searchGap(int searches){return Math.min(180000,20000+Math.max(0,searches-3)*20000L);}
     private void subscribe(){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)throw new SecurityException("Precise location required");if(gps==null)gps=new LocationFeed(this,this::onLocationChanged,true);gps.stop();if(!gps.start())s.message("GPS is off · enable Location");else s.message("Waiting for GPS · offline region ready");}
     private void onLocationChanged(Location l){if(l.getElapsedRealtimeNanos()>0&&SystemClock.elapsedRealtimeNanos()-l.getElapsedRealtimeNanos()>12000000000L)return;
         // A fix that bounced off buildings would pull the rider off the route and start a reroute (see FixFilter).

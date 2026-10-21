@@ -30,6 +30,21 @@ public final class NavSession {
     public volatile JSONArray maneuvers=new JSONArray();
     public volatile int maneuver,progress;
     public volatile double[] cumulative=new double[0];private double routeMeters,routeSeconds;
+    /** Seconds from the route's start to each of its points, from the router's time for each stretch (see sectionTimes). */
+    private volatile double[] cumTime=new double[0];
+    /**
+     * Seconds from the start of the route to each of its points. Each maneuver's time (the router's own estimate for that
+     * stretch: slow streets slow, fast roads fast) is spread over its points by distance. Without maneuver times, the
+     * route's total time is spread evenly.
+     */
+    static double[] sectionTimes(double[] prefix,JSONArray maneuvers,double total){
+        int n=prefix.length;double[] seg=new double[n];
+        for(int m=0;m<maneuvers.length();m++){JSONObject o=maneuvers.optJSONObject(m);if(o==null)continue;
+            int b=Math.max(0,Math.min(n-1,o.optInt("begin_shape_index",0))),e=Math.max(b,Math.min(n-1,o.optInt("end_shape_index",b)));double t=o.optDouble("time",0),len=prefix[e]-prefix[b];
+            for(int j=b+1;j<=e;j++)seg[j]+=len>0?t*(prefix[j]-prefix[j-1])/len:t/(e-b);}
+        double[] ct=new double[n];for(int j=1;j<n;j++)ct[j]=ct[j-1]+seg[j];
+        if(n>1&&ct[n-1]<=0)for(int j=1;j<n;j++)ct[j]=total*prefix[j]/Math.max(1,prefix[n-1]);
+        return ct;}
     private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute,savedFixAt=-600000;private int offRoute,requestId;
     /** The rider reached the destination on this route: no more rerouting, and the arrival is announced once. */
     public volatile boolean arrived;
@@ -184,13 +199,13 @@ public final class NavSession {
         worker.execute(()->{try{
             // A spot the router can't reach (a parking lot behind a private or customers-only road, the rider inside a gated
             // lot) would leave no route at all: try again from and to the nearest public road beside it.
-            JSONObject response;usedPrivate=false;
+            JSONObject response;usedPrivate=false;boolean fellBack=false;
             try{response=routeBetween(region,a,b,c,d);}
-            catch(Throwable first){response=fallback(region,a,b,c,d,first);}
+            catch(Throwable first){response=fallback(region,a,b,c,d,first);fellBack=true;}
             JSONObject trip=response.getJSONObject("trip");JSONArray legs=trip.getJSONArray("legs");JSONObject leg=legs.getJSONObject(0);
             List<double[]> route=GeoMath.decode(leg.getString("shape"));if(route.size()<2)throw new IOException("Empty route");
             int onRoute=gatesOn(route,gates(region));  // reads the area's gates: outside the lock, which the main thread shares
-            synchronized(this){if(token!=requestId)return;shape=Collections.unmodifiableList(route);maneuvers=leg.getJSONArray("maneuvers");maneuver=0;progress=0;double[] prefix=new double[route.size()];for(int j=1;j<route.size();j++)prefix[j]=prefix[j-1]+GeoMath.distance(route.get(j-1)[0],route.get(j-1)[1],route.get(j)[0],route.get(j)[1]);cumulative=prefix;arrived=false;offRoute=0;routeMeters=prefix[prefix.length-1];remaining=routeMeters;routeSeconds=trip.getJSONObject("summary").getDouble("time");seconds=routeSeconds*pace();lastRemaining=routeMeters;instruction="Route ready";gates=onRoute;privateRoad=usedPrivate;}
+            synchronized(this){if(token!=requestId)return;shape=Collections.unmodifiableList(route);maneuvers=leg.getJSONArray("maneuvers");maneuver=0;progress=0;double[] prefix=new double[route.size()];for(int j=1;j<route.size();j++)prefix[j]=prefix[j-1]+GeoMath.distance(route.get(j-1)[0],route.get(j-1)[1],route.get(j)[0],route.get(j)[1]);cumulative=prefix;cumTime=sectionTimes(prefix,leg.getJSONArray("maneuvers"),trip.getJSONObject("summary").getDouble("time"));arrived=false;offRoute=0;routeMeters=prefix[prefix.length-1];remaining=routeMeters;routeSeconds=trip.getJSONObject("summary").getDouble("time");seconds=routeSeconds*pace();lastRemaining=routeSeconds;instruction="Route ready";gates=onRoute;privateRoad=usedPrivate;double[] end=route.get(route.size()-1);endsShort=usedPrivate||!fellBack?0:GeoMath.distance(end[0],end[1],c,d);}
             message((simulation?"SIMULATION · ":"Offline route ready · ")+destination);
         // A failed reroute keeps the old route, so guidance goes on and the next reroute is tried 12 s later.
         }catch(Throwable e){boolean riding;synchronized(this){if(token!=requestId)return;riding=active&&shape.size()>1;if(!riding)shape=Collections.emptyList();}message(riding?"Couldn't find a new route here · keeping the last one":"No offline route: "+e.getMessage());}finally{routing=false;signal();}});
@@ -199,20 +214,24 @@ public final class NavSession {
     /** {@code anyAccess}: let the route use private roads too, for the last stretch to a place only reachable through one. */
     private JSONObject routeBetween(Region region,double a,double b,double c,double d,boolean anyAccess)throws Exception{
         // Gates cost time at the guardhouse; private roads (most gated subdivisions) are only used when nothing else reaches the place.
-        JSONObject scooter=new JSONObject().put("use_highways",0).put("use_tolls",0).put("top_speed",60).put("gate_cost",60).put("gate_penalty",300).put("private_access_penalty",600);if(anyAccess)scooter.put("ignore_access",true);
+        // Valhalla's motor_scooter costing reads top_speed, use_primary and use_hills, not use_highways or use_tolls; it keeps
+        // off motorways through their moped access in the map data instead.
+        JSONObject scooter=new JSONObject().put("top_speed",60).put("gate_cost",60).put("gate_penalty",300).put("private_access_penalty",600);if(anyAccess)scooter.put("ignore_access",true);
         JSONObject req=new JSONObject().put("locations",new JSONArray().put(new JSONObject().put("lat",a).put("lon",b)).put(new JSONObject().put("lat",c).put("lon",d)))
             .put("costing","motor_scooter").put("units","kilometers").put("language","en-US").put("costing_options",new JSONObject().put("motor_scooter",scooter));
         JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));response.getJSONObject("trip");return response;}
     /**
      * The router couldn't reach the exact spot: it lay on a scrap of road it can't get to, typically a private lane or a
      * customers-only drive beside the place (the router then reports "search exhausted"). Try the nearest few streets
-     * around it instead, named streets first (they are rarely private), then from the nearest street to the rider, and
-     * last let the final stretch use a private road, so a route is always drawn.
+     * around it instead, named streets first (they are rarely private), then from the nearest street to the rider, then
+     * the nearest road within 1.5 km that the router can reach (the route then stops short and the route card says how
+     * far). Only when none of that works does the whole route ignore access rules, which can cross other private roads.
      */
     private JSONObject fallback(Region region,double a,double b,double c,double d,Throwable first)throws Throwable{
-        for(double[] to:nearestRoads(c,d,4))try{return routeBetween(region,a,b,to[0],to[1]);}catch(Throwable ignored){}
-        List<double[]> froms=nearestRoads(a,b,2),tos=nearestRoads(c,d,2);
+        for(double[] to:nearestRoads(c,d,4,300))try{return routeBetween(region,a,b,to[0],to[1]);}catch(Throwable ignored){}
+        List<double[]> froms=nearestRoads(a,b,2,300),tos=nearestRoads(c,d,2,300);
         for(double[] from:froms)for(double[] to:tos)try{return routeBetween(region,from[0],from[1],to[0],to[1]);}catch(Throwable ignored){}
+        for(double[] to:nearestRoads(c,d,12,1500)){if(to[2]<260)continue;try{return routeBetween(region,a,b,to[0],to[1]);}catch(Throwable ignored){}}
         try{JSONObject r=routeBetween(region,a,b,c,d,true);usedPrivate=true;return r;}catch(Throwable ignored){}
         throw first;}
     private volatile boolean usedPrivate;
@@ -237,11 +256,13 @@ public final class NavSession {
      * ready, or pick a spot outside the gate.
      */
     public volatile int gates;public volatile boolean privateRoad;
-    /** The closest point on each of the nearest public-looking streets within 300 m, nearest first, a named street counting 40 m closer. */
-    private List<double[]> nearestRoads(double lat,double lon,int max){
-        double pad=300/111000.0,padLon=pad/Math.max(0.2,Math.cos(Math.toRadians(lat)));ArrayList<double[]> found=new ArrayList<>();
+    /** How far from the destination the route stops, in metres, when the router couldn't reach the place itself. */
+    public volatile double endsShort;
+    /** The closest point on each of the nearest public-looking streets within {@code radius} m, nearest first, a named street counting 40 m closer. */
+    private List<double[]> nearestRoads(double lat,double lon,int max,double radius){
+        double pad=radius/111000.0,padLon=pad/Math.max(0.2,Math.cos(Math.toRadians(lat)));ArrayList<double[]> found=new ArrayList<>();
         for(Road r:roadIndex.near(lat-pad,lon-padLon,lat+pad,lon+padLon)){
-            if(MINOR.contains(r.kind))continue;double bestD=300;double[] best=null;
+            if(MINOR.contains(r.kind))continue;double bestD=radius;double[] best=null;
             for(int i=0;i+1<r.size();i++){double[] p={r.lat(i),r.lon(i)},q={r.lat(i+1),r.lon(i+1)};double dist=GeoMath.segmentDistance(lat,lon,p,q);if(dist<bestD){bestD=dist;best=GeoMath.project(lat,lon,p,q);}}
             if(best!=null)found.add(new double[]{best[0],best[1],bestD-(r.name.isEmpty()?0:40)});}
         found.sort((x,y)->Double.compare(x[2],y[2]));
@@ -260,11 +281,12 @@ public final class NavSession {
         double w=Math.min(0.7,plannedSpent/1800.0),now=Math.max(0.8,Math.min(3.0,actualSpent/plannedSpent));
         return learned*(1-w)+now*w;
     }
-    private void track(boolean demo,long takenAt){
+    private void track(boolean demo,long takenAt,double remSecs){
         paceDemo|=demo||simulation;
-        if(lastRemaining>=0&&lastFixAt>0&&routeMeters>0){double d=Math.max(0,lastRemaining-remaining);long dt=takenAt-lastFixAt;
-            if(d<1500&&dt>0&&dt<15000){plannedSpent+=d*routeSeconds/routeMeters;actualSpent+=dt/1000.0;}}
-        lastRemaining=remaining;lastFixAt=takenAt;
+        // lastRemaining is the router's time left (seconds) at the last fix: the drop since then is the planned time covered.
+        if(lastRemaining>=0&&lastFixAt>0){double d=Math.max(0,lastRemaining-remSecs);long dt=takenAt-lastFixAt;
+            if(d<600&&dt>0&&dt<15000){plannedSpent+=d;actualSpent+=dt/1000.0;}}
+        lastRemaining=remSecs;lastFixAt=takenAt;
     }
     /** At the end of a real ride of at least five planned minutes, fold how long it took into the rider's pace. */
     private void learn(){
@@ -291,8 +313,13 @@ public final class NavSession {
         if(best<Math.max(45,acc)){progress=Math.max(progress,nearest);offRoute=0;}
         // Draw the rider on the road being followed, pointing along it, like car navigation does; GPS scatter stays hidden.
         if(best<Math.min(45,Math.max(25,acc))){double[] p1=route.get(nearest),p2=route.get(Math.min(nearest+1,route.size()-1));double[] on=GeoMath.project(a,b,p1,p2);viewLat=on[0];viewLon=on[1];if(p1!=p2)viewBearing=GeoMath.bearing(p1,p2);snapped=true;}else if(acc<35&&best>65&&!arrived&&GeoMath.distance(a,b,destLat,destLon)>150){offRoute++;if(!demo&&offRoute>=3&&!routing&&SystemClock.elapsedRealtime()-lastReroute>12000){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
-        double rem=GeoMath.distance(a,b,route.get(Math.min(progress+1,route.size()-1))[0],route.get(Math.min(progress+1,route.size()-1))[1]);
-        for(int i=progress+1;i<route.size()-1;i++)rem+=GeoMath.distance(route.get(i)[0],route.get(i)[1],route.get(i+1)[0],route.get(i+1)[1]);remaining=rem;track(demo,takenAt);seconds=routeMeters>0?routeSeconds*remaining/routeMeters*pace():0;
+        // Distance and time left: to the next route point, then the rest from the running totals. The time left adds up
+        // the router's own times for the stretches still ahead, so a slow city stretch near the end counts as slow.
+        int nxt=Math.min(progress+1,route.size()-1);double toNext=GeoMath.distance(a,b,route.get(nxt)[0],route.get(nxt)[1]);double[] ct=cumTime;double rem,remSecs;
+        if(measured&&ct.length==route.size()){rem=toNext+cum[cum.length-1]-cum[nxt];int prev=Math.max(0,nxt-1);double segLen=cum[nxt]-cum[prev];
+            remSecs=ct[ct.length-1]-ct[nxt]+(segLen>0?toNext*(ct[nxt]-ct[prev])/segLen:0);}
+        else{rem=toNext;for(int i=nxt;i<route.size()-1;i++)rem+=GeoMath.distance(route.get(i)[0],route.get(i)[1],route.get(i+1)[0],route.get(i+1)[1]);remSecs=routeMeters>0?routeSeconds*rem/routeMeters:0;}
+        remaining=rem;track(demo,takenAt,remSecs);seconds=remSecs*pace();
         try{
             int next=0;for(int i=0;i<maneuvers.length();i++)if(maneuvers.getJSONObject(i).optInt("begin_shape_index")>progress){next=i;break;}
             if(next==0)next=Math.max(0,maneuvers.length()-1);maneuver=next;JSONObject m=maneuvers.getJSONObject(next);int at=Math.min(route.size()-1,m.optInt("begin_shape_index"));double[] prefix=cumulative;int ahead=Math.min(progress+1,route.size()-1);distanceToTurn=at>=ahead&&prefix.length==route.size()?GeoMath.distance(a,b,route.get(ahead)[0],route.get(ahead)[1])+prefix[at]-prefix[ahead]:0;instruction=m.optString("instruction","Continue");

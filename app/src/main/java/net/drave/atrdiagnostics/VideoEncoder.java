@@ -34,12 +34,14 @@ public final class VideoEncoder implements Closeable {
         f.setInteger(MediaFormat.KEY_LEVEL,MediaCodecInfo.CodecProfileLevel.AVCLevel31);
         f.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER,100000);
         codec=MediaCodec.createEncoderByType("video/avc");
+        // Which encoder this phone picked: a software one costs far more battery and heat than the chip's own.
+        String codecName=codec.getName();boolean hardware=false;try{hardware=codec.getCodecInfo().isHardwareAccelerated();}catch(Exception ignored){}
         try{codec.configure(f,null,null,MediaCodec.CONFIGURE_FLAG_ENCODE);}catch(Exception e){codec.release();codec=null;throw e;}
         surface=codec.createInputSurface();codec.start();running=true;
         drain=new Thread(this::drain,"atr-avc-output");drain.start();
         if(projection!=null)display=projection.createVirtualDisplay("ATR mirror test",w,h,dpi,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,surface,null,null);
         else {draw=new Thread(navigation==null?this::pattern:this::navigationFrames,"daanvia-render");draw.start();}
-        log.accept("H.264 encoder started: "+w+"x"+h+", "+fps+" fps, "+(navigation!=null?"dedicated navigation scene":projection==null?"animated test pattern":"user-authorized screen sharing")+".");
+        log.accept("H.264 encoder started: "+codecName+" ("+(hardware?"hardware":"software")+"), "+w+"x"+h+", "+fps+" fps, "+(navigation!=null?"dedicated navigation scene":projection==null?"animated test pattern":"user-authorized screen sharing")+".");
     }
     private void drain() {
         MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();
