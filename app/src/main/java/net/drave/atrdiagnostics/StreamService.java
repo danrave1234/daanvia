@@ -177,6 +177,7 @@ public final class StreamService extends Service {
                         if(encoder==null) {
                             width=cfg[0];height=cfg[1];encoder=new VideoEncoder(this::log);
                             NavSession nav=NavSession.get(this);nav.screenReport(0,0,width,height,0,null);
+                            PowerManager power=getSystemService(PowerManager.class);encoder.heat(power::getCurrentThermalStatus);
                             encoder.pace(nav.bikeFps,rate->{nav.screenReport(0,0,0,0,rate,null);log("Bike pulls about "+rate+" frames a second; drawing at that rate.");});
                             if("navigation".equals(mode))encoder.setNavigation(NavSession.get(this));
                             try{encoder.start(width,height,projection,getResources().getConfiguration().densityDpi);}

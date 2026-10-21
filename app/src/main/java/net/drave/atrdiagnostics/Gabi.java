@@ -113,7 +113,8 @@ public final class Gabi {
         public int dp(float v) { return Gabi.dp(c, v); }
 
         public TextView text(CharSequence s, float sp, int weight, Role role) {
-            TextView v = new TextView(c); v.setText(s); v.setTextSize(sp); v.setTypeface(font(c, weight)); v.setIncludeFontPadding(false);
+            // Big numbers keep the font's top padding: without it, phones with larger system font sizes clipped the tops of the digits.
+            TextView v = new TextView(c); v.setText(s); v.setTextSize(sp); v.setTypeface(font(c, weight)); v.setIncludeFontPadding(sp >= 26);
             v.setLineSpacing(0, 1.12f);
             t.add(p -> v.setTextColor(role.color(p)));
             return v;

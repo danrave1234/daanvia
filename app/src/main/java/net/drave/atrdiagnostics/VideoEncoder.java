@@ -165,11 +165,17 @@ public final class VideoEncoder implements Closeable {
     /** Start at the rate this bike settled on last time; {@code onRate} hears each change. */
     public void pace(int start,java.util.function.IntConsumer onRate){fps=Math.max(10,Math.min(30,start>0?start:15));this.onRate=onRate;}
     public int fps(){return fps;}
+    /** Android's thermal status (PowerManager.THERMAL_STATUS_*), or null to ignore heat. */
+    private java.util.function.IntSupplier heat;
+    public void heat(java.util.function.IntSupplier heat){this.heat=heat;}
     private void pace(int waiting,long waitMs){
         pulls++;waited+=waitMs;if(waiting>=2)backlog++;
         if(pulls<30)return;
         long avgWait=waited/pulls;int old=fps;
         if(backlog>pulls/3&&fps>10)fps-=5;else if(avgWait>=12&&fps<30)fps+=5;
+        // A phone in the sun on a handlebar can run hot: as Android reports heat, draw less (15 fps, then 10) until it cools.
+        int t=heat==null?0:heat.getAsInt();int cap=t>=android.os.PowerManager.THERMAL_STATUS_SEVERE?10:t>=android.os.PowerManager.THERMAL_STATUS_MODERATE?15:30;
+        if(fps>cap)fps=cap;
         pulls=0;waited=0;backlog=0;
         if(fps!=old&&onRate!=null)onRate.accept(fps);
     }

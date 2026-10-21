@@ -143,25 +143,34 @@ public final class DashboardRenderer {
         String[] v = {String.valueOf(Math.max(1, Math.round(secs / 60))), String.format(Locale.US, "%.1f", metres / 1000), Gabi.clock(secs).replace(" AM", "").replace(" PM", "")};
         String[] u = {"MIN", "KM", "ARRIVE"};
         boolean row = r.width() >= r.height() * 1.25f;
+        // Readable at a glance from the saddle: big numbers, and labels about half their height in a bright colour (they
+        // were small grey caps you had to lean in to read). Everything shrinks together only when the card is too small.
+        p.setLetterSpacing(0.08f); p.setTypeface(bold); p.setTextSize(100); float labelW = 0; for (String t : u) labelW = Math.max(labelW, p.measureText(t) / 100f); p.setLetterSpacing(0);
+        p.setTypeface(black); p.setTextSize(100); float valueW = 0; for (String t : v) valueW = Math.max(valueW, p.measureText(t) / 100f);
         if (row) {
-            float k = unit(r, 280, 140), pad = 14 * k, col = (r.width() - pad * 2) / 3f, vs = Math.min(42 * k, r.height() * 0.5f), us = 14 * k;
-            // One size for all three numbers, as large as the widest of them fits its column ("12:45" is the usual one).
-            p.setTypeface(black); p.setTextSize(vs); float widest = 0; for (String t : v) widest = Math.max(widest, p.measureText(t));
-            if (widest > col - 6 * k) vs *= (col - 6 * k) / widest;
-            float base = r.top + r.height() / 2f + vs * 0.25f;
+            // Each column as wide as its own number or label ("7" needs far less room than "10:59"), so the numbers can
+            // be as large as the card allows rather than all fitting the widest one.
+            float k = unit(r, 280, 140), pad = 12 * k, gap = 22 * k, avail = r.width() - pad * 2 - gap * 2, ratio = 0.46f;
+            float[] em = new float[3]; float sum = 0;
             for (int i = 0; i < 3; i++) {
-                float x = r.left + pad + col * i;
-                text(c, fit(v[i], col - 4, vs, black), x, base, vs, i == 0 ? pal.accent : ink(), black);
-                p.setLetterSpacing(0.12f); text(c, u[i], x, base + us * 1.9f, us, muted(), bold); p.setLetterSpacing(0);
+                p.setTypeface(black); p.setTextSize(100); float vw = p.measureText(v[i]) / 100f;
+                p.setTypeface(bold); p.setLetterSpacing(0.08f); float lw = p.measureText(u[i]) / 100f * ratio; p.setLetterSpacing(0);
+                em[i] = Math.max(vw, lw); sum += em[i];
+            }
+            float vs = Math.min(Math.min(60 * k, r.height() * 0.52f), avail / sum), us = vs * ratio;
+            float block = vs * 0.74f + us * 1.45f, base = r.top + (r.height() - block) / 2f + vs * 0.74f, x = r.left + pad;
+            for (int i = 0; i < 3; i++) {
+                text(c, v[i], x, base, vs, i == 0 ? pal.accent : ink(), black);
+                p.setLetterSpacing(0.08f); text(c, u[i], x, base + us * 1.35f, us, soft(), bold); p.setLetterSpacing(0);
+                x += em[i] * vs + gap;
             }
         } else {
-            float k = unit(r, 150, 260), pad = 14 * k, line = (r.height() - pad * 2) / 3f, vs = Math.min(40 * k, line * 0.58f), us = 13 * k;
-            p.setTypeface(black); p.setTextSize(vs); float widest = 0; for (String t : v) widest = Math.max(widest, p.measureText(t));
-            if (widest > r.width() - pad * 2) vs *= (r.width() - pad * 2) / widest;
+            float k = unit(r, 150, 260), pad = 12 * k, line = (r.height() - pad * 2) / 3f, room = r.width() - pad * 2;
+            float vs = Math.min(Math.min(48 * k, line * 0.56f), room / valueW), us = Math.min(Math.min(Math.max(16 * k, vs * 0.44f), line * 0.3f), room / labelW);
             for (int i = 0; i < 3; i++) {
-                float y = r.top + pad + line * i + vs;
-                text(c, fit(v[i], r.width() - pad * 2, vs, black), r.left + pad, y, vs, i == 0 ? pal.accent : ink(), black);
-                p.setLetterSpacing(0.12f); text(c, u[i], r.left + pad, y + us * 1.6f, us, muted(), bold); p.setLetterSpacing(0);
+                float y = r.top + pad + line * i + (line - vs * 0.74f - us * 1.4f) / 2f + vs * 0.74f;
+                text(c, v[i], r.left + pad, y, vs, i == 0 ? pal.accent : ink(), black);
+                p.setLetterSpacing(0.08f); text(c, u[i], r.left + pad, y + us * 1.3f, us, soft(), bold); p.setLetterSpacing(0);
             }
         }
     }

@@ -966,11 +966,13 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         routeStar = k.circle(IconDrawable.STAR, 36, CHIP, ACCENT, this::toggleRouteStar); head.addView(routeStar);
         head.addView(k.circle(IconDrawable.CLOSE, 36, CHIP, MUTED, this::closeRoute));
         c.addView(head);
-        LinearLayout etaRow = k.row(10); etaRow.setGravity(Gravity.BOTTOM); etaRow.setPadding(0, k.dp(6), 0, 0);
-        routeEta = k.num("—", 40, 800, INK); routeEta.setLetterSpacing(-0.03f); etaRow.addView(routeEta);
-        routeMeta = k.num("", 14, 600, MUTED); routeMeta.setPadding(0, 0, 0, k.dp(6)); etaRow.addView(routeMeta, new LinearLayout.LayoutParams(0, -2, 1));
+        // Minutes on their own line, distance and arrival under them: side by side, a long arrival time wrapped and large
+        // system font sizes pushed the minutes out of the card.
+        LinearLayout etaRow = k.row(10); etaRow.setGravity(Gravity.CENTER_VERTICAL); etaRow.setPadding(0, k.dp(4), 0, 0);
+        routeEta = k.single(k.num("—", 40, 800, INK)); routeEta.setLetterSpacing(-0.03f); etaRow.addView(routeEta, new LinearLayout.LayoutParams(0, -2, 1));
+        routeMeta = k.single(k.num("", 15, 600, MUTED)); routeMeta.setPadding(0, 0, 0, k.dp(2));
         etaRow.addView(k.info("Routes are planned for a 160 cc scooter, so they skip expressways and toll roads. Times are estimates and don’t include live traffic. Parking near the end of the trip shows on the map and on your bike display."));
-        c.addView(etaRow);
+        c.addView(etaRow); c.addView(routeMeta);
         shimmer = new View(this); k.fill(shimmer, 2, ACCENT); shimmer.setPivotX(0);
         FrameLayout track = new FrameLayout(this); k.fill(track, 2, CHIP); track.addView(shimmer, new FrameLayout.LayoutParams(k.dp(90), -1));
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, k.dp(3)); tp.topMargin = k.dp(10); c.addView(track, tp);
