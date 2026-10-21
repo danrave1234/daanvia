@@ -128,7 +128,9 @@ public final class AppUpdate {
                 post(new State(r, r.bytes, false, false, true, false, null));
                 pi = c.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-                params.setAppPackageName(c.getPackageName());
+                // The APK's own package: an update of this app, or the new Daanvia (a separate app id) installed beside it.
+                android.content.pm.PackageInfo info = c.getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
+                params.setAppPackageName(info != null ? info.packageName : c.getPackageName());
                 if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
                 id = pi.createSession(params);
                 try (PackageInstaller.Session session = pi.openSession(id)) {
