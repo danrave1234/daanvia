@@ -232,9 +232,13 @@ public final class DashboardRenderer {
      */
     public boolean still() {
         if (s.layoutEditing || s.calibration) return false;
-        boolean moving = s.active && (s.simulation || motion.speed > 1.0);
-        return !moving && Math.abs(targetMpp() - mpp) < 0.02 * mpp && Math.abs(targetTilt() - tilt) < 0.3f;
+        long now = android.os.SystemClock.uptimeMillis();
+        // On a ride the scene counts as still only after 15 s stopped, so creeping through traffic, or GPS speed
+        // wobbling around walking pace, never lowers the frame rate.
+        if (s.active && (s.simulation || motion.speed > 0.4)) movedAt = now;
+        return now - movedAt > (s.active ? 15000 : 3000) && Math.abs(targetMpp() - mpp) < 0.02 * mpp && Math.abs(targetTilt() - tilt) < 0.3f;
     }
+    private long movedAt = android.os.SystemClock.uptimeMillis();
     /** Metres per pixel: close like Google Maps, a little wider at speed, closer for a turn and when arriving. */
     private double targetMpp() {
         if (!s.active) return 3.0;

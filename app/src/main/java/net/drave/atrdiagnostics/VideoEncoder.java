@@ -144,8 +144,11 @@ public final class VideoEncoder implements Closeable {
         }
     }
     volatile int drawn;
-    /** Time to the next frame: the bike's rate while anything moves, 4 a second while the scene stands still. */
-    private long interval(){quiet=navigation!=null&&navigation.still();return quiet?250:1000/fps;}
+    /**
+     * Time to the next frame: the bike's rate while anything moves, 10 a second while the scene stands still. Not fewer:
+     * many phones' encoders don't repeat the last frame by themselves, so the bike would really get only what is drawn.
+     */
+    private long interval(){quiet=navigation!=null&&navigation.still();return quiet?Math.max(100,1000/fps):1000/fps;}
     private volatile boolean quiet;
     private int shader(int type,String source)throws IOException{int shader=GLES20.glCreateShader(type);GLES20.glShaderSource(shader,source);GLES20.glCompileShader(shader);int[] status=new int[1];GLES20.glGetShaderiv(shader,GLES20.GL_COMPILE_STATUS,status,0);if(status[0]==0)throw new IOException("Navigation shader failed");return shader;}
     // The bike pulls frames at its own pace. Frames waiting in the queue are frames the bike shows late, so once more than

@@ -179,6 +179,8 @@ public final class DashboardLink {
 
     private DashboardLink(Context context) {
         this.context = context;
+        logFile = new File(context.getFilesDir(), "ride-log.txt");
+        earlier();
         cm = (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
         wifi = (WifiManager)context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         p2p = (WifiP2pManager)context.getSystemService(Context.WIFI_P2P_SERVICE);
@@ -244,8 +246,42 @@ public final class DashboardLink {
 
     private void log(String s) {
         String line = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + clean(s) + "\n";
-        synchronized(report) { if (report.length() < 150000) report.append(line); }
+        synchronized(report) { if (report.length() < 150000) report.append(line); keep(line); }
         main.post(() -> { if (!destroyed) ui.onLog(); });
+    }
+    /*
+     * The log is also kept in a file, so a report shared after the app closed (or the bike display cut off) still holds
+     * what happened just before, and why Android ended the app last time: a crash, low memory, the user, and so on.
+     */
+    private final File logFile;
+    private void keep(String line) {
+        try (FileOutputStream f = new FileOutputStream(logFile, true)) { f.write(line.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
+    }
+    private void earlier() {
+        String before = "";
+        try { byte[] b = java.nio.file.Files.readAllBytes(logFile.toPath()); int from = Math.max(0, b.length - 30000); before = new String(b, from, b.length - from, StandardCharsets.UTF_8); } catch (Exception ignored) {}
+        try (FileOutputStream f = new FileOutputStream(logFile, false)) { f.write(before.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
+        if (!before.isEmpty()) synchronized(report) { report.append("---- Earlier, before the app last started ----\n").append(before).append("---- This start ----\n"); }
+        if (Build.VERSION.SDK_INT >= 30) try {
+            android.app.ActivityManager am = context.getSystemService(android.app.ActivityManager.class);
+            for (android.app.ApplicationExitInfo e : am.getHistoricalProcessExitReasons(null, 0, 1))
+                synchronized(report) { report.append(new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date(e.getTimestamp()))).append("  App last ended: ").append(exitReason(e.getReason())).append(" (").append(e.getDescription() == null ? "" : clean(e.getDescription())).append(", importance ").append(e.getImportance()).append(")\n"); }
+        } catch (Exception ignored) {}
+        Thread.UncaughtExceptionHandler prior = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((t, x) -> {
+            StringWriter w = new StringWriter(); x.printStackTrace(new PrintWriter(w));
+            keep(new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  CRASH on " + t.getName() + ": " + w + "\n");
+            if (prior != null) prior.uncaughtException(t, x);
+        });
+    }
+    private static String exitReason(int r) {
+        switch (r) {
+            case 1: return "exited by itself"; case 2: return "stopped by a system signal"; case 3: return "low memory";
+            case 4: return "crash"; case 5: return "native crash"; case 6: return "not responding (ANR)"; case 7: return "failed to start";
+            case 8: return "permission changed"; case 9: return "too much CPU or battery use"; case 10: return "closed by the user";
+            case 11: return "a dependency died"; case 12: return "other"; case 13: return "frozen"; case 14: return "package state changed"; case 15: return "app updated";
+            default: return "unknown (" + r + ")";
+        }
     }
     private String clean(String s) {
         return s.replaceAll("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}", "[device address redacted]")
