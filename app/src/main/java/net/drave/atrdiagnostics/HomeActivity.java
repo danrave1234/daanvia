@@ -1085,7 +1085,16 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             org.json.JSONObject r = new org.json.JSONObject(raw);
             if (System.currentTimeMillis() - r.getLong("at") > 3 * 3600_000L) return;
             double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
-            notice("Your ride to " + name + " was cut short", "Continue", () -> choose(la, lo, name), 15000);
+            // When the phone itself closed Daanvia (OPPO and others do, to save battery), say so, and on Continue also open
+            // the setting that stops it: Android's Allow dialog, or the app's settings page with Battery → Allow background activity.
+            if (KeepAlive.killedBySystem(this))
+                notice("Your phone closed Daanvia during your ride to " + name + ". Continue, then allow it to keep running", "Continue", () -> {
+                    choose(la, lo, name);
+                    boolean asking = !KeepAlive.allowed(this); KeepAlive.fix(this);
+                    // A toast, because it stays visible over the settings page that just opened.
+                    if (!asking) android.widget.Toast.makeText(this, "In Battery, turn on Allow background activity", android.widget.Toast.LENGTH_LONG).show();
+                }, 20000);
+            else notice("Your ride to " + name + " was cut short", "Continue", () -> choose(la, lo, name), 15000);
         } catch (org.json.JSONException ignored) {}
     }
 

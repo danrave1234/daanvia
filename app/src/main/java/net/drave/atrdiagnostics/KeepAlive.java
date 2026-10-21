@@ -29,6 +29,29 @@ final class KeepAlive {
         catch (Exception e) { try { a.startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception ignored) {} }
     }
 
+    /**
+     * True when Android, or the phone maker's battery saver, ended the app last time: low memory, too much power use, or
+     * a kill of its own (OPPO's shows as "o-kill"). Not a crash, an update or the rider closing it.
+     */
+    static boolean killedBySystem(Context c) {
+        if (android.os.Build.VERSION.SDK_INT < 30) return false;
+        try {
+            for (android.app.ApplicationExitInfo e : c.getSystemService(android.app.ActivityManager.class).getHistoricalProcessExitReasons(null, 0, 1)) {
+                int r = e.getReason();
+                return r == android.app.ApplicationExitInfo.REASON_SIGNALED || r == android.app.ApplicationExitInfo.REASON_LOW_MEMORY
+                    || r == android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE || r == android.app.ApplicationExitInfo.REASON_OTHER
+                    || r == android.app.ApplicationExitInfo.REASON_FREEZER;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    /** After the phone closed Daanvia mid-ride: Android's Allow dialog, or, once that's allowed, the app's own settings page. */
+    static void fix(Activity a) {
+        if (!allowed(a)) { ask(a); return; }
+        try { a.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + a.getPackageName()))); } catch (Exception ignored) {}
+    }
+
     /** At the start of a ride with a saved bike: ask, at most once every three days, until allowed. */
     static void askForRide(Activity a) {
         if (allowed(a) || a.getSharedPreferences("saved-bike", 0).getString("qr", "").isEmpty()) return;
