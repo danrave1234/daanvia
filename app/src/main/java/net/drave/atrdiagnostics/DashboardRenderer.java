@@ -239,6 +239,10 @@ public final class DashboardRenderer {
         return now - movedAt > (s.active ? 15000 : 3000) && Math.abs(targetMpp() - mpp) < 0.02 * mpp && Math.abs(targetTilt() - tilt) < 0.3f;
     }
     private long movedAt = android.os.SystemClock.uptimeMillis();
+    private double prevLat, prevLon, prevMpp; private float prevTilt, prevBearing;
+    private volatile float pixelsPerSecond = 1000;
+    /** How fast the bike picture moved over the last frame, in screen pixels a second (see drawMap). */
+    public float pixelsPerSecond() { return pixelsPerSecond; }
     /** Metres per pixel: close like Google Maps, a little wider at speed, closer for a turn and when arriving. */
     private double targetMpp() {
         if (!s.active) return 3.0;
@@ -286,6 +290,17 @@ public final class DashboardRenderer {
         clat = motion.lat == 0 ? s.viewLat : motion.lat; clon = motion.lon == 0 ? s.viewLon : motion.lon; coslat = Math.cos(Math.toRadians(clat));
         double theta = heading ? Math.toRadians(-motion.bearing) : 0; cos = (float)Math.cos(theta); sin = (float)Math.sin(theta);
         cx = s.arrowX * w; cy = s.arrowY * h;
+        // How fast the picture moves on screen, in pixels a second: travel (doubled, since the tilt magnifies the road near
+        // the bottom edge), turning at the screen's corners, and zoom and tilt changes. The encoder draws only as often as
+        // that needs, so a straight road at an even speed costs far fewer frames than a turn.
+        double half = Math.hypot(w, h) / 2;
+        if (prevMpp > 0) {
+            double move = Math.hypot((clon - prevLon) * coslat, clat - prevLat) * 111195 / mpp * 2;
+            double turn = heading ? Math.abs(((motion.bearing - prevBearing + 540) % 360) - 180) * Math.PI / 180 * half : 0;
+            double zoom = Math.abs(mpp - prevMpp) / mpp * half + Math.abs(tilt - prevTilt) * 8;
+            pixelsPerSecond = (float)((move + turn + zoom) * 1000 / Math.max(1f, gap));
+        }
+        prevLat = clat; prevLon = clon; prevMpp = mpp; prevTilt = tilt; prevBearing = motion.bearing;
         // Tilt the map away from the rider like the phone's 3D view: the road ahead recedes towards the horizon.
         lens.save(); lens.setLocation(0, 0, -10); lens.rotateX(tilt); lens.getMatrix(tiltMatrix); lens.restore();
         tiltMatrix.preTranslate(-cx, -cy); tiltMatrix.postTranslate(cx, cy); clipLimit(h);
