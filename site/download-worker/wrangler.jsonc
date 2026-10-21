@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "daanvia-download",
+  "main": "src/index.js",
+  "account_id": "746d8b6bea980c0ca76e7ce67595b657",
+  "compatibility_date": "2026-08-20",
+  "workers_dev": true,
+  "observability": { "enabled": true }
+  // Optional secret for a higher GitHub API limit: `wrangler secret put GITHUB_TOKEN`
+  // (a fine-grained token with read-only access to public repositories is enough).
+}
