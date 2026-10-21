@@ -125,9 +125,15 @@ public final class StreamService extends Service {
         InputStream in=s.getInputStream();PxcWriter out=new PxcWriter(s.getOutputStream());
         int heartbeatCount=0,acknowledged=0;
         ControlKeepalive keepalive=null;controlOpen=true;
+        // The first time the dashboard sends each kind of request its contents go in the log (identity fields redacted),
+        // with the phone's clock, so a shared report shows what the dashboard asks for, e.g. if it expects the time.
+        Set<Integer> shown=new HashSet<>();
+        log("Control channel open. Phone time "+clock()+".");
         try {
         while(running) {
             Pxc f=Pxc.read(in);
+            if(f.command!=0x70000000&&f.command!=0x70000001&&f.command!=Pxc.CLIENT_INFO&&shown.add(f.command))
+                log("Dashboard sent 0x"+Integer.toHexString(f.command)+": "+preview(f.payload));
             if(f.command==0x70000000){heartbeatCount++;if(heartbeatCount==1||heartbeatCount%5==0)log("Received and replying to control heartbeat #"+heartbeatCount);}
             if(f.command==0x70000001){acknowledged++;if(acknowledged==1||acknowledged%5==0)log("Dashboard replied to outgoing heartbeat #"+acknowledged+" on "+s.getPort());continue;}
             if((f.command==0x10000||f.command==0x20000)&&keepalive==null) {
@@ -143,6 +149,7 @@ public final class StreamService extends Service {
                 if(pw<=0||ph<=0){pw=vw;ph=vh;}
                 NavSession.get(this).screenReport(pw,ph,vw,vh,0,bike.optString("screenType",bike.optString("productType","")));
                 log("Dashboard screen: panel "+pw+"x"+ph+", video "+vw+"x"+vh+", type "+bike.optString("screenType","?")+".");
+                log("Dashboard info: "+preview(f.payload));
                 if(huid.isEmpty()||huid.getBytes(StandardCharsets.UTF_8).length>100)throw new IOException("Missing or unsupported dashboard identity field");
                 Cipher rsa=Cipher.getInstance("RSA/ECB/PKCS1Padding");rsa.init(Cipher.ENCRYPT_MODE,identity.getPrivate());
                 String signed=Base64.encodeToString(rsa.doFinal(huid.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
@@ -164,7 +171,17 @@ public final class StreamService extends Service {
             } else log("Unimplemented control command 0x"+Integer.toHexString(f.command)+"; payload length="+f.payload.length+"; no guessed reply sent.");
             out.flush();
         }
-        } finally {controlOpen=false;if(keepalive!=null)keepalive.close();}
+        } finally {controlOpen=false;if(keepalive!=null)keepalive.close();log("Control channel closed. Phone time "+clock()+".");}
+    }
+    private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
+    /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
+    static String preview(byte[] b){
+        if(b.length==0)return "(empty)";
+        String t=new String(b,0,Math.min(b.length,600),StandardCharsets.UTF_8);int odd=0;
+        for(int i=0;i<t.length();i++){char ch=t.charAt(i);if(ch<32&&ch!='\n'&&ch!='\r'&&ch!='\t')odd++;}
+        if(odd>t.length()/10){StringBuilder h=new StringBuilder();for(int i=0;i<Math.min(b.length,64);i++)h.append(String.format(Locale.US,"%02x",b[i]&0xff));return b.length+" bytes, hex "+h+(b.length>64?"…":"");}
+        t=t.replaceAll("(?i)(\"(?:huid|sn|uuid|imei|mac|serial|vin|id)[a-z]*\"\\s*:\\s*\")[^\"]*","$1[redacted]");
+        return b.length+" bytes: "+t.replace('\n',' ').replace('\r',' ')+(b.length>600?"…":"");
     }
     private void media(Socket s)throws Exception {
         InputStream in=s.getInputStream();OutputStream out=s.getOutputStream();
