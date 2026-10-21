@@ -532,7 +532,8 @@ function VersionLine({ rel }: { rel: Release | null }) {
   if (!rel) return <p className="version">Latest version · Android 10+</p>;
   return (
     <p className="version">
-      Version {rel.version} · {formatSize(rel.size)} · released {formatDate(rel.publishedAt)}
+      Version {rel.version} · {formatSize(rel.size)}
+      {formatDate(rel.publishedAt) && <> · released {formatDate(rel.publishedAt)}</>}
     </p>
   );
 }
@@ -558,7 +559,7 @@ function WhatsNew({ rel }: { rel: Release }) {
         ))}
       </div>
       <p className="fine">
-        Released {formatDate(rel.publishedAt)}.{' '}
+        {formatDate(rel.publishedAt) && <>Released {formatDate(rel.publishedAt)}. </>}
         <a href={`${REPO_URL}/releases`} rel="noopener">
           Earlier versions
         </a>

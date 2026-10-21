@@ -59,7 +59,18 @@ export async function latestRelease(): Promise<Release | null> {
       };
     }
   } catch {
-    // GitHub unreachable: the page still renders, just without the version line.
+    // Fall through to the Worker below.
+  }
+  // GitHub limits anonymous API calls per IP and Vercel's IPs are shared, so ask the download Worker,
+  // which reads the release pages when the API refuses it.
+  try {
+    const res = await fetch(new URL('latest.json', DOWNLOAD_URL), { next: { revalidate: 600 } });
+    if (res.ok) {
+      const w = (await res.json()) as { version: string; name: string; size: number; publishedAt: string | null; releaseUrl: string; notes: string };
+      return { version: w.version, name: w.name, size: w.size, publishedAt: w.publishedAt ?? '', url: w.releaseUrl, notes: w.notes ?? '' };
+    }
+  } catch {
+    // Both unreachable: the page still renders, just without the version line.
   }
   return null;
 }
@@ -69,6 +80,7 @@ export function formatSize(bytes: number): string {
 }
 
 export function formatDate(iso: string): string {
+  if (!iso || Number.isNaN(Date.parse(iso))) return '';
   return new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' }).format(
     new Date(iso),
   );
