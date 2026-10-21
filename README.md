@@ -30,14 +30,15 @@ Both build types are signed with `signing/prototype.p12`, a public prototype TES
 
 App releases (`vX.Y.Z`) carry only the app: one `daanvia-X.Y.Z.apk`. The app checks `releases/latest` for updates.
 
-The downloadable map areas live in a separate release tagged `maps`, which the app reads from `releases/download/maps/`:
+The downloadable map areas are published as map generations, one per build:
 
-- `areas-index.json`: the catalog of area cells with sizes and sha256
-- `cell_*.zip` and `base_*.zip`: map, search, parking and routing data per cell
+- `maps-<generation>` (e.g. `maps-g20261101T000000Z`): a prerelease that is never changed once uploaded, with the generation's `cell_*-<sha>.zip` and `base_*-<sha>.zip` files (map, search, parking and routing data, named after their sha256) and its `areas-index.json` (generation id, OSM data time, build time, Valhalla and package-schema versions, every file with its size and sha256).
+- `maps` / `areas-current.json`: the live generation's index. The app reads it from `releases/download/maps/` and downloads the files from the release it names.
+- `maps` / `areas-index.json` and its zips: the last build before generations. App versions up to 0.8.0 read only this file, so it stays as it is until nobody runs them.
 
-Publish the `maps` release with `--latest=false` so it never becomes the latest app release. Replacing its files updates maps for everyone without an app update.
+Map releases are never marked latest (`--prerelease --latest=false`), so the app's update check and the website only see app releases. One release holds at most 1000 files and a generation is about 560, which is why each generation gets its own. Publishing uploads the whole new generation first and switches `areas-current.json` last; the previous generation's release stays until the next cleanup, so a phone in the middle of a download finishes it.
 
-To rebuild the areas from a fresh Geofabrik extract, run `tools/build_grid.py`, then `tools/split_grid.py --towns app/src/main/assets/overview/towns.json`, then `tools/verify_grid.py`. Output goes to `dist/areas/`. Sizes and coverage notes are in `docs/offline-coverage.md`.
+To rebuild the areas from a fresh Geofabrik extract, run `tools/build_grid.py`, then `tools/split_grid.py --towns app/src/main/assets/overview/towns.json`, then `tools/verify_grid.py`. Output goes to `dist/areas/`. Then publish with `tools/publish_maps.py dist/areas`: `plan` (changes nothing), `upload`, `switch`, then `cleanup --yes`. `python tools/test_publish_maps.py` tests the publishing steps on a local folder. Sizes and coverage notes are in `docs/offline-coverage.md`.
 
 ## Data and licenses
 

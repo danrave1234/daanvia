@@ -19,6 +19,12 @@ import java.util.zip.ZipInputStream;
  * base routing tiles) on the app's GitHub release. The rider frames a rectangle; every cell it touches is downloaded,
  * checked and merged into one area folder under files/regions, where NavSession finds it. Nothing downloads unless
  * the rider asks.
+ * <p>Each map build is a generation with its own release ("maps-g20261101T000000Z") that never changes once
+ * uploaded. maps/areas-current.json is the live generation's index; it names that release and lists its files with
+ * sizes and sha256. A newer generation is uploaded first and areas-current.json switched last; the previous
+ * generation's release stays, so a download that started from the old index finishes from it. Before the first
+ * generation, and for app versions up to 0.8.0, maps/areas-index.json and its files sit in the maps release itself.
+ * An area always comes from one index, and an updated area replaces the installed one only between rides.
  */
 public final class AreaStore {
     /** Map areas live in their own "maps" release, so app releases carry only the APKs. */
@@ -44,8 +50,21 @@ public final class AreaStore {
     }
     public static final class Base { public final String file, sha256; public final long bytes; Base(JSONObject o) throws JSONException { file = o.getString("file"); sha256 = o.optString("sha256"); bytes = o.optLong("bytes"); } }
     public static final class Catalog {
-        public final List<Cell> cells; public final Map<String, Base> base; public final String built;
-        Catalog(List<Cell> c, Map<String, Base> b, String built) { cells = c; base = b; this.built = built; }
+        /** {@code generation} and {@code release} (where its files are) are "" for maps built before generations. */
+        public final List<Cell> cells; public final Map<String, Base> base; public final String built, generation, release;
+        Catalog(List<Cell> c, Map<String, Base> b, String built, String generation, String release) { cells = c; base = b; this.built = built; this.generation = generation; this.release = release; }
+    }
+    /** The live generation's index, and the index from before generations (the only one app versions up to 0.8.0 read). */
+    static final String CURRENT = "areas-current.json", LEGACY = "areas-index.json";
+    /**
+     * Where a catalog's files are: next to the index ({@code base}, ending in "/maps/"), or for a generation in its own
+     * release beside it, ".../maps-g20261101T000000Z/". Works the same for GitHub and a debug test server.
+     */
+    static String files(String base, Catalog cat) {
+        if (cat.release.isEmpty()) return base;
+        if (!cat.release.matches("maps-[A-Za-z0-9]+")) throw new IllegalArgumentException("Bad map release " + cat.release);
+        String b = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        return b.substring(0, b.lastIndexOf('/') + 1) + cat.release + "/";
     }
     /** What a framed rectangle would download. */
     public static final class Selection {
@@ -60,7 +79,7 @@ public final class AreaStore {
         JSONObject j = new JSONObject(json); ArrayList<Cell> cells = new ArrayList<>(); HashMap<String, Base> base = new HashMap<>();
         JSONArray c = j.optJSONArray("cells"); if (c != null) for (int i = 0; i < c.length(); i++) cells.add(new Cell(c.getJSONObject(i)));
         JSONArray b = j.optJSONArray("base"); if (b != null) for (int i = 0; i < b.length(); i++) { Base x = new Base(b.getJSONObject(i)); base.put(x.file, x); }
-        return new Catalog(cells, base, j.optString("built"));
+        return new Catalog(cells, base, j.optString("built"), j.optString("generation"), j.optString("release"));
     }
 
     /** Cells touched by the framed rectangle, with download size (shared tiles counted once), road data size and km. */
@@ -79,7 +98,9 @@ public final class AreaStore {
 
     // ---------------------------------------------------------------- catalog
     public static Catalog fetch(Context c) throws Exception {
-        String json = new String(get(base(c) + "areas-index.json", null, null, null), StandardCharsets.UTF_8);
+        String from = base(c), json;
+        try { json = new String(get(from + CURRENT, null, null, null), StandardCharsets.UTF_8); }
+        catch (Missing none) { json = new String(get(from + LEGACY, null, null, null), StandardCharsets.UTF_8); }  // no generation published yet, or mid-switch
         Catalog cat = parse(json); c.getSharedPreferences("areas", 0).edit().putString("index", json).apply(); return cat;
     }
     /**
@@ -102,7 +123,7 @@ public final class AreaStore {
         download(c, cat, cells, a.name, a.home, a); return true;
     }
     public static Catalog cached(Context c) {
-        try { return parse(c.getSharedPreferences("areas", 0).getString("index", "{}")); } catch (JSONException e) { return new Catalog(Collections.emptyList(), Collections.emptyMap(), ""); }
+        try { return parse(c.getSharedPreferences("areas", 0).getString("index", "{}")); } catch (JSONException e) { return new Catalog(Collections.emptyList(), Collections.emptyMap(), "", "", ""); }
     }
 
     // ---------------------------------------------------------------- installed areas
@@ -152,9 +173,12 @@ public final class AreaStore {
     public interface Listener { void onArea(State s); }
     public static final class State {
         public final String name, error; public final long done, total; public final boolean running, finished;
-        State(String name, long done, long total, boolean running, boolean finished, String error) { this.name = name; this.done = done; this.total = total; this.running = running; this.finished = finished; this.error = error; }
+        /** Downloaded and checked; replaces the installed area when the ride ends. */
+        public final boolean waiting;
+        State(String name, long done, long total, boolean running, boolean finished, String error) { this(name, done, total, running, finished, error, false); }
+        State(String name, long done, long total, boolean running, boolean finished, String error, boolean waiting) { this.name = name; this.done = done; this.total = total; this.running = running; this.finished = finished; this.error = error; this.waiting = waiting; }
         public int percent() { return total <= 0 ? 0 : (int)Math.min(100, done * 100 / total); }
-        public String progressLabel() { return percent() + "% · " + Math.round(done / 1048576.0) + " of " + Math.max(1, Math.round(total / 1048576.0)) + " MB"; }
+        public String progressLabel() { return waiting ? "Ready · updates when the ride ends" : percent() + "% · " + Math.round(done / 1048576.0) + " of " + Math.max(1, Math.round(total / 1048576.0)) + " MB"; }
     }
     private static final List<Listener> listeners = new ArrayList<>();
     private static volatile State state; private static final AtomicBoolean cancel = new AtomicBoolean();
@@ -172,10 +196,11 @@ public final class AreaStore {
         Context c = context.getApplicationContext(); cancel.set(false);
         post(new State(name, 0, 1, true, false, null));
         new Thread(() -> {
-            // The squares may have been picked from the index saved on the phone. If the maps were rebuilt since, its
-            // files no longer match their checksums ("damaged"): download by the current index, square by square.
+            // The squares may have been picked from the index saved on the phone. If the maps were rebuilt since, take
+            // the newer build, square by square: an older generation's files are eventually deleted (and before
+            // generations, files were replaced in place and no longer matched their checksums).
             Catalog cat = chosen; List<Cell> cells = chosenCells;
-            try { Catalog fresh = fetch(c); if (!fresh.built.equals(chosen.built)) { cat = fresh; cells = same(fresh, chosenCells); } } catch (Exception ignored) {}
+            try { Catalog fresh = fetch(c); if (newer(fresh, chosen)) { cat = fresh; cells = same(fresh, chosenCells); } } catch (Exception ignored) {}
             if (cells.isEmpty()) { post(new State(name, 0, 1, false, false, "The maps were just updated. Choose your area again.")); return; }
             LinkedHashSet<String> needs = new LinkedHashSet<>(); long total = 0;
             for (Cell x : cells) { total += x.bytes; needs.addAll(Arrays.asList(x.needs)); }
@@ -187,7 +212,7 @@ public final class AreaStore {
             try {
                 delete(tmp); cache.mkdirs(); if (!tmp.mkdirs()) throw new IOException("Not enough storage");
                 merge = new Merger(tmp);
-                String from = base(c);
+                String from = files(base(c), cat);
                 for (String n : needs) { Base b = cat.base.get(n); if (b == null) continue; File z = fetch(from, new File(cache, b.file), b.file, b.sha256, done, all, name); cancelled(); merge.add(z); z.delete(); }
                 double[] bounds = {180, 90, -180, -90}; JSONArray areas = new JSONArray(), ids = new JSONArray();
                 for (Cell x : cells) {
@@ -199,15 +224,16 @@ public final class AreaStore {
                 if (!new File(tmp, "valhalla").isDirectory()) throw new IOException("The map file is incomplete");
                 double[] h = home != null ? home : new double[]{(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2};
                 JSONObject region = new JSONObject().put("id", id).put("display_name", name).put("bounds", new JSONArray().put(bounds[0]).put(bounds[1]).put(bounds[2]).put(bounds[3]))
-                    .put("areas", areas).put("cells", ids).put("home", new JSONArray().put(h[0]).put(h[1])).put("built", cat.built).put("source", "OpenStreetMap").put("license", "ODbL-1.0")
-                    .put("attribution", "© OpenStreetMap contributors");
+                    .put("areas", areas).put("cells", ids).put("home", new JSONArray().put(h[0]).put(h[1])).put("built", cat.built).put("generation", cat.generation)
+                    .put("source", "OpenStreetMap").put("license", "ODbL-1.0").put("attribution", "© OpenStreetMap contributors");
                 JSONObject demo = demo(new File(tmp, "places.json"), h); if (demo != null) region.put("demo", demo);
                 try (FileOutputStream o = new FileOutputStream(new File(tmp, "region.json"))) { o.write(region.toString(2).getBytes(StandardCharsets.UTF_8)); }
-                NavSession.get(c).forget(id);
-                // Swap the new copy in with renames only: the old one goes aside first and comes back if the swap fails.
+                // A ride reads the installed area's routing tiles and road squares as it goes: an update waits for the ride to end.
+                NavSession nav = NavSession.get(c);
+                if (target.exists() && nav.active) { post(new State(name, all, all, true, false, null, true)); awaitRideEnd(() -> nav.active, cancel, 3000); }
+                nav.forget(id);
                 File old = trash(c, id); boolean hadOld = target.exists();
-                if (hadOld && !target.renameTo(old)) throw new IOException("Could not save the map");
-                if (!tmp.renameTo(target)) { if (hadOld) old.renameTo(target); throw new IOException("Could not save the map"); }
+                swap(tmp, target, old);
                 if (hadOld) new Thread(() -> delete(old), "daanvia-remove").start();
                 post(new State(name, all, all, false, true, null));
                 NavSession.get(c).reload(id);
@@ -218,6 +244,21 @@ public final class AreaStore {
                 post(new State(name, 0, all, false, false, why));
             }
         }, "daanvia-area").start();
+    }
+
+    /** A later build than {@code than} (an empty "built" is oldest). */
+    static boolean newer(Catalog cat, Catalog than) { return cat.built.compareTo(than.built) > 0; }
+    interface Riding { boolean now(); }
+    /** Returns once no ride is on; throws if {@code stop} is set meanwhile (the download was cancelled). */
+    static void awaitRideEnd(Riding riding, AtomicBoolean stop, long pollMs) throws IOException, InterruptedException {
+        while (riding.now()) { if (stop.get()) throw new IOException("Download cancelled"); Thread.sleep(pollMs); }
+        if (stop.get()) throw new IOException("Download cancelled");
+    }
+    /** Puts {@code fresh} in place of {@code target} with renames only: the old copy goes to {@code aside} first and comes back if the swap fails. */
+    static void swap(File fresh, File target, File aside) throws IOException {
+        boolean hadOld = target.exists();
+        if (hadOld && !target.renameTo(aside)) throw new IOException("Could not save the map");
+        if (!fresh.renameTo(target)) { if (hadOld) aside.renameTo(target); throw new IOException("Could not save the map"); }
     }
 
     private static File fetch(String from, File to, String file, String sha256, long[] done, long total, String name) throws Exception {
@@ -241,7 +282,9 @@ public final class AreaStore {
 
     /**
      * Merges cell and base zips into one area folder: graph tiles keep their paths under valhalla/, and each data file
-     * is joined by concatenating the cells' feature arrays (every feature lives in exactly one cell).
+     * is joined by concatenating the cells' feature arrays. Points (places, parking, lots, gates) live in exactly one
+     * cell; roads are cut at each cell's edge and run ~110 m past it, so next to a shared edge both cells' short
+     * pieces are kept and simply draw over each other.
      */
     static final class Merger implements Closeable {
         private static final String[][] FILES = {{"roads.geojson", "{\"type\":\"FeatureCollection\",\"features\":[", "]}"}, {"land.geojson", "{\"type\":\"FeatureCollection\",\"features\":[", "]}"},
@@ -279,13 +322,15 @@ public final class AreaStore {
 
     // ---------------------------------------------------------------- io
     interface Progress { void update(long done, long total); }
+    /** HTTP 404. */
+    static final class Missing extends IOException { Missing() { super("That map isn’t available yet"); } }
     private static byte[] get(String url, OutputStream out, MessageDigest sha, Progress progress) throws Exception {
         for (int hop = 0; hop < 6; hop++) {
             HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
             c.setInstanceFollowRedirects(false); c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION);
             int code = c.getResponseCode();
             if (code >= 300 && code < 400 && c.getHeaderField("Location") != null) { url = new URL(new URL(url), c.getHeaderField("Location")).toString(); c.disconnect(); continue; }
-            if (code != 200) { c.disconnect(); throw new IOException(code == 404 ? "That map isn’t available yet" : "Server error " + code); }
+            if (code != 200) { c.disconnect(); if (code == 404) throw new Missing(); throw new IOException("Server error " + code); }
             long total = c.getContentLengthLong(), done = 0, last = 0;
             ByteArrayOutputStream mem = out == null ? new ByteArrayOutputStream() : null;
             try (InputStream in = c.getInputStream()) {
