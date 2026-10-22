@@ -22,16 +22,27 @@ public final class LiveCheck {
         String type = id.charAt(0) == 'w' ? "way" : id.charAt(0) == 'r' ? "relation" : "node";
         long number;
         try { number = Long.parseLong(id.substring(1)); } catch (NumberFormatException e) { return new Result(false, false, null, null); }
-        // The main Overpass server first, then a second public one if the first is busy.
-        for (String server : SERVERS) { Result r = ask(server, type + "(" + number + ")"); if (r.reachable) return r; }
+        // Public Overpass servers are often busy: ask three at once and take the first answer, so the rider waits for the
+        // quickest one instead of each in turn.
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(SERVERS.length);
+        java.util.concurrent.CompletionService<Result> answers = new java.util.concurrent.ExecutorCompletionService<>(pool);
+        final String element = type + "(" + number + ")";
+        for (String server : SERVERS) answers.submit(() -> ask(server, element));
+        try { for (int i = 0; i < SERVERS.length; i++) { Result r = answers.take().get(); if (r.reachable) return r; } }
+        catch (Exception ignored) {}
+        finally { pool.shutdownNow(); }
         return new Result(false, false, null, null);
     }
-    private static final String[] SERVERS = {"https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"};
+    private static final String[] SERVERS = {"https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass.private.coffee/api/interpreter"};
     private static Result ask(String server, String element) {
         try {
             String query = "[out:json][timeout:10];" + element + ";out tags meta;";
-            HttpURLConnection c = (HttpURLConnection)new URL(server + "?data=" + URLEncoder.encode(query, "UTF-8")).openConnection();
-            c.setConnectTimeout(8000); c.setReadTimeout(15000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION + " (motorcycle navigation)");
+            // A form POST is how Overpass asks to be queried; some servers refuse a GET with 406.
+            HttpURLConnection c = (HttpURLConnection)new URL(server).openConnection();
+            c.setConnectTimeout(6000); c.setReadTimeout(20000); c.setRequestMethod("POST"); c.setDoOutput(true);
+            c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION + " (Android motorcycle navigation; https://daanvia-app.vercel.app)");
+            c.setRequestProperty("Accept", "application/json"); c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            try (OutputStream out = c.getOutputStream()) { out.write(("data=" + URLEncoder.encode(query, "UTF-8")).getBytes(StandardCharsets.UTF_8)); }
             int code = c.getResponseCode();
             if (code != 200) { c.disconnect(); return new Result(false, false, null, null); }
             String body;

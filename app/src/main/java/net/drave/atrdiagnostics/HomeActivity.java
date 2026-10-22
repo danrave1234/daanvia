@@ -923,7 +923,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             LiveCheck.Result r = LiveCheck.check(l.id);
             ui.post(() -> {
                 if (token != lotToken || mode != Mode.LOT) return;
-                if (!r.reachable) liveState(MUTED, "Couldn’t check for updates. No signal?");
+                if (!r.reachable) liveState(MUTED, "OpenStreetMap is busy, so these details are from your downloaded map.");
                 else if (!r.exists) liveState(DANGER, "This parking is no longer on the map. It may have closed.");
                 else {
                     liveState(OK, "Still on the map" + (r.edited == null ? "" : " · last updated " + month(r.edited)));
