@@ -121,7 +121,9 @@ h1 { font-size: clamp(2.2rem, 7.4vw, 3.9rem); line-height: 1.04; font-weight: 80
   background: linear-gradient(160deg, #2a3642, #0b1117);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07) inset, 0 40px 80px -30px rgba(0, 0, 0, 0.8);
 }
-.phone > img, .phone .clip, .phone video { border-radius: 32px; overflow: hidden; aspect-ratio: 9 / 20; width: 100%; object-fit: cover; background: var(--ground-2); }
+/* Screens are shown whole: the frame keeps the screenshots' 9:20 shape, height follows width (the img height attribute
+   must not win), and contain never crops. */
+.phone > img, .phone .clip, .phone video { display: block; border-radius: 32px; overflow: hidden; aspect-ratio: 9 / 20; width: 100%; height: auto; object-fit: contain; background: var(--ground-2); }
 .tft {
   position: relative; width: 100%; max-width: 560px; margin: 0 auto;
   padding: 12px; border-radius: 26px;
@@ -132,9 +134,9 @@ h1 { font-size: clamp(2.2rem, 7.4vw, 3.9rem); line-height: 1.04; font-weight: 80
   content: ''; position: absolute; inset: 4px; border-radius: 22px;
   border: 1px solid rgba(255, 176, 32, 0.16); pointer-events: none;
 }
-.tft .clip, .tft video, .tft > img { border-radius: 14px; overflow: hidden; aspect-ratio: 5 / 3; width: 100%; object-fit: cover; background: #05080b; }
+.tft .clip, .tft video, .tft > img { display: block; border-radius: 14px; overflow: hidden; aspect-ratio: 5 / 3; width: 100%; height: auto; object-fit: contain; background: #05080b; }
 .clip { position: relative; }
-.clip video { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
+.clip video { width: 100%; height: 100%; object-fit: contain; cursor: pointer; }
 .clip-play {
   position: absolute; inset: 0; margin: auto; width: 56px; height: 56px; border-radius: 50%;
   border: 0; background: rgba(14, 21, 28, 0.75); color: var(--ink); display: grid; place-items: center; cursor: pointer;
@@ -170,7 +172,7 @@ h1 { font-size: clamp(2.2rem, 7.4vw, 3.9rem); line-height: 1.04; font-weight: 80
 
 .pair-shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 40px; }
 .pair-shots figure { margin: 0; }
-.pair-shots img { border-radius: 18px; border: 1px solid var(--line); aspect-ratio: 9 / 20; object-fit: cover; width: 100%; background: var(--ground-2); }
+.pair-shots img { display: block; border-radius: 18px; border: 1px solid var(--line); aspect-ratio: 9 / 20; object-fit: contain; width: 100%; height: auto; background: var(--ground-2); }
 .pair-shots figcaption { text-align: center; font-size: 13.5px; color: var(--ink-3); margin-top: 8px; }
 @media (min-width: 900px) { .pair-shots { max-width: 760px; margin-left: auto; margin-right: auto; gap: 24px; } }
 
