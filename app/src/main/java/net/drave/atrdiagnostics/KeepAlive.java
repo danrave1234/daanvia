@@ -52,6 +52,24 @@ final class KeepAlive {
         try { a.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + a.getPackageName()))); } catch (Exception ignored) {}
     }
 
+    /**
+     * The phone maker's name when the phone runs ColorOS (OPPO, OnePlus, realme), whose own battery manager closes apps
+     * mid-ride even when Android allows them to run ("o-kill"); null for other phones. Those riders get their own steps.
+     */
+    static String colorOs() {
+        String m = (android.os.Build.MANUFACTURER + " " + android.os.Build.BRAND).toLowerCase(java.util.Locale.ROOT);
+        return m.contains("oneplus") ? "OnePlus" : m.contains("realme") ? "realme" : m.contains("oppo") ? "OPPO" : null;
+    }
+    /** The rider said they've set up ColorOS's own settings for Daanvia. */
+    static boolean colorOsDone(Context c) { return c.getSharedPreferences("ui", 0).getBoolean("coloros_done", false); }
+    /** On a ColorOS phone not yet set up: a reminder at most once every three days. */
+    static boolean remindColorOs(Context c) {
+        if (colorOs() == null || colorOsDone(c)) return false;
+        android.content.SharedPreferences p = c.getSharedPreferences("ui", 0); long now = System.currentTimeMillis();
+        if (now - p.getLong("coloros_reminded", 0) < 3L * 24 * 3600 * 1000) return false;
+        p.edit().putLong("coloros_reminded", now).apply(); return true;
+    }
+
     /** At the start of a ride with a saved bike: ask, at most once every three days, until allowed. */
     static void askForRide(Activity a) {
         if (allowed(a) || a.getSharedPreferences("saved-bike", 0).getString("qr", "").isEmpty()) return;

@@ -70,7 +70,22 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         bike.addView(k.text("Keep Daanvia running during rides", 14, 650, INK));
         keepText = k.text("", 12.5f, 500, MUTED); bike.addView(keepText);
         keepButton = k.ghost("Allow Daanvia to keep running", () -> KeepAlive.ask(this)); bike.addView(keepButton);
-        bike.addView(k.ghost("Open Daanvia's app info", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))));
+        String brand = KeepAlive.colorOs();
+        if (brand == null) bike.addView(k.ghost("Open Daanvia's app info", this::openAppInfo));
+        else {
+            // OPPO, OnePlus and realme phones (ColorOS) close apps mid-ride even when Android allows them to run, so their
+            // riders get the phone's own settings step by step, highlighted, until they say they've done it.
+            colorBox = k.column(8); colorBox.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(colorBox, 16, ACCENT_SOFT);
+            colorBox.addView(k.text("On your " + brand + " phone", 15, 700, INK));
+            colorBox.addView(k.text(brand + " phones have their own battery manager that can close Daanvia in the middle of a ride, even when Android allows it to keep running. The bike display then goes blank. To stop it:", 13, 500, INK_SOFT));
+            colorBox.addView(k.text("1.  Tap Open battery settings below.\n2.  Open Battery usage (or Battery) and turn on Allow background activity, and Allow foreground activity if you see it.\n3.  Turn on Allow auto launch, if your phone shows it.\n4.  Open your recent apps and lock Daanvia: swipe down on its card, or tap ⋮ on it and choose Lock.", 13, 550, INK));
+            colorBox.addView(k.primary("Open battery settings", this::openAppInfo));
+            colorBox.addView(k.ghost("I've done this", () -> { getSharedPreferences("ui", 0).edit().putBoolean("coloros_done", true).apply(); paintColorOs(); }));
+            colorDone = k.text("", 12.5f, 600, ACCENT); Gabi.press(colorDone, () -> { getSharedPreferences("ui", 0).edit().putBoolean("coloros_done", false).apply(); paintColorOs(); });
+            bike.addView(colorBox); bike.addView(colorDone); paintColorOs();
+            // Opened from a ride reminder: go straight to these steps.
+            if ("coloros".equals(getIntent().getStringExtra("show"))) page.scroll.post(() -> page.scroll.smoothScrollTo(0, Math.max(0, bike.getTop() + colorBox.getTop() - k.dp(16))));
+        }
         paintKeep();
         permissionBanner = k.column(10); permissionBanner.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(permissionBanner, 16, DANGER_SOFT); permissionBanner.setVisibility(View.GONE);
         permissionBanner.addView(k.text("Android needs Nearby devices and precise location for the Wi-Fi connection. Daanvia does not collect GPS positions for this.", 13, 550, INK));
@@ -157,11 +172,18 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         paint();
     }
 
-    private TextView keepText, keepButton;
+    private TextView keepText, keepButton, colorDone; private LinearLayout colorBox;
+    private void openAppInfo() { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
+    private void paintColorOs() {
+        if (colorBox == null) return; boolean done = KeepAlive.colorOsDone(this);
+        colorBox.setVisibility(done ? View.GONE : View.VISIBLE); colorDone.setVisibility(done ? View.VISIBLE : View.GONE);
+        colorDone.setText("Set up for " + KeepAlive.colorOs() + ". Show the steps again");
+    }
     private void paintKeep() {
         boolean ok = KeepAlive.allowed(this);
-        keepText.setText(ok ? "Allowed. Android won't hold Daanvia back to save battery. On OPPO, realme and OnePlus phones, also turn on Allow background activity under App info → Battery, and lock Daanvia in the recent apps."
-            : "Some phones close apps to save battery, even mid-ride, which cuts off the bike display. Allow Daanvia to keep running. On OPPO, realme and OnePlus phones, also turn on Allow background activity under App info → Battery.");
+        boolean color = KeepAlive.colorOs() != null;
+        keepText.setText(ok ? "Allowed. Android won't hold Daanvia back to save battery." + (color ? " Your phone's own battery manager is a separate setting, below." : "")
+            : "Some phones close apps to save battery, even mid-ride, which cuts off the bike display. Allow Daanvia to keep running.");
         keepButton.setVisibility(ok ? View.GONE : View.VISIBLE);
     }
     protected void onResume() { super.onResume(); paintKeep(); }  // Android's Allow dialog only pauses this screen

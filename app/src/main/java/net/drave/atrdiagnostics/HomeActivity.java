@@ -1123,6 +1123,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         }
         link.allowAuto(); autoDelay = 15000; ui.removeCallbacks(retryConnect); autoConnect();  // a ride connects the bike display straight away
         if (!demo) KeepAlive.askForRide(this);
+        if (!demo && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
     private boolean resumeOffered;
@@ -1140,7 +1141,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
             boolean killed = KeepAlive.killedBySystem(this);
             choose(la, lo, name); resumeTries = 0; ui.removeCallbacks(resumeStart); ui.postDelayed(resumeStart, 1500);
-            if (killed) notice("Your phone closed Daanvia, so your ride to " + name + " is starting again. Tap to stop your phone closing it", "Fix", () -> KeepAlive.fix(this), 15000);
+            if (killed) notice("Your phone closed Daanvia, so your ride to " + name + " is starting again. Tap to stop your phone closing it", "Fix", () -> { if (KeepAlive.colorOs() != null) openSettings("coloros"); else KeepAlive.fix(this); }, 15000);
             else notice("Continuing your ride to " + name, null, null, 6000);
         } catch (org.json.JSONException e) { u.edit().remove("ride").apply(); }
     }
@@ -1695,8 +1696,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else if (code == 73) notice("Directions need precise location. Turn it on in Android’s app settings for Daanvia.");
         if (code == DashboardLink.PERMISSIONS) link.onPermissionsResult();
     }
-    private void openSettings() {
-        startActivity(new Intent(this, SettingsActivity.class));
+    private void openSettings() { openSettings(null); }
+    /** {@code show}: a part of Settings to open at, e.g. "coloros" for the OPPO / OnePlus / realme steps. */
+    private void openSettings(String show) {
+        startActivity(new Intent(this, SettingsActivity.class).putExtra("show", show));
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
     }
     private String savedQr() { return getSharedPreferences("saved-bike", 0).getString("qr", ""); }
