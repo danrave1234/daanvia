@@ -59,6 +59,8 @@ public final class DashboardLink {
         synchronized (shared.hosts) { shared.hosts.remove(host); shared.hosts.add(0, host); }
         return shared;
     }
+    /** The app's link, created without a screen: for NavService picking a ride up after Android restarted it. */
+    public static synchronized DashboardLink headless(Context c) { if (shared == null) shared = new DashboardLink(c.getApplicationContext()); return shared; }
     /** The app's link if a screen has created it, else null (for NavService, which has no screen). */
     public static synchronized DashboardLink existing() { return shared; }
     /** A screen is closing: stop sending it updates. The connection itself stays. */

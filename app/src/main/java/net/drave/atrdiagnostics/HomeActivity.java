@@ -1106,7 +1106,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     /** A live fix from the last two minutes; the phone's last known spot can be much older. */
     private boolean freshFix() { return s.fixAt > 0 && SystemClock.elapsedRealtime() - s.fixAt < 120000; }
-    private void closeRoute() { pendingPlan = false; destName = null; demoTrip = false; go(Mode.EXPLORE); }
+    private void closeRoute() { pendingPlan = false; destName = null; demoTrip = false; go(Mode.EXPLORE); if (!s.active) getSharedPreferences("ui", 0).edit().remove("ride").apply(); }
 
     private void start() {
         boolean demo = demoTrip;
@@ -1126,26 +1126,32 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
     private boolean resumeOffered;
-    /** Offer the ride Android ended without the rider (the ride is kept from Start ride until it ends or arrives). */
+    /**
+     * Pick up a ride the phone ended without the rider (the ride is kept from Start ride until it ends or arrives, and
+     * marked alive while it runs): route to the same place again and start it on its own once GPS is clear, instead of
+     * an offer that was easy to miss. Rides last seen more than 30 minutes ago are dropped.
+     */
     private void offerResume() {
+        if (s.active) return;
         android.content.SharedPreferences u = getSharedPreferences("ui", 0); String raw = u.getString("ride", null); if (raw == null) return;
-        u.edit().remove("ride").apply();
         try {
             org.json.JSONObject r = new org.json.JSONObject(raw);
-            if (System.currentTimeMillis() - r.getLong("at") > 3 * 3600_000L) return;
+            if (System.currentTimeMillis() - Math.max(r.getLong("at"), u.getLong("ride_alive", 0)) > 30 * 60_000L) { u.edit().remove("ride").apply(); return; }
             double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
-            // When the phone itself closed Daanvia (OPPO and others do, to save battery), say so, and on Continue also open
-            // the setting that stops it: Android's Allow dialog, or the app's settings page with Battery → Allow background activity.
-            if (KeepAlive.killedBySystem(this))
-                notice("Your phone closed Daanvia during your ride to " + name + ". Continue, then allow it to keep running", "Continue", () -> {
-                    choose(la, lo, name);
-                    boolean asking = !KeepAlive.allowed(this); KeepAlive.fix(this);
-                    // A toast, because it stays visible over the settings page that just opened.
-                    if (!asking) android.widget.Toast.makeText(this, "In Battery, turn on Allow background activity", android.widget.Toast.LENGTH_LONG).show();
-                }, 20000);
-            else notice("Your ride to " + name + " was cut short", "Continue", () -> choose(la, lo, name), 15000);
-        } catch (org.json.JSONException ignored) {}
+            boolean killed = KeepAlive.killedBySystem(this);
+            choose(la, lo, name); resumeTries = 0; ui.removeCallbacks(resumeStart); ui.postDelayed(resumeStart, 1500);
+            if (killed) notice("Your phone closed Daanvia, so your ride to " + name + " is starting again. Tap to stop your phone closing it", "Fix", () -> KeepAlive.fix(this), 15000);
+            else notice("Continuing your ride to " + name, null, null, 6000);
+        } catch (org.json.JSONException e) { u.edit().remove("ride").apply(); }
     }
+    private int resumeTries;
+    /** Start the picked-up ride once its route is ready and GPS is clear; after about two minutes, leave it to the rider. */
+    private final Runnable resumeStart = new Runnable() { public void run() {
+        if (s.active || mode != Mode.ROUTE || destName == null || demoTrip) return;
+        boolean go = s.ready && !s.shape.isEmpty() && !s.routing && s.fixAt > 0 && SystemClock.elapsedRealtime() - s.fixAt < 12000 && s.accuracy <= 40;
+        if (go) { start(); return; }
+        if (++resumeTries < 80) ui.postDelayed(this, 1500); else notice("Your ride is ready. Tap Start ride once GPS is clear.");
+    } };
 
     /** Simulated ride over the region's sample route, started from Settings › Testing. */
     private void demo() {

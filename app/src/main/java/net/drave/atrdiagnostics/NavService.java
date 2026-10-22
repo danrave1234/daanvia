@@ -5,22 +5,58 @@ public final class NavService extends Service {
     public IBinder onBind(Intent i){return null;}
     @android.annotation.SuppressLint("MissingPermission") // removing location updates; subscribe() checks the permission itself
     public int onStartCommand(Intent i,int f,int id){
-        if(i==null||"stop".equals(i.getAction())){if(s!=null)s.stop();stopService(new Intent(this,StreamService.class));stopSelf();return START_NOT_STICKY;}
+        // Restarted by Android after the phone closed Daanvia mid-ride (this service is sticky during real rides).
+        if(i==null)return resumeAfterRestart()?START_STICKY:START_NOT_STICKY;
+        if("stop".equals(i.getAction())){if(s!=null)s.stop();stopService(new Intent(this,StreamService.class));stopSelf();return START_NOT_STICKY;}
         s=NavSession.get(this);boolean demo=i.getBooleanExtra("demo",false);
         try{
-            getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("daanvia-nav","Navigation",NotificationManager.IMPORTANCE_LOW));
-            PendingIntent open=PendingIntent.getActivity(this,20,new Intent(this,HomeActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            PendingIntent stop=PendingIntent.getService(this,21,new Intent(this,NavService.class).setAction("stop"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            Notification n=new Notification.Builder(this,"daanvia-nav").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText("Tap Stop to end the ride").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).build();
-            startForeground(22,n,demo?android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE:android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            foreground(demo);
             if(voice==null)voice=new TextToSpeech(this,result->{voiceReady=result==TextToSpeech.SUCCESS;if(voiceReady)voice.setLanguage(Locale.US);});
             if("preview".equals(i.getAction())){subscribe();return START_NOT_STICKY;}
             s.active=true;s.simulation=demo;spoken=-1;filter.reset();
             if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();}
             s.signal();searches=0;handler.removeCallbacks(bikeSearch);handler.postDelayed(bikeSearch,20000);
-        }catch(Exception e){s.message("Cannot start navigation: "+e.getMessage());stopSelf();}
-        return START_NOT_STICKY;
+        }catch(Exception e){s.message("Cannot start navigation: "+e.getMessage());stopSelf();return START_NOT_STICKY;}
+        // A real ride asks Android to restart this service if the phone closes the app, so the ride carries on.
+        return demo?START_NOT_STICKY:START_STICKY;
     }
+    private void foreground(boolean demo){
+            getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("daanvia-nav","Navigation",NotificationManager.IMPORTANCE_LOW));
+            PendingIntent open=PendingIntent.getActivity(this,20,new Intent(this,HomeActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+            PendingIntent stop=PendingIntent.getService(this,21,new Intent(this,NavService.class).setAction("stop"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+            Notification n=new Notification.Builder(this,"daanvia-nav").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText("Tap Stop to end the ride").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).build();
+            startForeground(22,n,demo?android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE:android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+    }
+    /**
+     * After the phone closed Daanvia mid-ride and Android restarted this service: pick the ride up on its own, with the
+     * phone still in the pocket. Wait for the map and a GPS fix, route again to the same place, carry on guiding, and
+     * reconnect the bike display. Only for a ride seen alive in the last 30 minutes.
+     */
+    private boolean resumeAfterRestart(){
+        android.content.SharedPreferences u=getSharedPreferences("ui",0);String raw=u.getString("ride",null);
+        try{
+            if(raw==null)throw new IllegalStateException("no ride");
+            org.json.JSONObject r=new org.json.JSONObject(raw);long seen=Math.max(r.optLong("at"),u.getLong("ride_alive",0));
+            if(System.currentTimeMillis()-seen>30*60000L)throw new IllegalStateException("ride too old");
+            s=NavSession.get(this);foreground(false);
+            if(voice==null)voice=new TextToSpeech(this,result->{voiceReady=result==TextToSpeech.SUCCESS;if(voiceReady)voice.setLanguage(Locale.US);});
+            subscribe();filter.reset();spoken=-1;
+            final double la=r.getDouble("lat"),lo=r.getDouble("lon");final String name=r.optString("name","your destination");
+            resumeTries=0;if(resumer!=null)handler.removeCallbacks(resumer);
+            resumer=new Runnable(){public void run(){
+                if(s.active)return;
+                if(++resumeTries>90){s.message("Could not pick up the ride: no GPS or no route");stopSelf();return;}
+                boolean fix=s.fixAt>0&&SystemClock.elapsedRealtime()-s.fixAt<15000;
+                if(s.ready&&fix&&!s.routing){
+                    if(s.shape.isEmpty()||Math.abs(s.destLat-la)>1e-6||Math.abs(s.destLon-lo)>1e-6)s.plan(la,lo,name,false);
+                    else{s.active=true;s.simulation=false;spoken=-1;filter.reset();s.message("Picked up your ride to "+name);s.signal();
+                        DashboardLink.headless(NavService.this).allowAuto();searches=0;handler.removeCallbacks(bikeSearch);handler.post(bikeSearch);return;}
+                }
+                handler.postDelayed(this,2000);}};
+            handler.post(resumer);return true;
+        }catch(Exception e){stopSelf();return false;}
+    }
+    private Runnable resumer;private int resumeTries;
     /** Google's fused location where the phone has it (GPS steadied by Wi-Fi and the motion sensors), else the phone's own (see LocationFeed). */
     /**
      * While riding, keep looking for the bike display every 20 s, also with the phone in a pocket: a ride started before
@@ -28,6 +64,8 @@ public final class NavService extends Service {
      */
     private final Runnable bikeSearch=new Runnable(){public void run(){
         if(s==null||!s.active)return;
+        // "Still riding", for picking the ride up if the phone closes the app (see resumeAfterRestart and HomeActivity.offerResume).
+        if(!s.simulation)getSharedPreferences("ui",0).edit().putLong("ride_alive",System.currentTimeMillis()).apply();
         DashboardLink link=DashboardLink.existing();
         if(StreamService.navigationActive)searches=0;
         else if(link!=null&&!link.searching()&&getSharedPreferences("ui",0).getBoolean("autoconnect",true)){link.autoNavigation();searches++;}
