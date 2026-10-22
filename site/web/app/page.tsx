@@ -1,6 +1,7 @@
 import { Icon, Mark, Wordmark, type IconName } from '@/components/brand';
 import { Clip, Film } from '@/components/media';
 import { DownloadButton, ReleaseProvider, VersionLine } from '@/components/live-release';
+import { media } from '@/lib/media';
 import { DOWNLOAD_URL, REPO_URL, formatDate, latestRelease, parseNotes, type Release } from '@/lib/release';
 
 // The page is regenerated at most a minute after a release; the browser also re-checks the latest release on load
@@ -38,7 +39,7 @@ const features: Feature[] = [
       <>When new map data is out you get “New map data for your area · Update”.</>,
       <>Settings › Maps shows what uses space, with Free up space.</>,
     ],
-    shot: { kind: 'clip', src: '/media/area.mp4', poster: '/media/area.webp', alt: 'Framing a map area and seeing its size before downloading' },
+    shot: { kind: 'clip', src: media('/media/area.mp4'), poster: media('/media/area.webp'), alt: 'Framing a map area and seeing its size before downloading' },
     frame: 'phone',
   },
   {
@@ -58,7 +59,7 @@ const features: Feature[] = [
       'Places you found online stay on the phone, so you can find them again without signal.',
       <>Parking inside a place shows under it: SM City Cebu › its parking.</>,
     ],
-    shot: { kind: 'clip', src: '/media/search.mp4', poster: '/media/search.webp', alt: 'Searching Jollibee and getting each branch by street and city, with parking under it' },
+    shot: { kind: 'clip', src: media('/media/search.mp4'), poster: media('/media/search.webp'), alt: 'Searching Jollibee and getting each branch by street and city, with parking under it' },
     frame: 'phone',
   },
   {
@@ -78,7 +79,7 @@ const features: Feature[] = [
       'Arrival time on the phone, the rest screen and the bike display.',
       'Times are estimates and don’t include live traffic.',
     ],
-    shot: { kind: 'clip', src: '/media/ride.mp4', poster: '/media/ride.webp', alt: 'Riding with turn-by-turn directions on a tilted map' },
+    shot: { kind: 'clip', src: media('/media/ride.mp4'), poster: media('/media/ride.webp'), alt: 'Riding with turn-by-turn directions on a tilted map' },
     frame: 'phone',
   },
   {
@@ -88,16 +89,16 @@ const features: Feature[] = [
     title: 'Know where to park before you arrive',
     body: (
       <>
-        The route card tells you <q>3 parking spots near arrival</q>, and P pins show around your destination on the phone and on
-        the bike display.
+        The route card tells you <q>5 parking spots near arrival</q>. Tap it for the list, nearest first, with names like{' '}
+        <q>Parking lot near Grace Park</q>. P pins show around your destination on the phone and on the bike display.
       </>
     ),
     points: [
       'Each lot shows if motorcycles can park, opening hours, price and who it’s for, from OpenStreetMap.',
-      <>With signal, Daanvia checks the lot is <q>Still on the map</q>.</>,
+      'With signal, Daanvia checks the lot is still on OpenStreetMap.',
       <>Saw the rate at the gate? Save it, and <q>₱20 / hour</q> shows on that pin for 30 days.</>,
     ],
-    shot: { kind: 'image', src: '/media/route.webp', alt: 'Route preview with three parking spots near arrival' },
+    shot: { kind: 'image', src: media('/media/parking-list.webp'), alt: 'Route card listing the five parking spots near Power Plant Mall' },
     frame: 'phone',
   },
   {
@@ -107,12 +108,12 @@ const features: Feature[] = [
     title: 'Guardhouse ahead? You’ll know',
     body: (
       <>
-        Daanvia knows tens of thousands of gates. When your route passes one, the route card says{' '}
-        <q>The route passes a guardhouse gate. Have your ID ready.</q> If a place is only reachable through a private road, it tells
+        Daanvia knows tens of thousands of gates. When your route passes them, the route card says so, like{' '}
+        <q>The route passes 3 guardhouse gates. Have your ID ready.</q> If a place is only reachable through a private road, it tells
         you it’s inside a private subdivision, so you can ride to a spot outside the gate instead.
       </>
     ),
-    shot: { kind: 'image', src: '/media/gate.webp', alt: 'Route card with a guardhouse gate notice' },
+    shot: { kind: 'image', src: media('/media/gate.webp'), alt: 'Route to Power Plant Mall with a guardhouse gate notice' },
     frame: 'phone',
   },
 ];
@@ -135,7 +136,7 @@ const bike: Feature[] = [
       'Daanvia learns each bike’s screen size and shape, and remembers it.',
       'Parking pins near your destination show on the bike too.',
     ],
-    shot: { kind: 'clip', src: '/media/tft.mp4', poster: '/media/tft.webp', alt: 'The navigation screen Daanvia sends to the bike display' },
+    shot: { kind: 'clip', src: media('/media/tft.mp4'), poster: media('/media/tft.webp'), alt: 'The navigation screen Daanvia sends to the bike display' },
     frame: 'tft',
   },
   {
@@ -154,7 +155,7 @@ const bike: Feature[] = [
       'Text size from 100 to 140%, or the Large turns layout.',
       'Saved for each bike.',
     ],
-    shot: { kind: 'clip', src: '/media/layout.mp4', poster: '/media/layout.webp', alt: 'Dragging the turn and trip cards in the bike display layout editor' },
+    shot: { kind: 'clip', src: media('/media/layout.mp4'), poster: media('/media/layout.webp'), alt: 'Dragging the turn and trip cards in the bike display layout editor' },
     frame: 'tft',
   },
 ];
@@ -187,8 +188,8 @@ const small: { icon: IconName; title: string; body: React.ReactNode }[] = [
   },
   {
     icon: 'resume',
-    title: 'Pick up a cut-short ride',
-    body: 'If Android closes the app mid-ride, the next launch offers “Your ride to … was cut short · Continue”.',
+    title: 'Rides carry on',
+    body: 'If your phone closes Daanvia mid-ride, opening it again picks the ride back up on its own: “Continuing your ride to …”.',
   },
   {
     icon: 'sun',
@@ -353,15 +354,15 @@ export default async function Home() {
           </ul>
           <div className="pair-shots">
             <figure>
-              <img src="/media/home.webp" alt="Location dot with compass beam and place icons on the night map" loading="lazy" width={540} height={1200} />
+              <img src={media(media('/media/home.webp'))} alt="Location dot with compass beam and place icons on the night map" loading="lazy" width={540} height={1200} />
               <figcaption>Night</figcaption>
             </figure>
             <figure>
-              <img src="/media/day.webp" alt="The same map in the day theme" loading="lazy" width={540} height={1200} />
+              <img src={media(media('/media/day.webp'))} alt="The same map in the day theme" loading="lazy" width={540} height={1200} />
               <figcaption>Day</figcaption>
             </figure>
             <figure>
-              <img src="/media/rest.webp" alt="Rest-phone screen showing just the next turn" loading="lazy" width={540} height={1200} />
+              <img src={media(media('/media/rest.webp'))} alt="Rest-phone screen showing just the next turn" loading="lazy" width={540} height={1200} />
               <figcaption>Rest the phone</figcaption>
             </figure>
           </div>
@@ -374,19 +375,19 @@ export default async function Home() {
           </h2>
           <div className="films">
             <figure className="film-main">
-              <Film src="/media/promo.mp4" poster="/media/promo.webp" label="Daanvia in 40 seconds" />
+              <Film src={media(media('/media/promo.mp4'))} poster={media(media('/media/promo.webp'))} label="Daanvia in 40 seconds" />
               <figcaption>Daanvia in 40 seconds</figcaption>
             </figure>
             <figure>
-              <Film src="/media/tut-install.mp4" poster="/media/tut-install.webp" label="How to install the APK" />
+              <Film src={media(media('/media/tut-install.mp4'))} poster={media(media('/media/tut-install.webp'))} label="How to install the APK" />
               <figcaption>Install the APK</figcaption>
             </figure>
             <figure>
-              <Film src="/media/tut-area.mp4" poster="/media/tut-area.webp" label="How to download your map area" />
+              <Film src={media(media('/media/tut-area.mp4'))} poster={media(media('/media/tut-area.webp'))} label="How to download your map area" />
               <figcaption>Download your map area</figcaption>
             </figure>
             <figure>
-              <Film src="/media/tut-bike.mp4" poster="/media/tut-bike.webp" label="How to pair your bike display" />
+              <Film src={media(media('/media/tut-bike.mp4'))} poster={media(media('/media/tut-bike.webp'))} label="How to pair your bike display" />
               <figcaption>Pair your bike display</figcaption>
             </figure>
           </div>
@@ -510,10 +511,10 @@ function Hero() {
         </div>
         <div className="hero-visual">
           <div className="phone">
-            <Clip src="/media/ride-demo.mp4" poster="/media/ride-demo.webp" label="Daanvia giving turn-by-turn directions (demo ride)" />
+            <Clip src={media(media('/media/ride-demo.mp4'))} poster={media(media('/media/ride-demo.webp'))} label="Daanvia giving turn-by-turn directions (demo ride)" />
           </div>
           <div className="tft hero-tft">
-            <Clip src="/media/tft.mp4" poster="/media/tft.webp" label="The same ride on the bike display" />
+            <Clip src={media(media('/media/tft.mp4'))} poster={media(media('/media/tft.webp'))} label="The same ride on the bike display" />
           </div>
         </div>
       </div>

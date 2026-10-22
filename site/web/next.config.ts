@@ -20,8 +20,9 @@ const config: NextConfig = {
       ],
     },
     {
+      // Media URLs carry a content fingerprint (lib/media.ts), so a changed file gets a new URL.
       source: '/media/:file*',
-      headers: [{ key: 'Cache-Control', value: 'public, max-age=600, must-revalidate' }],
+      headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
     },
   ],
 };

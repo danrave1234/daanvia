@@ -29,6 +29,7 @@ const Intro: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 36, transform: `scale(${0.8 + p * 0.2})`, opacity: p }}>
         <Mark size={170} />
         <div style={{ color: C.ink, fontWeight: 800, fontSize: 150, letterSpacing: '-0.04em' }}>daanvia</div>
+        <div style={{ color: C.accent, fontWeight: 800, fontSize: 40, letterSpacing: '0.14em', border: `4px solid ${C.accent}`, borderRadius: 18, padding: '6px 18px', alignSelf: 'center' }}>BETA</div>
       </div>
       <div style={{ opacity: t, transform: `translateY(${(1 - t) * 20}px)`, color: C.ink, fontWeight: 700, fontSize: 52, marginTop: 40 }}>
         Offline motorcycle navigation for the Philippines
@@ -48,7 +49,7 @@ const Outro: React.FC = () => {
       <Backdrop dim={0.4} />
       <div style={{ opacity: p, transform: `scale(${0.85 + p * 0.15})`, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <Mark size={150} />
-        <div style={{ color: C.ink, fontWeight: 800, fontSize: 96, letterSpacing: '-0.03em', marginTop: 30 }}>Get Daanvia</div>
+        <div style={{ color: C.ink, fontWeight: 800, fontSize: 96, letterSpacing: '-0.03em', marginTop: 30 }}>Get Daanvia Beta</div>
       </div>
       <div
         style={{
@@ -64,7 +65,7 @@ const Outro: React.FC = () => {
           boxShadow: '0 20px 60px -20px rgba(255,176,32,0.6)',
         }}
       >
-        Download for Android
+        Download Daanvia Beta
       </div>
       <div style={{ opacity: b, color: C.ink2, fontSize: 30, marginTop: 30, fontWeight: 500 }}>Free · Android 10 or newer · no account</div>
       <div style={{ position: 'absolute', bottom: 44, color: C.ink3, fontSize: 20 }}>Map data © OpenStreetMap contributors</div>
@@ -82,7 +83,7 @@ const ParkingMedia: React.FC = () => {
         <Phone height={880} image="route_parking.png" />
       </div>
       <div style={{ position: 'absolute', opacity: swap }}>
-        <Phone height={880} image="lot.png" />
+        <Phone height={880} image="plist.png" />
       </div>
     </div>
   );
@@ -118,7 +119,7 @@ export const Promo: React.FC = () => (
       <Series.Sequence durationInFrames={5 * S}>
         <Fade>
           <Split media={<Rise><ParkingMedia /></Rise>}>
-            <Caption eyebrow="Parking" title="Know where to park before you arrive." sub="Parking near your destination, with hours, price and whether motorcycles can park." />
+            <Caption eyebrow="Parking" title="Know where to park before you arrive." sub="The route card lists the parking near your destination, nearest first." />
           </Split>
         </Fade>
       </Series.Sequence>
@@ -126,7 +127,7 @@ export const Promo: React.FC = () => (
       <Series.Sequence durationInFrames={4 * S}>
         <Fade>
           <Split media={<Rise><Phone height={880} image="gate.png" /></Rise>}>
-            <Caption eyebrow="Gated places" title="Guardhouse ahead? Have your ID ready." sub="Daanvia tells you when the route passes a gate." />
+            <Caption eyebrow="Gated places" title="Guardhouse ahead? Have your ID ready." sub="Daanvia tells you when the route passes gates." />
           </Split>
         </Fade>
       </Series.Sequence>

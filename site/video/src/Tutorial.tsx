@@ -95,20 +95,20 @@ export const Tutorial: React.FC<{ spec: TutorialSpec }> = ({ spec }) => (
 
 export const installSpec: TutorialSpec = {
   eyebrow: 'Tutorial',
-  title: 'Install Daanvia',
+  title: 'Install Daanvia Beta',
   seconds: 34,
   note: 'Recorded on Android 16. Screens differ a little between phones.',
   steps: [
-    { at: 0.3, text: <>On your Android phone, open the Daanvia site and tap <b>Download for Android</b>.</> },
-    { at: 4, text: <>The APK downloads straight to your phone. It’s about 35 MB, so Wi-Fi is best.</> },
+    { at: 0.3, text: <>On your Android phone, open the Daanvia site and tap <b>Download Daanvia Beta</b>.</> },
+    { at: 5, text: <>The APK downloads straight to your phone. It’s about 36 MB, so Wi-Fi is best.</> },
     { at: 9.5, text: <>Tap <b>Open</b> on the download, or open it from your Downloads folder.</> },
-    { at: 13.5, text: <>Android asks about unknown apps the first time: tap <b>Settings</b>, turn on <b>Allow from this source</b>, then go back.</> },
+    { at: 14.5, text: <>Android asks about unknown apps the first time: tap <b>Settings</b>, turn on <b>Allow from this source</b>, then go back.</> },
     { at: 22, text: <>Tap <b>Install</b>. If Play Protect warns about an unknown app, tap <b>More details › Install anyway</b>.</> },
-    { at: 28, text: <>Open Daanvia. Later versions update from <b>Settings › About</b>.</> },
+    { at: 28, text: <>Open Daanvia Beta. Later versions update from <b>Settings › About</b>.</> },
   ],
   shots: [
-    { at: 0, len: 17.5, kind: 'phone', video: 'install.mp4' },
-    { at: 17.2, len: 17, kind: 'phone', image: 'unknown.png' },
+    { at: 0, len: 19.5, kind: 'phone', video: 'install.mp4' },
+    { at: 19.2, len: 15, kind: 'phone', image: 'unknown.png' },
   ],
 };
 
@@ -117,7 +117,7 @@ export const areaSpec: TutorialSpec = {
   title: 'Download your map area',
   seconds: 30,
   steps: [
-    { at: 0.3, text: <>Open Daanvia. With no map yet, it asks you to <b>choose your map area</b>.</> },
+    { at: 0.3, text: <>Open Daanvia Beta. With no map yet, it asks you to <b>choose your map area</b>.</> },
     { at: 4, text: <>Move and zoom so the frame covers where you ride. Or <b>find a city or town</b> to jump there.</> },
     { at: 10, text: <>Check the size in km and MB, then tap <b>Download</b>. Wi-Fi is recommended.</> },
     { at: 15, text: <>Keep Daanvia open until it finishes. After that, it works without signal.</> },
@@ -125,9 +125,8 @@ export const areaSpec: TutorialSpec = {
   ],
   shots: [
     { at: 0, len: 11.5, kind: 'phone', video: 'area.mp4' },
-    { at: 11.3, len: 3.9, kind: 'phone', image: 'area.png' },
-    { at: 15, len: 5.2, kind: 'phone', image: 'maps_updating.png' },
-    { at: 20, len: 10, kind: 'phone', image: 'settings_maps.png' },
+    { at: 11.3, len: 8.9, kind: 'phone', image: 'area.png' },
+    { at: 20, len: 10.5, kind: 'phone', image: 'settings_maps.png' },
   ],
 };
 
