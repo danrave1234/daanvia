@@ -25,7 +25,7 @@ Layout on GitHub (a release holds at most 1000 files and one generation is ~560,
 --repo dir:PATH works on a folder (one subfolder per release) instead of GitHub: for tests, or for a debug build
 pointed at a local server. upload, switch and cleanup --yes change public releases: only when the owner said so.
 """
-import argparse, hashlib, json, os, pathlib, random, re, shutil, subprocess, sys, tempfile, urllib.error, urllib.request
+import argparse, hashlib, json, os, pathlib, random, re, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 HOME, POINTER, NEXT, INDEX = 'maps', 'areas-current.json', 'areas-current.next.json', 'areas-index.json'
 GEN = re.compile(r'^maps-(g\d{8}T\d{6}Z)$')
@@ -194,7 +194,10 @@ def switch(dist, repo, check=3):
     if repo.read(HOME, NEXT) != raw: raise SystemExit(NEXT + ' did not upload intact; nothing switched')
     if POINTER in have: repo.delete(HOME, POINTER)
     repo.rename(HOME, NEXT, POINTER)
-    if repo.read(HOME, POINTER) != raw: raise SystemExit(POINTER + ' does not read back as the new generation: check the maps release now')
+    for wait in (0, 2, 4, 8, 15, 30):  # GitHub serves a renamed file under its new name after a few seconds
+        time.sleep(wait)
+        if repo.read(HOME, POINTER) == raw: break
+    else: raise SystemExit(POINTER + ' does not read back as the new generation: check the maps release now')
     print('live: %s' % index['generation'])
 
 
