@@ -16,7 +16,7 @@
 
 const REPO = 'danrave1234/daanvia';
 const APK = /^daanvia-(\d+\.\d+\.\d+)\.apk$/;
-const FRESH_SECONDS = 300;
+const FRESH_SECONDS = 60;
 const STALE_SECONDS = 7 * 24 * 3600;
 
 export default {

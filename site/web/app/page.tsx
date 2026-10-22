@@ -1,9 +1,11 @@
 import { Icon, Mark, Wordmark, type IconName } from '@/components/brand';
 import { Clip, Film } from '@/components/media';
-import { DOWNLOAD_URL, REPO_URL, formatDate, formatSize, latestRelease, parseNotes, type Release } from '@/lib/release';
+import { DownloadButton, ReleaseProvider, VersionLine } from '@/components/live-release';
+import { DOWNLOAD_URL, REPO_URL, formatDate, latestRelease, parseNotes, type Release } from '@/lib/release';
 
-// Re-read the latest GitHub release at most every 10 minutes.
-export const revalidate = 600;
+// The page is regenerated at most a minute after a release; the browser also re-checks the latest release on load
+// (components/live-release.tsx), so the version line and download buttons are never behind.
+export const revalidate = 60;
 
 type Shot = { kind: 'clip'; src: string; poster: string; alt: string } | { kind: 'image'; src: string; alt: string };
 
@@ -283,7 +285,7 @@ const faqs: { q: string; a: React.ReactNode }[] = [
 export default async function Home() {
   const rel = await latestRelease();
   return (
-    <>
+    <ReleaseProvider initial={rel}>
       <a className="skip" href="#main">
         Skip to content
       </a>
@@ -305,7 +307,7 @@ export default async function Home() {
       </header>
 
       <main id="main">
-        <Hero rel={rel} />
+        <Hero />
 
         <section id="features" className="wrap section" aria-labelledby="features-h">
           <p className="eyebrow">What it does</p>
@@ -409,8 +411,8 @@ export default async function Home() {
             <aside className="get" aria-label="Download">
               <Mark size={64} />
               <p className="get-title">Daanvia Beta for Android</p>
-              <DownloadButton rel={rel} />
-              <VersionLine rel={rel} />
+              <DownloadButton />
+              <VersionLine />
               <p className="fine">Android 10 or newer · one APK for every ARM phone · no account</p>
             </aside>
           </div>
@@ -475,13 +477,13 @@ export default async function Home() {
       </footer>
 
       <div className="dock" aria-hidden={false}>
-        <DownloadButton rel={rel} compact />
+        <DownloadButton compact />
       </div>
-    </>
+    </ReleaseProvider>
   );
 }
 
-function Hero({ rel }: { rel: Release | null }) {
+function Hero() {
   return (
     <section className="hero" aria-labelledby="hero-h">
       <div className="hero-bg" aria-hidden />
@@ -499,12 +501,12 @@ function Hero({ rel }: { rel: Release | null }) {
             <span className="beta">Beta</span> Ready for real rides and still being improved, with frequent updates.
           </p>
           <div className="cta">
-            <DownloadButton rel={rel} />
+            <DownloadButton />
             <a className="btn btn-ghost" href="#videos">
               Watch the video
             </a>
           </div>
-          <VersionLine rel={rel} />
+          <VersionLine />
         </div>
         <div className="hero-visual">
           <div className="phone">
@@ -547,25 +549,7 @@ function FeatureRow({ f, flip }: { f: Feature; flip: boolean }) {
   );
 }
 
-function DownloadButton({ rel, compact }: { rel: Release | null; compact?: boolean }) {
-  return (
-    <a className="btn" href={DOWNLOAD_URL} download={rel?.name ?? true}>
-      <Icon name="update" size={20} />
-      {compact ? (rel ? `Download Beta ${rel.version}` : 'Download Daanvia Beta') : 'Download Daanvia Beta'}
-      {compact && rel && <span className="btn-sub">{formatSize(rel.size)}</span>}
-    </a>
-  );
-}
 
-function VersionLine({ rel }: { rel: Release | null }) {
-  if (!rel) return <p className="version">Daanvia Beta, latest version · Android 10+</p>;
-  return (
-    <p className="version">
-      Daanvia Beta {rel.version} · {formatSize(rel.size)}
-      {formatDate(rel.publishedAt) && <> · released {formatDate(rel.publishedAt)}</>}
-    </p>
-  );
-}
 
 function WhatsNew({ rel }: { rel: Release }) {
   const blocks = parseNotes(rel.notes);
