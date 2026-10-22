@@ -16,6 +16,7 @@ export function Wordmark() {
     <span className="wordmark">
       <Mark size={30} />
       <span>daanvia</span>
+      <span className="beta">Beta</span>
     </span>
   );
 }

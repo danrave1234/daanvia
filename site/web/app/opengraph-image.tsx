@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export const alt = 'Daanvia: offline motorcycle navigation for the Philippines';
+export const alt = 'Daanvia Beta: offline motorcycle navigation for the Philippines';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -22,6 +22,9 @@ export default async function OpenGraphImage() {
               <path d="M54 40 L68 72 L54 65.5 L40 72 Z" fill="#16202A" />
             </svg>
             <span style={{ color: '#F2F4F6', fontSize: 64, fontWeight: 800, letterSpacing: -2 }}>daanvia</span>
+            <span style={{ color: '#FFB020', fontSize: 26, fontWeight: 800, letterSpacing: 3, border: '3px solid #FFB020', borderRadius: 12, padding: '4px 12px', marginLeft: 4 }}>
+              BETA
+            </span>
           </div>
           <div style={{ color: '#F2F4F6', fontSize: 58, fontWeight: 800, lineHeight: 1.08, marginTop: 40, letterSpacing: -1.5 }}>
             Ride anywhere in the Philippines.

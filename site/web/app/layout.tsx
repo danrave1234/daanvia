@@ -4,25 +4,25 @@ import './globals.css';
 
 const figtree = Figtree({ subsets: ['latin'], weight: ['400', '500', '600', '700', '800'], display: 'swap', variable: '--font-figtree' });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://daanvia.vercel.app';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://daanvia-app.vercel.app';
 const description =
   'Offline motorcycle navigation for the Philippines. Routes without signal, branch-level search, parking near arrival, and directions on your QJ Motor / ATR 160 dashboard. Free Android app.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: { default: 'Daanvia: offline motorcycle navigation for the Philippines', template: '%s · Daanvia' },
+  title: { default: 'Daanvia Beta: offline motorcycle navigation for the Philippines', template: '%s · Daanvia Beta' },
   description,
-  applicationName: 'Daanvia',
-  keywords: ['motorcycle navigation', 'offline maps Philippines', 'QJ Motor', 'ATR 160', 'TFT navigation', 'Android', 'Daanvia'],
+  applicationName: 'Daanvia Beta',
+  keywords: ['motorcycle navigation', 'offline maps Philippines', 'QJ Motor', 'ATR 160', 'TFT navigation', 'Android', 'Daanvia', 'Daanvia Beta'],
   openGraph: {
     type: 'website',
     url: SITE_URL,
-    siteName: 'Daanvia',
-    title: 'Daanvia: offline motorcycle navigation for the Philippines',
+    siteName: 'Daanvia Beta',
+    title: 'Daanvia Beta: offline motorcycle navigation for the Philippines',
     description,
     locale: 'en_PH',
   },
-  twitter: { card: 'summary_large_image', title: 'Daanvia', description },
+  twitter: { card: 'summary_large_image', title: 'Daanvia Beta', description },
   alternates: { canonical: '/' },
 };
 

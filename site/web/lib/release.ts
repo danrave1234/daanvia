@@ -9,7 +9,7 @@ const REPO = 'danrave1234/daanvia';
 const APK = /^daanvia-(\d+\.\d+\.\d+)\.apk$/;
 
 /** Where the Download button points: the Cloudflare Worker that streams the APK. */
-export const DOWNLOAD_URL = process.env.NEXT_PUBLIC_DOWNLOAD_URL || 'https://daanvia-download.workers.dev/';
+export const DOWNLOAD_URL = process.env.NEXT_PUBLIC_DOWNLOAD_URL || 'https://daanvia-download.danravekeh123.workers.dev/';
 
 export const REPO_URL = `https://github.com/${REPO}`;
 

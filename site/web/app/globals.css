@@ -231,3 +231,13 @@ h1 { font-size: clamp(2.2rem, 7.4vw, 3.9rem); line-height: 1.04; font-weight: 80
 }
 .dock .btn { width: 100%; }
 @media (min-width: 900px) { .dock { display: none; } }
+
+/* ── Beta label ────────────────────────────────────────── */
+.beta {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 8px;
+  border: 1.5px solid var(--accent); color: var(--accent);
+  font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.4;
+}
+.wordmark .beta { margin-left: 2px; }
+.beta-note { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; font-size: 15px; color: var(--ink-2); }
+.beta-note .beta { flex: none; }

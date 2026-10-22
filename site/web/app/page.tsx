@@ -247,14 +247,27 @@ const faqs: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: 'How do I update?',
-    a: 'Settings › About › Check, or download again from this page and install it over Daanvia. Your saved places and maps stay.',
+    a: 'Settings › About › Check, or download again from this page and install it over Daanvia Beta. Your saved places and maps stay.',
+  },
+  {
+    q: 'I have the old Daanvia (0.8.1 or older). Can it update itself?',
+    a: (
+      <>
+        No. Its built-in updater can’t install the new app, because the new app has a different app id. Download Daanvia Beta from
+        this page, install it, then move your maps and settings across as below.
+      </>
+    ),
+  },
+  {
+    q: 'What does “Beta” mean?',
+    a: 'Daanvia Beta works for real riding: offline maps, routes, parking and the bike display are all in use every day. It is still being improved, so updates come often. If something goes wrong, Settings › Support and test tools › Share report helps get it fixed.',
   },
   {
     q: 'I had Daanvia before 0.9.0. Why are there two apps now?',
     a: (
       <>
         From 0.9.0 Daanvia is signed with a private key instead of a public test key, so Android installs it beside the old one,
-        which is renamed <strong>Daanvia (old)</strong>. Open the new Daanvia and tap <strong>Move my maps and settings</strong>:
+        which is renamed <strong>Daanvia (old)</strong>. Open <strong>Daanvia Beta</strong> and tap <strong>Move my maps and settings</strong>:
         your maps, saved places, bike pairing, display fit and settings come across. When it says they moved, tap{' '}
         <strong>Uninstall</strong> to remove Daanvia (old). You need free space for one more copy of your maps while both are
         installed.
@@ -395,7 +408,7 @@ export default async function Home() {
             </div>
             <aside className="get" aria-label="Download">
               <Mark size={64} />
-              <p className="get-title">Daanvia for Android</p>
+              <p className="get-title">Daanvia Beta for Android</p>
               <DownloadButton rel={rel} />
               <VersionLine rel={rel} />
               <p className="fine">Android 10 or newer · one APK for every ARM phone · no account</p>
@@ -474,13 +487,16 @@ function Hero({ rel }: { rel: Release | null }) {
       <div className="hero-bg" aria-hidden />
       <div className="wrap hero-in">
         <div className="hero-copy">
-          <p className="eyebrow">Android · offline · free</p>
+          <p className="eyebrow">Daanvia Beta · Android · offline · free</p>
           <h1 id="hero-h">
             Ride anywhere in the Philippines. <span className="accent">No signal needed.</span>
           </h1>
           <p className="lead">
-            Daanvia plans your route on the phone, finds the branch and the parking, and puts turn-by-turn directions on your QJ Motor
-            / ATR 160 dashboard.
+            Daanvia Beta plans your route on the phone, finds the branch and the parking, and puts turn-by-turn directions on your QJ
+            Motor / ATR 160 dashboard.
+          </p>
+          <p className="beta-note">
+            <span className="beta">Beta</span> Ready for real rides and still being improved, with frequent updates.
           </p>
           <div className="cta">
             <DownloadButton rel={rel} />
@@ -535,17 +551,17 @@ function DownloadButton({ rel, compact }: { rel: Release | null; compact?: boole
   return (
     <a className="btn" href={DOWNLOAD_URL} download={rel?.name ?? true}>
       <Icon name="update" size={20} />
-      {compact ? (rel ? `Download v${rel.version}` : 'Download') : 'Download for Android'}
+      {compact ? (rel ? `Download Beta ${rel.version}` : 'Download Daanvia Beta') : 'Download Daanvia Beta'}
       {compact && rel && <span className="btn-sub">{formatSize(rel.size)}</span>}
     </a>
   );
 }
 
 function VersionLine({ rel }: { rel: Release | null }) {
-  if (!rel) return <p className="version">Latest version · Android 10+</p>;
+  if (!rel) return <p className="version">Daanvia Beta, latest version · Android 10+</p>;
   return (
     <p className="version">
-      Version {rel.version} · {formatSize(rel.size)}
+      Daanvia Beta {rel.version} · {formatSize(rel.size)}
       {formatDate(rel.publishedAt) && <> · released {formatDate(rel.publishedAt)}</>}
     </p>
   );

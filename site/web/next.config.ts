@@ -1,6 +1,6 @@
 import type { NextConfig } from 'next';
 
-const DOWNLOAD_URL = process.env.NEXT_PUBLIC_DOWNLOAD_URL || 'https://daanvia-download.workers.dev/';
+const DOWNLOAD_URL = process.env.NEXT_PUBLIC_DOWNLOAD_URL || 'https://daanvia-download.danravekeh123.workers.dev/';
 
 const config: NextConfig = {
   // This app lives inside the Android repo; keep Next from treating a parent folder as the workspace root.
