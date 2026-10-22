@@ -47,10 +47,15 @@ final class RideMotion {
         else if (predicted < alongShown && alongShown - predicted < 40) alongShown += (predicted - alongShown) * Math.min(1f, dtMs / 3000f);
         else alongShown += (predicted - alongShown) * Math.min(1f, dtMs / 250f);
         int i = segmentAt(cum, alongShown); routeFrom = i;
-        double[] here = pointAt(route, cum, i, alongShown), ahead = pointAt(route, cum, segmentAt(cum, alongShown + 18), alongShown + 18);
+        // The map turns for real bends only: it faces a point 40 m ahead, and wobbles of under 2 degrees in the road's line
+        // are ignored. Turning at every small kink made the bike picture rotate constantly, which looked restless and
+        // needed about a fifth more frames (measured), so more work for the phone.
+        double[] here = pointAt(route, cum, i, alongShown), ahead = pointAt(route, cum, segmentAt(cum, alongShown + 40), alongShown + 40);
         lat = here[0]; lon = here[1];
         float want = here[0] == ahead[0] && here[1] == ahead[1] ? bearing : GeoMath.bearing(here, ahead);
-        float turn = ((want - bearing + 540) % 360) - 180; bearing = (bearing + turn * Math.min(1f, dtMs / 300f) + 360) % 360;
+        float turn = ((want - bearing + 540) % 360) - 180;
+        if (Math.abs(turn) < 2f) turn = 0;
+        bearing = (bearing + turn * Math.min(1f, dtMs / 300f) + 360) % 360;
         return true;
     }
     static int segmentAt(double[] cum, double d) { int lo = 0, hi = cum.length - 2; while (lo < hi) { int mid = (lo + hi + 1) / 2; if (cum[mid] <= d) lo = mid; else hi = mid - 1; } return Math.max(0, lo); }

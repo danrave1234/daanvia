@@ -86,13 +86,47 @@ public final class DashboardRenderer {
         boolean portrait = height > width * 1.1f; if (portrait) portraitLayout();
         float scale = portrait ? Math.min(width / 480f, height / 800f) : Math.min(width / 800f, height / 480f); float vw = width / scale, vh = height / scale; target.scale(scale, scale);
         if (s.calibration) { grid(target, vw, vh); target.restore(); return; }
-        drawMap(target, vw, vh);
-        RectF turn = card(s.turnCard, vw, vh), trip = card(s.tripCard, vw, vh);
+        // Directions only (Settings › Bike display): the cards on a plain background, no moving map. About a third of the
+        // work of the full picture (measured), and only a few frames a second are needed since little moves.
+        boolean simple = s.directionsOnly() && s.active && !s.layoutEditing;
+        if (simple) { target.drawColor(land()); pixelsPerSecond = 0; } else drawMap(target, vw, vh);
+        // With no map to keep clear, the cards fill the screen: a large turn card, and the trip along the bottom.
+        RectF turn = simple ? new RectF(vw * 0.04f, vh * 0.04f, vw * 0.96f, vh * 0.68f) : card(s.turnCard, vw, vh);
+        RectF trip = simple ? new RectF(vw * 0.04f, vh * 0.72f, vw * 0.96f, vh * 0.96f) : card(s.tripCard, vw, vh);
         boolean sample = s.layoutEditing && !s.active;
-        if (s.active || sample) { turnCard(target, turn, sample); tripCard(target, trip, sample); } else idle(target, turn);
+        if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
+        else idle(target, turn);
         if (s.layoutEditing) outlines(target, turn, trip, s.arrowX * vw, s.arrowY * vh);
         target.restore();
     }
+    // ---- Cards recorded once and replayed ----
+    // The turn and trip cards change far less often than the map moves: the distance to the turn about once a second,
+    // the trip numbers about once a minute. Each card is recorded once and that recording is replayed every frame until
+    // what the card shows changes, instead of measuring and drawing its text every frame.
+    private final android.graphics.RenderNode turnNode = new android.graphics.RenderNode("turn-card"), tripNode = new android.graphics.RenderNode("trip-card");
+    private String turnShown, tripShown;
+    private void cached(Canvas c, android.graphics.RenderNode node, String key, boolean turn, RectF r, boolean sample, float vw, float vh) {
+        if (!c.isHardwareAccelerated()) { if (turn) turnCard(c, r, sample); else tripCard(c, r, sample); return; }
+        if (!key.equals(turn ? turnShown : tripShown) || !node.hasDisplayList()) {
+            node.setPosition(0, 0, (int)Math.ceil(vw), (int)Math.ceil(vh));
+            android.graphics.RecordingCanvas rc = node.beginRecording();
+            try { if (turn) turnCard(rc, r, sample); else tripCard(rc, r, sample); } finally { node.endRecording(); }
+            if (turn) turnShown = key; else tripShown = key;
+        }
+        c.drawRenderNode(node);
+    }
+    /** Everything the turn card's picture depends on (see turnCard). */
+    private String turnKey(RectF r, boolean sample) {
+        boolean arriving = !sample && "Destination nearby".equals(s.instruction);
+        boolean stale = !sample && !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
+        return look(r) + sample + arriving + stale + '|' + s.maneuver + '|' + System.identityHashCode(s.maneuvers) + '|' + distance(s.distanceToTurn) + '|' + s.instruction + '|' + s.destination;
+    }
+    /** Everything the trip card's picture depends on (see tripCard). */
+    private String tripKey(RectF r, boolean sample) {
+        double secs = sample ? 12 * 60 : s.seconds, metres = sample ? 4500 : s.remaining;
+        return look(r) + sample + '|' + Math.max(1, Math.round(secs / 60)) + '|' + Math.round(metres / 100) + '|' + Gabi.clock(secs);
+    }
+    private String look(RectF r) { return r.left + "," + r.top + "," + r.right + "," + r.bottom + '|' + pal.night + pal.accent + '|' + s.textScale + s.layout + '|' + System.identityHashCode(black) + System.identityHashCode(bold) + '|'; }
     /** The landscape default cards don't suit a tall display: the turn across the top, the trip across the bottom. */
     private void portraitLayout() {
         if (!java.util.Arrays.equals(s.turnCard, NavSession.DEFAULT_TURN) || !java.util.Arrays.equals(s.tripCard, NavSession.DEFAULT_TRIP)) return;

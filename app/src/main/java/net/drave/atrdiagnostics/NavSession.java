@@ -343,6 +343,8 @@ public final class NavSession {
      */
     public volatile int panelW,panelH,videoW,videoH,bikeFps;public volatile String screenType="";
     /** The panel's width÷height when it differs from the video's and correcting it is on; 0 to draw the video as it is. */
+    /** The bike display shows only the turn and trip cards, no moving map (Settings › Bike display), to save battery. */
+    public boolean directionsOnly(){return context.getSharedPreferences("ui",0).getBoolean("directionsonly",false);}
     public float panelAspect(){return panelW>0&&panelH>0&&context.getSharedPreferences("ui",0).getBoolean("matchshape",true)?(float)panelW/panelH:0;}
     /** Record what the bike reported (values ≤ 0 or null leave what is known). */
     public void screenReport(int pw,int ph,int vw,int vh,int fps,String type){

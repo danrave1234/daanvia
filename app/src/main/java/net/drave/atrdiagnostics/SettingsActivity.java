@@ -88,6 +88,10 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         shapeRow.addView(k.segmented(new String[]{"On", "Off"}, shape ? 0 : 1, i -> { getSharedPreferences("ui", 0).edit().putBoolean("matchshape", i == 0).apply(); s.signal(); }));
         shapeRow.addView(k.text("This bike's panel is a different shape from the video it asks for. On, Daanvia draws for the panel so nothing looks stretched. Turn it off if the display looks squeezed.", 13, 500, MUTED));
         tft.addView(shapeRow);
+        tft.addView(k.text("What the bike shows while riding", 15, 650, INK));
+        boolean simple = getSharedPreferences("ui", 0).getBoolean("directionsonly", false);
+        tft.addView(k.segmented(new String[]{"Map and directions", "Directions only"}, simple ? 1 : 0, i -> { getSharedPreferences("ui", 0).edit().putBoolean("directionsonly", i == 1).apply(); s.signal(); }));
+        tft.addView(k.text("Directions only shows the next turn and your trip on a plain screen, without the moving map. The phone does about a third of the work, so it runs cooler and the battery lasts longer on long rides.", 12.5f, 500, MUTED));
         TextView layoutBtn = k.primary("Edit display layout", () -> { if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then edit the layout while parked.", android.widget.Toast.LENGTH_SHORT).show(); return; } startActivity(new Intent(this, TftLayoutActivity.class)); });
         tft.addView(layoutBtn);
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
