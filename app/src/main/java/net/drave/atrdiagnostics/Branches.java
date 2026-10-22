@@ -40,6 +40,21 @@ final class Branches {
         return best;
     }
 
+    /** The nearest named street within {@code meters}, or null: used to tell unnamed parking lots apart. */
+    static String street(double lat, double lon, RoadTiles.Index roads, double meters) {
+        if (roads == null) return null;
+        double pad = meters / 111000.0, padLon = pad / Math.max(0.2, Math.cos(Math.toRadians(lat)));
+        String best = null; double bestD = meters;
+        for (NavSession.Road r : roads.near(lat - pad, lon - padLon, lat + pad, lon + padLon)) {
+            if (r.name.isEmpty() || MINOR.contains(r.kind)) continue;
+            for (int i = 0; i + 1 < r.size(); i++) {
+                double d = GeoMath.segmentDistance(lat, lon, new double[]{r.lat(i), r.lon(i)}, new double[]{r.lat(i + 1), r.lon(i + 1)});
+                if (d < bestD) { bestD = d; best = r.name; }
+            }
+        }
+        return best;
+    }
+
     /** The nearest city or town centre within {@link #TOWN_METERS}. */
     static String town(double lat, double lon, SearchIndex towns) {
         String best = null; double bestD = TOWN_METERS;

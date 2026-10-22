@@ -218,7 +218,7 @@ public final class DashboardRenderer {
     private void idle(Canvas c, RectF r) {
         cardBackground(c, r);
         float k = unit(r, 280, 270), pad = 18 * k, x = r.left + pad, w = r.width() - pad * 2;
-        p.setLetterSpacing(0.18f); text(c, "DAANVIA", x, r.top + pad + 13 * k, 14 * k, pal.accent, black); p.setLetterSpacing(0);
+        p.setLetterSpacing(0.18f); text(c, "DAANVIA BETA", x, r.top + pad + 13 * k, 14 * k, pal.accent, black); p.setLetterSpacing(0);
         String clock = new java.text.SimpleDateFormat("h:mm", Locale.US).format(new Date());
         float cs = Math.min(78 * k, r.height() * 0.34f), y = r.top + pad + 13 * k + cs * 1.02f;
         text(c, fit(clock, w, cs, black), x, y, cs, ink(), black);

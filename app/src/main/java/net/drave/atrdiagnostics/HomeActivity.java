@@ -294,7 +294,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         regionChip = chip(""); bikeChip = chip("");
         Gabi.press(bikeChip, this::openSettings);
         Gabi.press(regionChip, () -> k.tip(regionChip, "Daanvia keeps the map, search and routes on your phone, so it works with no signal or mobile data. Right now it covers " + s.regionName + "."));
-        chips.addView(regionChip); chips.addView(bikeChip);
+        // Daanvia is in beta until its paid launch (1.0); the chip says so and explains it when tapped.
+        TextView beta = chip("Beta");
+        Gabi.press(beta, () -> k.tip(beta, "Daanvia is in beta: it works for real riding, and it's still being improved. Something wrong? Settings › Support and test tools › Share report."));
+        chips.addView(regionChip); chips.addView(bikeChip); chips.addView(beta);
         top.addView(chips);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP); lp.leftMargin = lp.rightMargin = k.dp(14);
         root.addView(top, lp);
@@ -789,7 +792,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         int count = Math.min(show, near.size());
         for (int i = 0; i < count; i++) {
             Lots.Lot l = near.get(i);
-            into.addView(branch(l.motorcycle() ? IconDrawable.BIKE : IconDrawable.PARK, l.title(), l.summary(), Gabi.distance(GeoMath.distance(la, lo, l.lat, l.lon)), i == count - 1 && near.size() <= show, l.restricted(), () -> openLot(l, parent)));
+            into.addView(branch(l.motorcycle() ? IconDrawable.BIKE : IconDrawable.PARK, lotName(l, null), l.summary(), Gabi.distance(GeoMath.distance(la, lo, l.lat, l.lon)), i == count - 1 && near.size() <= show, l.restricted(), () -> openLot(l, parent)));
         }
         if (near.size() > show) {
             int at = into.getChildCount(); int rest = near.size() - show;
@@ -867,15 +870,50 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         lotLive = k.text("", 13, 600, INK_SOFT); live.addView(lotLive, new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(live);
         LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(14), 0, 0);
-        btns.addView(k.circle(IconDrawable.STAR, 56, CHIP, ACCENT, () -> { if (lot != null) openSave(lot.placeName(lotParent), lot.lat, lot.lon); }));
-        btns.addView(k.primary("Ride here", () -> { if (lot != null) choose(lot.lat, lot.lon, lot.placeName(lotParent)); }), new LinearLayout.LayoutParams(0, -2, 1));
+        btns.addView(k.circle(IconDrawable.STAR, 56, CHIP, ACCENT, () -> { if (lot != null) openSave(lotName(lot, lotParent), lot.lat, lot.lon); }));
+        btns.addView(k.primary("Ride here", () -> { if (lot != null) choose(lot.lat, lot.lon, lotName(lot, lotParent)); }), new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(btns);
         return c;
+    }
+    /**
+     * What to call a lot: its own name, or "Allson's parking" when it belongs to a place. A lot with neither gets its
+     * nearest landmark or street, "Parking lot near Gaisano Country Mall" or "Parking lot · Governor M. Cuenco Avenue",
+     * so look-alike unnamed lots can be told apart.
+     */
+    private String lotName(Lots.Lot l, String parent) {
+        String n = l.placeName(parent);
+        if ((parent != null && !parent.trim().isEmpty()) || !Lots.Lot.generic(n)) return n;
+        String where = lotStreets.get(l.id);
+        if (where == null) {
+            // A named place within 60 m ("Parking lot near Gaisano Country Mall") tells look-alike lots apart best; else the street.
+            String place = nearestPlace(l.lat, l.lon, 60), street = place == null ? Branches.street(l.lat, l.lon, s.roadIndex, 150) : null;
+            where = place != null ? " near " + place : street != null ? " · " + street : "";
+            lotStreets.put(l.id, where);
+        }
+        return n + where;
+    }
+    /** The nearest named place within {@code meters}, leaving out other parking. */
+    private String nearestPlace(double lat, double lon, double meters) {
+        NavSession.Places p = s.places; String best = null; double bestD = meters, pad = meters / 111000.0;
+        for (int i = 0; i < p.size(); i++) {
+            if (Math.abs(p.lat[i] - lat) > pad || Math.abs(p.lon[i] - lon) > pad * 1.1) continue;
+            String name = p.names.get(i); if (name == null || name.isEmpty() || name.toLowerCase(Locale.ROOT).contains("parking")) continue;
+            double d = GeoMath.distance(lat, lon, p.lat[i], p.lon[i]); if (d < bestD) { bestD = d; best = name; }
+        }
+        return best;
+    }
+    private final java.util.HashMap<String, String> lotStreets = new java.util.HashMap<>();
+    private LinearLayout parkList; private int parkListCount = -1;
+    private void toggleArrivalParking() {
+        if (parkList.getVisibility() == View.VISIBLE) { parkList.setVisibility(View.GONE); parkList.removeAllViews(); return; }
+        List<Lots.Lot> near = new ArrayList<>(); for (JSONObject o : s.nearbyParking) near.add(new Lots.Lot(o));
+        Lots.rank(near, destLat, destLon); parkListCount = near.size();
+        parkList.removeAllViews(); addLots(parkList, near, null, destLat, destLon, 4); parkList.setVisibility(View.VISIBLE);
     }
     private void openLot(Lots.Lot l, String parent) {
         lot = l; lotParent = parent; hideKeyboard();
         // Headed by the place it belongs to; the lot's own description underneath.
-        String named = l.placeName(parent); lotTitle.setText(named); lotSub.setText(parent == null ? "" : named.equals(l.title()) ? "At " + parent : l.title());
+        String named = lotName(l, parent); lotTitle.setText(named); lotSub.setText(parent == null ? "" : named.equals(l.title()) ? "At " + parent : l.title());
         paintLotFacts(l);
         liveState(MUTED, "Checking the map for updates…");
         go(Mode.LOT);
@@ -889,7 +927,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 else if (!r.exists) liveState(DANGER, "This parking is no longer on the map. It may have closed.");
                 else {
                     liveState(OK, "Still on the map" + (r.edited == null ? "" : " · last updated " + month(r.edited)));
-                    Lots.Lot fresh = Lots.Lot.fromTags(l.id, l.lat, l.lon, r.tags); lot = fresh; lotTitle.setText(fresh.placeName(lotParent)); paintLotFacts(fresh);
+                    Lots.Lot fresh = Lots.Lot.fromTags(l.id, l.lat, l.lon, r.tags); lot = fresh; lotTitle.setText(lotName(fresh, lotParent)); paintLotFacts(fresh);
                 }
             });
         });
@@ -996,7 +1034,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         View gap = new View(this); c.addView(gap, new LinearLayout.LayoutParams(1, k.dp(12)));
         parkRow = k.row(10); parkRow.setPadding(k.dp(12), k.dp(10), k.dp(12), k.dp(10)); k.fill(parkRow, 16, ACCENT_SOFT);
         parkRow.addView(k.icon(IconDrawable.PARK, 18, ACCENT)); parkText = k.text("", 13, 600, INK_SOFT); parkRow.addView(parkText, new LinearLayout.LayoutParams(0, -2, 1));
+        parkRow.addView(k.icon(IconDrawable.CHEVRON, 16, INK_SOFT));
         c.addView(parkRow);
+        // Tap to see which lots they are: each by its name, its place, or its street, nearest to the destination first.
+        parkList = k.column(0); parkList.setVisibility(View.GONE); c.addView(parkList);
+        Gabi.press(parkRow, this::toggleArrivalParking);
         simNote = k.text("The demo moves by itself so you can check the bike display while parked. Don’t follow it while riding.", 12.5f, 500, MUTED);
         simNote.setPadding(0, k.dp(10), 0, 0); c.addView(simNote);
         LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(12), 0, 0);
@@ -1023,6 +1065,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         int lots = s.nearbyParking.size(), priced = 0;
         for (JSONObject l : s.nearbyParking) if (!MapStyle.priceOf(l).isEmpty()) priced++;
         parkRow.setVisibility(mine && lots > 0 ? View.VISIBLE : View.GONE);
+        if (!(mine && lots > 0) || lots != parkListCount) { parkList.setVisibility(View.GONE); parkList.removeAllViews(); }
         parkText.setText(lots + " parking " + (lots == 1 ? "spot" : "spots") + " near arrival" + (priced > 0 ? " · " + priced + " with a saved rate" : ""));
         simNote.setVisibility(demoTrip ? View.VISIBLE : View.GONE);
         startBtn.setText(demoTrip ? "Start demo" : "Start ride");
