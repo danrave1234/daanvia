@@ -14,8 +14,9 @@ public final class Pxc {
 
     public String text() { return new String(payload, StandardCharsets.UTF_8); }
 
-    public static byte[] encode(int command, String body) {
-        byte[] data = body.getBytes(StandardCharsets.UTF_8);
+    public static byte[] encode(int command, String body) { return encode(command, body.getBytes(StandardCharsets.UTF_8)); }
+
+    public static byte[] encode(int command, byte[] data) {
         int length = 16 + data.length;
         return ByteBuffer.allocate(length).order(ByteOrder.LITTLE_ENDIAN)
             .putInt(command).putInt(length).putInt(command ^ length).putInt(0).put(data).array();

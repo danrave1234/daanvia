@@ -155,6 +155,7 @@ public final class StreamService extends Service {
                 NavSession.get(this).screenReport(pw,ph,vw,vh,0,bike.optString("screenType",bike.optString("productType","")));
                 log("Dashboard screen: panel "+pw+"x"+ph+", video "+vw+"x"+vh+", type "+bike.optString("screenType","?")+".");
                 log("Dashboard info: "+preview(f.payload));remember(f.command,f.payload);
+                clockChannel=bike.optString("channel","");clockWithDate=bike.optBoolean("supportSyncCorrectTime",false);
                 if(huid.isEmpty()||huid.getBytes(StandardCharsets.UTF_8).length>100)throw new IOException("Missing or unsupported dashboard identity field");
                 Cipher rsa=Cipher.getInstance("RSA/ECB/PKCS1Padding");rsa.init(Cipher.ENCRYPT_MODE,identity.getPrivate());
                 String signed=Base64.encodeToString(rsa.doFinal(huid.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
@@ -168,7 +169,17 @@ public final class StreamService extends Service {
                 out.write(Pxc.encode(0x103e1,""));
                 out.write(Pxc.encode(0x201c0,new JSONObject().put("isOk",true).put("errCode",0).put("errMsg","").put("id",request.optString("sn")).put("client_set",request.optString("client_set")).toString()));
             } else if(f.command==0x201c1)log("Dashboard acknowledged the client session check.");
-            else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10040||f.command==0x10600||f.command==0x10750||f.command==0x10430||f.command==0x10450||f.command==0x10460) {
+            // The dashboard asks the phone for the time; an empty answer left its clock counting up from 00:00 (see DashClock).
+            else if(f.command==DashClock.QUERY_TIME) {
+                boolean set=getSharedPreferences("ui",0).getBoolean("dashclock",true);long now=System.currentTimeMillis();TimeZone zone=TimeZone.getDefault();
+                out.write(Pxc.encode(DashClock.QUERY_TIME+1,set?DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel):""));
+                log(set?"Told the dashboard the time: "+clock()+".":"The dashboard asked for the time; setting its clock is off in Settings.");
+            } else if(f.command==DashClock.TIME_SYNC) {
+                boolean set=getSharedPreferences("ui",0).getBoolean("dashclock",true);
+                out.write(set?Pxc.encode(DashClock.TIME_SYNC+1,DashClock.timeSyncReply(f.payload,System.currentTimeMillis(),TimeZone.getDefault())):Pxc.encode(DashClock.TIME_SYNC+1,""));
+                if(set)log(DashClock.keepsOwnTime(f.payload)?"The dashboard's clock is already set; left as it is.":"Set the dashboard's clock: "+clock()+".");
+            }
+            else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10040||f.command==0x10750||f.command==0x10430||f.command==0x10460) {
                 out.write(Pxc.encode(f.command+1,""));
             } else if(f.command==0x10630||f.command==0x104a0) {
                 out.write(Pxc.encode(f.command+1,""));
@@ -178,6 +189,8 @@ public final class StreamService extends Service {
         }
         } finally {controlOpen=false;if(keepalive!=null)keepalive.close();log("Control channel closed. Phone time "+clock()+".");}
     }
+    /** From the dashboard's CLIENT_INFO: its model number, and whether it wants a formatted date with the time. */
+    private volatile String clockChannel="";private volatile boolean clockWithDate;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
     static String preview(byte[] b){return preview(b,600);}

@@ -63,6 +63,10 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
         bike.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
         bike.addView(k.text("When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn and may turn off, to save battery. Tap it to bring the map back. The moon button on the ride screen does it right away.", 12.5f, 500, MUTED));
+        bike.addView(k.text("Set the bike's clock from the phone", 14, 650, INK));
+        boolean clockOn = getSharedPreferences("ui", 0).getBoolean("dashclock", true);
+        bike.addView(k.segmented(new String[]{"On", "Off"}, clockOn ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("dashclock", i == 0).apply()));
+        bike.addView(k.text("When the bike display connects, it asks the phone for the time, as it does with Carbit Ride. Turn this off only if your display's clock goes wrong after connecting.", 12.5f, 500, MUTED));
         bike.addView(k.text("Keep Daanvia running during rides", 14, 650, INK));
         keepText = k.text("", 12.5f, 500, MUTED); bike.addView(keepText);
         keepButton = k.ghost("Allow Daanvia to keep running", () -> KeepAlive.ask(this)); bike.addView(keepButton);
