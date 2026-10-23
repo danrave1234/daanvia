@@ -1,0 +1,28 @@
+name: Android beta checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Install Android SDK components
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;35.0.0' > /dev/null
+      - name: Unit tests, lint and debug APK
+        run: bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain
+      - name: Save reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-check-reports
+          path: app/build/reports/
+          retention-days: 14

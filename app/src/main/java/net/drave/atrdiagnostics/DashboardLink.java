@@ -75,7 +75,7 @@ public final class DashboardLink {
     private final Runnable reconnect = this::reconnectNow;
     private void reconnectNow() {
         if (StreamService.navigationActive || stoppedByUser || !profileReady || !hasPermissions()) return;
-        if (!context.getSharedPreferences("ui", 0).getBoolean("autoconnect", true) || SystemClock.elapsedRealtime() > reconnectUntil) return;
+        if (SystemClock.elapsedRealtime() > reconnectUntil) return;
         if (!running) { log("Reconnecting to the bike display."); autoNavigation(); }
         main.postDelayed(reconnect, 8000);
     }

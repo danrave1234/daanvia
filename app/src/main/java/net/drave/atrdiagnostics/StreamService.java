@@ -171,13 +171,12 @@ public final class StreamService extends Service {
             } else if(f.command==0x201c1)log("Dashboard acknowledged the client session check.");
             // The dashboard asks the phone for the time; an empty answer left its clock counting up from 00:00 (see DashClock).
             else if(f.command==DashClock.QUERY_TIME) {
-                boolean set=getSharedPreferences("ui",0).getBoolean("dashclock",true);long now=System.currentTimeMillis();TimeZone zone=TimeZone.getDefault();
-                out.write(Pxc.encode(DashClock.QUERY_TIME+1,set?DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel):""));
-                log(set?"Told the dashboard the time: "+clock()+".":"The dashboard asked for the time; setting its clock is off in Settings.");
+                long now=System.currentTimeMillis();TimeZone zone=TimeZone.getDefault();
+                out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel)));
+                log("Told the dashboard the time: "+clock()+".");
             } else if(f.command==DashClock.TIME_SYNC) {
-                boolean set=getSharedPreferences("ui",0).getBoolean("dashclock",true);
-                out.write(set?Pxc.encode(DashClock.TIME_SYNC+1,DashClock.timeSyncReply(f.payload,System.currentTimeMillis(),TimeZone.getDefault())):Pxc.encode(DashClock.TIME_SYNC+1,""));
-                if(set)log(DashClock.keepsOwnTime(f.payload)?"The dashboard's clock is already set; left as it is.":"Set the dashboard's clock: "+clock()+".");
+                out.write(Pxc.encode(DashClock.TIME_SYNC+1,DashClock.timeSyncReply(f.payload,System.currentTimeMillis(),TimeZone.getDefault())));
+                log(DashClock.keepsOwnTime(f.payload)?"The dashboard's clock is already set; left as it is.":"Set the dashboard's clock: "+clock()+".");
             }
             else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10040||f.command==0x10750||f.command==0x10430||f.command==0x10460) {
                 out.write(Pxc.encode(f.command+1,""));

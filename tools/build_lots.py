@@ -26,7 +26,7 @@ def record(oid, lon, lat, t):
     r = {'id': oid, 'lat': round(lat, 7), 'lon': round(lon, 7), 'name': t.get('name', ''),
          'kind': 'moto' if t.get('amenity') == 'motorcycle_parking' else 'car', 'moto': moto,
          'acc': t.get('access', ''), 'hrs': t.get('opening_hours', ''), 'fee': t.get('fee', ''), 'chg': t.get('charge', ''),
-         'cap': t.get('capacity', ''), 'capm': t.get('capacity:motorcycle', ''), 'op': t.get('operator', ''), 'typ': t.get('parking', '')}
+         'cap': t.get('capacity', ''), 'capm': t.get('capacity:motorcycle', ''), 'op': t.get('operator', ''), 'typ': t.get('parking', ''), 'price_checked': t.get('check_date:charge', '')}
     return {k: v for k, v in r.items() if v != ''}
 
 lots = []

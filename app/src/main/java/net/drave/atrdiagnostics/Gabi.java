@@ -93,6 +93,8 @@ public final class Gabi {
         public Palette palette;
         public Themer(Palette p) { palette = p; }
         public void add(Paint p) { list.add(p); p.apply(palette); }
+        /** Forget every listener: for a part of the screen that is rebuilt from scratch (see RouteChoicesView). */
+        public void clear() { list.clear(); }
         public boolean set(Palette p) { if (p == palette) return false; palette = p; for (Paint x : list) x.apply(p); return true; }
     }
 
@@ -157,6 +159,7 @@ public final class Gabi {
             f.addView(i, new FrameLayout.LayoutParams(dp(size * 0.42f), dp(size * 0.42f), Gravity.CENTER));
             if (bg == Role.GLASS) glass(f, size / 2); else fill(f, size / 2, bg);
             f.setLayoutParams(new LinearLayout.LayoutParams(dp(size), dp(size)));
+            f.setContentDescription(actionLabel(iconType));
             press(f, action); return f;
         }
         public TextView chip(String label, Role bg, Role fg) {
@@ -266,6 +269,38 @@ public final class Gabi {
     }
 
     /** Springy press feedback with a light haptic tick; the action runs on release. */
+    private static String actionLabel(int icon) {
+        switch(icon){
+            case IconDrawable.SEARCH:return "Search places";
+            case IconDrawable.LOC:case IconDrawable.CROSSHAIR:return "Find my location";
+            case IconDrawable.CLOSE:return "Close";
+            case IconDrawable.BACK:return "Back";
+            case IconDrawable.STAR:return "Save place";
+            case IconDrawable.STAR_FILLED:return "Remove saved place";
+            case IconDrawable.GEAR:case IconDrawable.TOOLS:return "Open settings";
+            case IconDrawable.BIKE:case IconDrawable.TFT:return "Bike display";
+            case IconDrawable.VOICE:return "Mute voice directions";
+            case IconDrawable.MUTE:return "Enable voice directions";
+            case IconDrawable.MOON:return "Rest phone screen";
+            case IconDrawable.SUN:return "Day theme";
+            case IconDrawable.AUTO:return "Automatic theme";
+            case IconDrawable.COMPASS:return "Point map north";
+            case IconDrawable.MIRROR:return "Mirror phone to bike display";
+            case IconDrawable.PLAY:return "Start";
+            case IconDrawable.STOP:return "Stop ride";
+            case IconDrawable.DOWNLOAD:return "Download map";
+            case IconDrawable.QR:return "Scan bike QR code";
+            case IconDrawable.SHARE:return "Share";
+            case IconDrawable.CHECK:return "Confirm";
+            case IconDrawable.PARK:return "Parking details";
+            case IconDrawable.MAP:return "Show map";
+            case IconDrawable.INFO:return "More information";
+            case IconDrawable.PIN:case IconDrawable.FLAG:return "Choose destination";
+            case IconDrawable.CHEVRON:return "Open details";
+            default:return "Open details";
+        }
+    }
+
     public static void press(View v, Runnable action) {
         v.setClickable(true); v.setFocusable(true);
         v.setOnTouchListener((view, e) -> {

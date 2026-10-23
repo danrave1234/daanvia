@@ -37,7 +37,7 @@ final class Here {
     private void manager() { if (lm == null) lm = c.getSystemService(LocationManager.class); }
 
     void start() {
-        if (feed.running() || !allowed(c)) return;
+        if (s.simulation || feed.running() || !allowed(c)) return;
         // The phone's last known spot shows at once while the first live fix comes in. An old one is drawn as rough
         // (a wide circle), since the rider may have moved since; live fixes replace it.
         Location last = LocationFeed.lastKnown(c);
@@ -48,7 +48,7 @@ final class Here {
 
     private void feed(Location l) { feed(l, l.getAccuracy()); }
     private void feed(Location l, float acc) {
-        if (s.active) return;
+        if (s.active || s.simulation) return;
         long at = SystemClock.elapsedRealtime() - ageMillis(l);
         if (!filter.accept(l.getLatitude(), l.getLongitude(), acc, at, SystemClock.elapsedRealtime())) return; // rough fixes and GPS bounces (see FixFilter)
         // Lying still: the same spot again doesn't wake the screen or redraw the map; a fresh fix every 15 s keeps it current.

@@ -55,24 +55,12 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         scanRow.addView(k.ghost("QR photo", this::scanPhoto), new LinearLayout.LayoutParams(0, -2, 1));
         bike.addView(scanRow);
         bike.addView(k.text("Park first. Close Carbit Ride and keep the dashboard’s Android QR screen open. Wi-Fi on, hotspot off.", 12.5f, 500, MUTED));
-        bike.addView(k.text("Connect automatically when Daanvia opens", 14, 650, INK));
-        boolean auto = getSharedPreferences("ui", 0).getBoolean("autoconnect", true);
-        bike.addView(k.segmented(new String[]{"On", "Off"}, auto ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("autoconnect", i == 0).apply()));
-        bike.addView(k.text("While the app is open, and all through a ride even with the phone in your pocket, Daanvia keeps looking for the saved dashboard and connects when its QR screen is waiting. If the bike stays off, it looks less often, up to every 3 minutes, to save battery.", 12.5f, 500, MUTED));
         bike.addView(k.text("Rest the phone while riding", 14, 650, INK));
         boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
         bike.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
         bike.addView(k.text("When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn and may turn off, to save battery. Tap it to bring the map back. The moon button on the ride screen does it right away.", 12.5f, 500, MUTED));
-        bike.addView(k.text("Set the bike's clock from the phone", 14, 650, INK));
-        boolean clockOn = getSharedPreferences("ui", 0).getBoolean("dashclock", true);
-        bike.addView(k.segmented(new String[]{"On", "Off"}, clockOn ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("dashclock", i == 0).apply()));
-        bike.addView(k.text("When the bike display connects, it asks the phone for the time, as it does with Carbit Ride. Turn this off only if your display's clock goes wrong after connecting.", 12.5f, 500, MUTED));
-        bike.addView(k.text("Keep Daanvia running during rides", 14, 650, INK));
-        keepText = k.text("", 12.5f, 500, MUTED); bike.addView(keepText);
-        keepButton = k.ghost("Allow Daanvia to keep running", () -> KeepAlive.ask(this)); bike.addView(keepButton);
         String brand = KeepAlive.colorOs();
-        if (brand == null) bike.addView(k.ghost("Open Daanvia's app info", this::openAppInfo));
-        else {
+        if (brand != null) {
             // OPPO, OnePlus and realme phones (ColorOS) close apps mid-ride even when Android allows them to run, so their
             // riders get the phone's own settings step by step, highlighted, until they say they've done it.
             colorBox = k.column(8); colorBox.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(colorBox, 16, ACCENT_SOFT);
@@ -86,7 +74,6 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             // Opened from a ride reminder: go straight to these steps.
             if ("coloros".equals(getIntent().getStringExtra("show"))) page.scroll.post(() -> page.scroll.smoothScrollTo(0, Math.max(0, bike.getTop() + colorBox.getTop() - k.dp(16))));
         }
-        paintKeep();
         permissionBanner = k.column(10); permissionBanner.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(permissionBanner, 16, DANGER_SOFT); permissionBanner.setVisibility(View.GONE);
         permissionBanner.addView(k.text("Android needs Nearby devices and precise location for the Wi-Fi connection. Daanvia does not collect GPS positions for this.", 13, 550, INK));
         permissionBanner.addView(k.ghost("Open app settings", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))));
@@ -161,7 +148,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         more.addView(k.label("About"));
         updateBox = k.column(0); more.addView(updateBox);
         more.addView(k.listRow(IconDrawable.SHARE, "Share navigation report", "Locations, destinations and pairing details are left out", null,
-            () -> startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s.report()), "Share navigation report"))));
+            () -> startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shareable(s.report())), "Share navigation report"))));
         more.addView(k.listRow(IconDrawable.CHECK, "Licenses and map data", "© OpenStreetMap contributors · ODbL", null, this::toggleLicenses));
         licenseText = k.text("", 11, 500, MUTED); licenseText.setTypeface(android.graphics.Typeface.MONOSPACE); licenseText.setVisibility(View.GONE); licenseText.setTextIsSelectable(true);
         more.addView(licenseText);
@@ -172,21 +159,13 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         paint();
     }
 
-    private TextView keepText, keepButton, colorDone; private LinearLayout colorBox;
+    private TextView colorDone; private LinearLayout colorBox;
     private void openAppInfo() { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
     private void paintColorOs() {
         if (colorBox == null) return; boolean done = KeepAlive.colorOsDone(this);
         colorBox.setVisibility(done ? View.GONE : View.VISIBLE); colorDone.setVisibility(done ? View.VISIBLE : View.GONE);
         colorDone.setText("Set up for " + KeepAlive.colorOs() + ". Show the steps again");
     }
-    private void paintKeep() {
-        boolean ok = KeepAlive.allowed(this);
-        boolean color = KeepAlive.colorOs() != null;
-        keepText.setText(ok ? "Allowed. Android won't hold Daanvia back to save battery." + (color ? " Your phone's own battery manager is a separate setting, below." : "")
-            : "Some phones close apps to save battery, even mid-ride, which cuts off the bike display. Allow Daanvia to keep running.");
-        keepButton.setVisibility(ok ? View.GONE : View.VISIBLE);
-    }
-    protected void onResume() { super.onResume(); paintKeep(); }  // Android's Allow dialog only pauses this screen
     protected void onStart() {
         super.onStart(); AppUpdate.listen(updateListener); paintUpdate(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps();
         new Thread(() -> { try { AreaStore.Catalog fresh = AreaStore.fetch(this); runOnUiThread(() -> { catalog = fresh; paintMaps(); }); } catch (Exception ignored) {} }).start(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }
@@ -194,6 +173,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     protected void onDestroy() { if (fitting) cancelFit(); progressAnim.cancel(); link.detach(this); super.onDestroy(); }
     public void finish() { super.finish(); overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out); }
 
+    /** Text for the share sheet, cut to what Android reliably passes between apps (as Support's report does). */
+    private static String shareable(String report) { return report.length() <= 60000 ? report : report.substring(0, 60000) + "\n(cut short)"; }
     private TextView screenText; private LinearLayout shapeRow;
     private void paintScreen() {
         if (screenText == null) return;

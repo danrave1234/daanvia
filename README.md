@@ -20,11 +20,23 @@ Download `daanvia-<version>.apk` from the [latest release](https://github.com/da
 
 JDK 21, Android SDK platform 36:
 
-    ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug
+    ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 
 Gradle 8.13 and Android Gradle Plugin 8.13.2. Min SDK 29, target SDK 35. The release build is one APK for every Android phone (64-bit and 32-bit ARM). Debug builds also include x86_64 for testing on a PC emulator. No API keys are needed.
 
-Both build types are signed with `signing/prototype.p12`, a public prototype TEST key, so new builds install over earlier test builds. It must never become the production signing key.
+Debug builds use `signing/prototype.p12`, a public test key, and can update other debug builds. Releases require the private signing configuration in `~/.daanvia/signing.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`); give `storeFile` as an absolute path, and keep that file and keystore outside the repository. With that configuration installed, run `./gradlew :app:assembleRelease`. A debug APK cannot update a release signed with the private key.
+
+The debug CI check runs unit tests, Android lint and APK assembly with JDK 21. It does not need release signing credentials.
+
+## Free beta improvements
+
+- Route previews offer distinct alternatives when the offline router finds them. Tap a route card or line; the selected route supplies directions and the bike display. Scooter access and one-way restrictions remain enabled.
+- The original Settings, Support and bike-display editor layouts are preserved. The proposed Settings reorganization and global control resizing were reverted after review.
+- Short offline commands, opened from the ride notification's Commands button, can repeat guidance, report remaining time/distance, and mute guidance or end a ride, each after a confirmation. Listening requires Android 12+ and an installed on-device English recognizer; typing a command works on all supported Android versions. There is no cloud fallback.
+- Trip preparation supports ordered stops, locally saved trips and GPX route/waypoint import and export. Compatible areas from the same map generation can share routing tiles. Missing detailed map coverage is reported.
+- Guidance uses staged prompts and audio focus. Local ride diagnostics record GPS freshness, connection state, battery and temperature without route coordinates. Emulator results do not establish physical-bike, helmet-audio or battery endurance performance.
+
+Verification details and remaining hardware checks are tracked in `docs/improvement-progress.md`.
 
 ## Releases
 

@@ -70,9 +70,12 @@ final class KeepAlive {
         p.edit().putLong("coloros_reminded", now).apply(); return true;
     }
 
-    /** At the start of a ride with a saved bike: ask, at most once every three days, until allowed. */
+    /**
+     * Background navigation is always on: at the start of any real ride, ask for Android's exemption if it's missing. At
+     * most once every three days, so a rider who tapped Deny isn't asked at every ride.
+     */
     static void askForRide(Activity a) {
-        if (allowed(a) || a.getSharedPreferences("saved-bike", 0).getString("qr", "").isEmpty()) return;
+        if (allowed(a)) return;
         android.content.SharedPreferences p = a.getSharedPreferences("ui", 0);
         long now = System.currentTimeMillis();
         if (now - p.getLong("keepalive_asked", 0) < 3L * 24 * 3600 * 1000) return;

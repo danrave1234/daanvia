@@ -29,6 +29,7 @@ final class MapStyle {
     static final String[] FONT = {"Noto Sans Regular"}, FONT_BOLD = {"Noto Sans Bold"};
     /** The streets on screen, swapped in square by square (see RoadTiles). */
     static final String ROADS_NEAR = "roads-near";
+    static final String ALTERNATIVES = "route-alternatives";
     static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking", PUCK = "puck";
 
     static String base(Gabi.Palette p) {
@@ -67,12 +68,6 @@ final class MapStyle {
         online(st, new FillLayer("online-water", ONLINE).withProperties(fillAntialias(true)), "water", 0);
         online(st, new FillLayer("online-park", ONLINE).withFilter(match(get("class"), literal(false), stop("park", true), stop("nature_reserve", true), stop("wood", true), stop("grass", true), stop("forest", true))).withProperties(fillOpacity(0.55f)), "park", 11);
         online(st, new FillLayer("online-building", ONLINE).withProperties(fillAntialias(true)), "building", 15);
-        LineLayer onlineMinor = new LineLayer("online-road-minor", ONLINE).withFilter(match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true)))
-            .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(12, 0.4f, 14, 2.2f, 16, 6, 18, 15)));
-        online(st, onlineMinor, "transportation", 12);
-        LineLayer onlineMajor = new LineLayer("online-road-major", ONLINE).withFilter(match(get("class"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true)))
-            .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(8, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23)));
-        online(st, onlineMajor, "transportation", 6);
         // A downloaded area's roads are tens of megabytes: tile them only up to zoom 14 and let MapLibre stretch those tiles
         // when zoomed in, instead of re-cutting the whole file at every zoom while the rider pans.
         GeoJsonSource roads = new GeoJsonSource(ROADS, new GeoJsonOptions().withMaxZoom(14).withTolerance(0.45f)); st.addSource(roads); roads(roads, roadsUri);
@@ -85,9 +80,21 @@ final class MapStyle {
         addRoad(st, "secondary", SECONDARY, width(9, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23), width(9, 1.2f, 14, 6, 16, 12.5f, 18, 27), 0);
         addRoad(st, "primary", PRIMARY, width(7, 0.9f, 14, 5.2f, 16, 11.5f, 18, 27), width(7, 1.4f, 14, 7.4f, 16, 14.5f, 18, 31), 0);
 
+        // Cached online road fills cover the fallback outlines. Drawing those outlines over
+        // newer online geometry produces dark seams and capped fragments inside a continuous road.
+        LineLayer onlineMinor = new LineLayer("online-road-minor", ONLINE).withFilter(match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true)))
+            .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(12, 0.4f, 14, 2.2f, 16, 6, 18, 15)));
+        online(st, onlineMinor, "transportation", 12);
+        LineLayer onlineMajor = new LineLayer("online-road-major", ONLINE).withFilter(match(get("class"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true)))
+            .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(8, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23)));
+        online(st, onlineMajor, "transportation", 6);
+
         online(st, new SymbolLayer("online-street-names", ONLINE).withFilter(has("name")).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), textField(get("name")), textFont(FONT),
             textSize(interpolate(linear(), zoom(), stop(13, 10f), stop(17, 13f))), textMaxAngle(30f), textPadding(4f)), "transportation_name", 14.5f);
 
+        st.addSource(new GeoJsonSource(ALTERNATIVES, new GeoJsonOptions().withMaxZoom(16)));
+        st.addLayer(new LineLayer("alternative-case", ALTERNATIVES).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 7, 14, 9, 17, 16))));
+        st.addLayer(new LineLayer("alternative-line", ALTERNATIVES).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 4, 14, 5.6f, 17, 10.5f))));
         st.addSource(new GeoJsonSource(DONE, new GeoJsonOptions().withMaxZoom(16))); st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16).withLineMetrics(true)));
         st.addLayer(new LineLayer("route-done", DONE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 3, 14, 5, 17, 10))));
         st.addLayer(new LineLayer("route-glow", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineBlur(7f), lineWidth(width(10, 12, 14, 18, 17, 34))));
@@ -180,6 +187,8 @@ final class MapStyle {
         line(st, "road-primary", n ? 0xFF3E4C5C : 0xFFFFDE93, 1f);
         line(st, "route-done", n ? 0xFF5E6B78 : 0xFFA9B1B9, 0.55f);
         line(st, "route-glow", p.accent, n ? 0.38f : 0.22f); routeGlowOpacity = n ? 0.38f : 0.22f;
+        line(st, "alternative-case", n ? 0xFF202D43 : 0xFF425A7A, 1f);
+        line(st, "alternative-line", n ? 0xFF889FBE : 0xFF9AB5D8, 1f);
         line(st, "route-case", n ? 0xFF3B2804 : 0xFF8A5600, 1f);
         line(st, "route-line", n ? 0xFFFFB020 : 0xFFFFAA0F, 1f);
         routeLine = n ? 0xFFFFB020 : 0xFFFFAA0F; routeCase = n ? 0xFF3B2804 : 0xFF8A5600; routeGlow = p.accent; routeDone = n ? 0x995E6B78 : 0x99A9B1B9;

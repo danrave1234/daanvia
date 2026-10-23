@@ -74,13 +74,17 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private LinearLayout pinSheet; private TextView pinSub; private double dropLat, dropLon;
     // route
     private LinearLayout routeSheet, parkRow; private TextView routeName, routeEta, routeMeta, routeStatus, parkText, startBtn, simNote; private FrameLayout routeStar; private View shimmer;
+    private RouteChoicesView routePicker;
+    private List<RoutePlan> drawnChoices; private int drawnChoice=-1;
     // parking
+    private boolean parkIsEntrance; private LinearLayout parkEntranceRow; private LinearLayout startRow;
     private LinearLayout parkForm; private EditText parkName, parkPrice; private TextView parkError; private String parkBasis = "hour"; private double parkLat, parkLon;
     // ride
     private LinearLayout rideTop, maneuver, thenChip, etaBar; private ImageView maneuverIcon, thenIcon; private TextView maneuverDist, maneuverStreet, thenText, etaMin, etaMeta, endBtn, simBadge, tftBadge;
     private int shownManeuver = -1; private boolean endArmed;
 
     private double destLat, destLon; private String destName; private boolean pendingPlan, demoTrip;
+    private List<TripStop> plannedTrip=Collections.emptyList();
     private Here here; private boolean centerOnFix, userMovedMap, firstFixHandled;
     static final long MAP_CACHE_BYTES = 200L * 1024 * 1024;
     static final int SEARCH_PARKING_METERS = 150;
@@ -123,7 +127,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         selSheet = buildSelect(); explore = buildExplore(); pinSheet = buildPin(); saveSheet = buildSave(); lotSheet = buildLot(); routeSheet = buildRoute(); parkForm = buildParkForm();
         setContentView(root);
         Gabi.insets(root, (l, t, r, b, ime) -> { insetTop = t; insetBottom = b; insetIme = ime; layoutInsets(); });
-        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != laidW || b - t != laidH) { laidW = r - l; laidH = b - t; root.post(this::layoutInsets); } });
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != laidW || b - t != laidH) { laidW = r - l; laidH = b - t; root.post(()->{layoutInsets();if(mode==Mode.ROUTE&&!s.shape.isEmpty())ui.postDelayed(()->fitRoute(s.shape),200);}); } });
         sheet.swap(explore);
         mapView.getMapAsync(this::onMap);
         worker.execute(() -> { if (!s.active && (AreaStore.state() == null || !AreaStore.state().running)) Housekeeping.run(this, false); });
@@ -216,6 +220,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else map.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(12.3, 122.6), 5.2));
         map.setStyle(new org.maplibre.android.maps.Style.Builder().fromJson(MapStyle.base(theme.palette)), st -> { style = st; refresh(); if (mode == Mode.SELECT) centerSelect(null); });
         map.addOnMapLongClickListener(p -> { onLongPress(p.getLatitude(), p.getLongitude()); return true; });
+        map.addOnMapClickListener(this::tapRoute);
         map.addOnMapClickListener(this::tapLabel);
         map.addOnMapClickListener(p -> { if (mode == Mode.PIN) { go(Mode.EXPLORE); return true; } return false; });
         map.addOnCameraMoveListener(this::paintCompass);
@@ -365,8 +370,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         catch (Exception e) { notice("Screen sharing isn’t available on this phone"); }
     }
     private boolean voiceOn() { return getSharedPreferences("ui", 0).getBoolean("voice", true); }
-    private void paintVoice() { ((ImageView)fabVoice.getChildAt(0)).setImageDrawable(new IconDrawable(voiceOn() ? IconDrawable.VOICE : IconDrawable.MUTE, voiceOn() ? theme.palette.ink : theme.palette.danger)); }
-    private void toggleVoice() { boolean on = !voiceOn(); getSharedPreferences("ui", 0).edit().putBoolean("voice", on).apply(); paintVoice(); notice(on ? "Voice directions on" : "Voice directions muted"); }
+    private void paintVoice() { ((ImageView)fabVoice.getChildAt(0)).setImageDrawable(new IconDrawable(voiceOn() ? IconDrawable.VOICE : IconDrawable.MUTE, voiceOn() ? theme.palette.ink : theme.palette.danger)); fabVoice.setContentDescription(voiceOn()?"Mute voice directions":"Enable voice directions"); }
+    private void toggleVoice() { boolean on = !voiceOn(); getSharedPreferences("ui", 0).edit().putBoolean("voice", on).apply(); if(!on&&s.active)startService(new Intent(this,NavService.class).setAction("audio_stop")); paintVoice(); notice(on ? "Voice directions on" : "Voice directions muted"); }
     private void onLocateFab() {
         if (mode != Mode.RIDE) { userMovedMap = false; askAccuracy(true); }
         if (mode == Mode.RIDE) { follow = true; paintLocateFab(); lastFix = -1; refresh(); return; }
@@ -919,6 +924,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         go(Mode.LOT);
         if (map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(l.lat, l.lon), 17), 900);
         int token = ++lotToken;
+        if("Owner-entered".equals(l.source)){liveState(MUTED,"Saved by you on this phone · not checked online");return;}
         net.execute(() -> {
             LiveCheck.Result r = LiveCheck.check(l.id);
             ui.post(() -> {
@@ -926,7 +932,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 if (!r.reachable) liveState(MUTED, "OpenStreetMap is busy, so these details are from your downloaded map.");
                 else if (!r.exists) liveState(DANGER, "This parking is no longer on the map. It may have closed.");
                 else {
-                    liveState(OK, "Still on the map" + (r.edited == null ? "" : " · last updated " + month(r.edited)));
+                    liveState(OK, "OpenStreetMap entry exists" + (r.edited == null ? "" : " · map edited " + month(r.edited)) + ". Price and entrance not independently verified.");
                     Lots.Lot fresh = Lots.Lot.fromTags(l.id, l.lat, l.lon, r.tags); lot = fresh; lotTitle.setText(lotName(fresh, lotParent)); paintLotFacts(fresh);
                 }
             });
@@ -936,13 +942,20 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private static String month(String isoDate) {
         try { return new java.text.SimpleDateFormat("MMM yyyy", Locale.US).format(new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(isoDate)); } catch (Exception e) { return isoDate; }
     }
+    private void paintParkEntrance(boolean entrance) {
+        parkIsEntrance = entrance; parkEntranceRow.removeAllViews();
+        parkEntranceRow.addView(k.segmented(new String[]{"No", "Yes"}, entrance ? 1 : 0, i -> parkIsEntrance = i == 1));
+    }
     private void paintLotFacts(Lots.Lot l) {
         lotFacts.removeAllViews();
+        // Only what the rider added themselves; the sheet otherwise looks as it always has.
+        if(l.entrance)fact(IconDrawable.PIN,"Motorcycle entrance · marked by you",OK);
         fact(IconDrawable.BIKE, l.motorcycle() ? "Motorcycles can park here" : l.noMotorcycles() ? "No motorcycles" : "Motorcycle parking not confirmed", l.motorcycle() ? OK : MUTED);
         if (l.hours.isEmpty()) fact(IconDrawable.CLOCK, "Opening hours not listed", MUTED);
         else { OpeningHours.Status st = OpeningHours.now(l.hours); fact(IconDrawable.CLOCK, st.label, st.state == OpeningHours.State.OPEN ? OK : st.state == OpeningHours.State.CLOSED ? DANGER : MUTED); }
         String price = !l.charge.isEmpty() ? l.charge : l.fee.equals("yes") ? "Paid parking · price not listed" : l.fee.equals("no") ? "Free" : "Price not listed";
         fact(IconDrawable.PARK, price, MUTED);
+        if(l.verifiedAt>0)fact(IconDrawable.CLOCK,"Rate entered by you on "+new java.text.SimpleDateFormat("d MMM yyyy",Locale.US).format(new java.util.Date(l.verifiedAt))+". Recheck the current signs.",MUTED);
         String access = l.restricted() ? "Private · not open to the public" : l.access.equals("customers") ? "For customers" : l.access.equals("yes") ? "Open to the public" : l.access.equals("destination") ? "For visitors" : "Access not listed";
         fact(IconDrawable.CHECK, access, l.restricted() ? DANGER : MUTED);
         if (!l.capacityMoto.isEmpty()) fact(IconDrawable.BIKE, "Space for " + l.capacityMoto + " motorcycles", MUTED);
@@ -982,6 +995,17 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(lat, lon), 16), 900);
     }
     /** Tapping a place's name on the map (a shop, a mall, a barangay) picks it as the destination, like Google Maps. */
+    private boolean tapRoute(LatLng p) {
+        if(map==null||mode!=Mode.ROUTE||s.active||s.routing)return false;
+        android.graphics.PointF at=map.getProjection().toScreenLocation(p);float r=k.dp(12);
+        android.graphics.RectF box=new android.graphics.RectF(at.x-r,at.y-r,at.x+r,at.y+r);
+        if(s.routeChoices.size()<2)return false;  // one route: nothing to choose, so place names stay tappable
+        if(!map.queryRenderedFeatures(box,"route-line").isEmpty())return true;
+        for(Feature hit:map.queryRenderedFeatures(box,"alternative-line"))if(hit.hasProperty("choice")){
+            s.selectRoute(hit.getNumberProperty("choice").intValue());root.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);return true;
+        }
+        return false;
+    }
     private boolean tapLabel(LatLng p) {
         if (map == null || s.active || !(mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.ROUTE)) return false;
         android.graphics.PointF at = map.getProjection().toScreenLocation(p); float r = k.dp(16);
@@ -1022,7 +1046,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         LinearLayout etaRow = k.row(10); etaRow.setGravity(Gravity.CENTER_VERTICAL); etaRow.setPadding(0, k.dp(4), 0, 0);
         routeEta = k.single(k.num("—", 40, 800, INK)); routeEta.setLetterSpacing(-0.03f); etaRow.addView(routeEta, new LinearLayout.LayoutParams(0, -2, 1));
         routeMeta = k.single(k.num("", 15, 600, MUTED)); routeMeta.setPadding(0, 0, 0, k.dp(2));
-        etaRow.addView(k.info("Routes are planned for a 160 cc scooter, so they skip expressways and toll roads. Times are estimates and don’t include live traffic. Parking near the end of the trip shows on the map and on your bike display."));
+        etaRow.addView(k.info("Rough offline estimate. Live traffic, current signal waits and roadworks are unavailable. Times use the downloaded road data with a fixed general allowance. Time-of-day congestion is unknown. Routes use scooter access rules in the downloaded map."));
         c.addView(etaRow); c.addView(routeMeta);
         shimmer = new View(this); k.fill(shimmer, 2, ACCENT); shimmer.setPivotX(0);
         FrameLayout track = new FrameLayout(this); k.fill(track, 2, CHIP); track.addView(shimmer, new FrameLayout.LayoutParams(k.dp(90), -1));
@@ -1031,6 +1055,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         sh.addUpdateListener(a -> shimmer.setTranslationX((float)a.getAnimatedValue() * track.getWidth()));
         track.setTag(sh); shimmerAnim = sh;
         routeStatus = k.text("", 13, 550, INK_SOFT); routeStatus.setPadding(0, k.dp(8), 0, 0); c.addView(routeStatus);
+        routePicker = new RouteChoicesView(k, option -> s.selectRoute(option)); c.addView(routePicker.view);
+        coverageButton=k.ghost("Review offline map coverage", () -> {
+            double[] point=s.coverageGap!=null?s.coverageGap:!s.inRegion(s.lat,s.lon)?new double[]{s.lat,s.lon}:new double[]{destLat,destLon};
+            openSelect(point);notice("Download the start, destination and connecting areas. Update older areas in Settings.");
+        });c.addView(coverageButton);
         View gap = new View(this); c.addView(gap, new LinearLayout.LayoutParams(1, k.dp(12)));
         parkRow = k.row(10); parkRow.setPadding(k.dp(12), k.dp(10), k.dp(12), k.dp(10)); k.fill(parkRow, 16, ACCENT_SOFT);
         parkRow.addView(k.icon(IconDrawable.PARK, 18, ACCENT)); parkText = k.text("", 13, 600, INK_SOFT); parkRow.addView(parkText, new LinearLayout.LayoutParams(0, -2, 1));
@@ -1041,12 +1070,22 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         Gabi.press(parkRow, this::toggleArrivalParking);
         simNote = k.text("The demo moves by itself so you can check the bike display while parked. Don’t follow it while riding.", 12.5f, 500, MUTED);
         simNote.setPadding(0, k.dp(10), 0, 0); c.addView(simNote);
-        LinearLayout btns = k.row(8); btns.setPadding(0, k.dp(12), 0, 0);
-        startBtn = k.primary("Start ride", this::start); btns.addView(startBtn, new LinearLayout.LayoutParams(0, -2, 1));
-        c.addView(btns);
+        LinearLayout btns = k.row(0); k.fill(btns, 28, ACCENT); btns.setClipToOutline(true); startRow = btns;
+        startBtn = k.primary("Start ride", this::start);
+        TextView editStops = k.primary("Edit stops", () -> startActivity(new Intent(this, TripPlannerActivity.class))); editStops.setTextSize(15);
+        View divider = new View(this); divider.setAlpha(.25f);
+        theme.add(p -> {
+            startBtn.setBackground(Gabi.ripple(p, null, 0)); editStops.setBackground(Gabi.ripple(p, null, 0));
+            divider.setBackgroundColor(p.onAccent);
+        });
+        btns.addView(startBtn, new LinearLayout.LayoutParams(0, -2, 1.6f));
+        btns.addView(divider, new LinearLayout.LayoutParams(k.dp(1), k.dp(24)));
+        btns.addView(editStops, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams actions = new LinearLayout.LayoutParams(-1, -2); actions.topMargin = k.dp(12); c.addView(btns, actions);
         return c;
     }
     private ValueAnimator shimmerAnim;
+    private TextView coverageButton;
     private void paintRoute() {
         boolean mine = destName != null && destName.equals(s.destination) && !s.shape.isEmpty();
         routeName.setText(demoTrip ? "Demo ride" : destName == null ? "" : destName);
@@ -1059,9 +1098,15 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             routeEta.setText(Gabi.minutes(s.seconds)); routeMeta.setText(Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
             routeStatus.setText(s.simulation ? "Demo route ready" : s.privateRoad ? "This place is inside a private subdivision. Expect a guardhouse and have your ID ready, or ride to a spot outside the gate."
                 : s.endsShort > 80 ? "The route ends at the nearest road it can reach, " + Gabi.distance(s.endsShort) + " from the place. The way in may be private or customers-only."
-                : s.gates > 0 ? "The route passes " + (s.gates == 1 ? "a guardhouse gate" : s.gates + " guardhouse gates") + ". Have your ID ready." : "");
+                : s.gates > 0 ? (s.gates == 1 ? "A mapped gate may be on this route." : s.gates + " mapped gates may be on this route.") + " Check access; these are not confirmed guardhouses." : "");
+            if(!s.simulation&&s.startsShort>80)routeStatus.append((routeStatus.length()>0?"\n":"")+"Guidance starts on a reachable road "+Gabi.distance(s.startsShort)+" from your location. Check the way out before starting.");
         } else { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText(friendly(s.status)); }
+        if(mine && s.coverageGap!=null)routeStatus.append((routeStatus.length()>0?"\n":"")+"This route leaves your downloaded detailed maps. Download the connecting areas before riding.");
+        String problem = s.status == null ? "" : s.status;
+        boolean noMap = problem.contains("Outside the installed") || problem.contains("compatible offline maps") || problem.contains("offline coverage");
+        coverageButton.setVisibility(!busy && ((!mine && noMap) || (mine && s.coverageGap!=null)) ? View.VISIBLE : View.GONE);
         routeStatus.setVisibility(routeStatus.length() == 0 ? View.GONE : View.VISIBLE);
+        routePicker.render(mine?s.routeChoices:Collections.emptyList(),s.selectedRoute,NavSession.OFFLINE_TIME_ALLOWANCE,busy);
         int lots = s.nearbyParking.size(), priced = 0;
         for (JSONObject l : s.nearbyParking) if (!MapStyle.priceOf(l).isEmpty()) priced++;
         parkRow.setVisibility(mine && lots > 0 ? View.VISIBLE : View.GONE);
@@ -1069,16 +1114,17 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         parkText.setText(lots + " parking " + (lots == 1 ? "spot" : "spots") + " near arrival" + (priced > 0 ? " · " + priced + " with a saved rate" : ""));
         simNote.setVisibility(demoTrip ? View.VISIBLE : View.GONE);
         startBtn.setText(demoTrip ? "Start demo" : "Start ride");
-        boolean can = mine && !s.routing; startBtn.setAlpha(can ? 1f : 0.45f);
+        boolean can = mine && !s.routing; startRow.setAlpha(can ? 1f : 0.45f);
         routeStar.setVisibility(demoTrip ? View.GONE : View.VISIBLE);
         boolean saved = destName != null && bookmarks.find(destLat, destLon) != null;
+        routeStar.setContentDescription(saved ? "Remove saved destination" : "Save destination");
         ((ImageView)routeStar.getChildAt(0)).setImageDrawable(new IconDrawable(saved ? IconDrawable.STAR_FILLED : IconDrawable.STAR, theme.palette.accent));
     }
     /** Turn engine status lines into plain words for the route card. */
     private String friendly(String status) {
         if (status == null) return "";
         if (status.startsWith("Outside")) return s.regions.size() > 1 ? "That place isn’t covered by the maps on your phone yet." : "That place is outside " + s.regionName + " for now.";
-        if (status.startsWith("Start and destination")) return "That trip crosses into another map area. Choose a destination in the same area.";
+        if (status.startsWith("Start and destination")) return "Update both offline areas to the same map build, then preview this trip again.";
         if (status.contains("unconnected")) return "Your destination isn’t in your downloaded areas. Download the area that includes it in Settings › Maps.";
         if (status.startsWith("No offline route")) return "Couldn’t find a route there. Try a spot on a nearby road.";
         if (status.startsWith("Wait")) return "Getting the map ready…";
@@ -1097,6 +1143,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (s.active) { notice("End the ride before changing destination"); return; }
         if (s.routing) { notice("Wait for the route calculation"); return; }
         hideKeyboard();
+        if(s.simulation){s.simulation=false;s.fixAt=0;}
+        plannedTrip=Collections.emptyList();
         destLat = lat; destLon = lon; destName = name; demoTrip = false; remember(lat, lon, name);
         go(Mode.ROUTE);
         if (!freshFix()) { pendingPlan = true; locate(); }
@@ -1106,11 +1154,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     /** A live fix from the last two minutes; the phone's last known spot can be much older. */
     private boolean freshFix() { return s.fixAt > 0 && SystemClock.elapsedRealtime() - s.fixAt < 120000; }
-    private void closeRoute() { pendingPlan = false; destName = null; demoTrip = false; go(Mode.EXPLORE); if (!s.active) getSharedPreferences("ui", 0).edit().remove("ride").apply(); }
+    private void closeRoute() { if(s.simulation&&!s.active){s.simulation=false;s.fixAt=0;} pendingPlan = false; destName = null; demoTrip = false; go(Mode.EXPLORE); if (!s.active) getSharedPreferences("ui", 0).edit().remove("ride").apply(); }
 
     private void start() {
         boolean demo = demoTrip;
-        if (!s.ready || s.shape.isEmpty() || s.routing) { Gabi.shake(startBtn); notice("Choose a destination and calculate a route first"); return; }
+        if (!s.ready || s.shape.isEmpty() || s.routing || pendingPlan || destName==null || !destName.equals(s.destination) || Math.abs(destLat-s.destLat)>1e-6 || Math.abs(destLon-s.destLon)>1e-6) { Gabi.shake(startBtn); notice("Choose a destination and calculate a route first"); return; }
         if (!demo && !Here.precise(this)) { notice("Directions need precise location"); requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 73); return; }
         if (!demo && (s.simulation || s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 40)) {
             Gabi.shake(startBtn); notice(s.fixAt > 0 && s.accuracy > 40 ? "Your location is still rough (±" + Math.round(s.accuracy) + " m). Step outside or wait a moment." : "Waiting for a clear GPS signal. Try again in a moment."); locate(); return;
@@ -1119,12 +1167,23 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!demo && destName != null) {
             rememberRide(destLat, destLon, destName);
             // Kept until the ride ends, so a ride Android cut short (the app killed in the background) can be picked up again.
-            try { getSharedPreferences("ui", 0).edit().putString("ride", new org.json.JSONObject().put("lat", destLat).put("lon", destLon).put("name", destName).put("at", System.currentTimeMillis()).toString()).apply(); } catch (org.json.JSONException ignored) {}
+            try { getSharedPreferences("ui", 0).edit().putString("ride", new org.json.JSONObject().put("lat", destLat).put("lon", destLon).put("name", destName).put("stops",TripStop.json(s.remainingStops())).put("at", System.currentTimeMillis()).toString()).apply(); } catch (org.json.JSONException ignored) {}
         }
         link.allowAuto(); autoDelay = 15000; ui.removeCallbacks(retryConnect); autoConnect();  // a ride connects the bike display straight away
-        if (!demo) KeepAlive.askForRide(this);
-        if (!demo && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
+        // Never when a ride starts again on its own after the phone closed the app: the rider may already be moving.
+        if (!demo && !resuming) KeepAlive.askForRide(this);
+        if (!demo && !resuming && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
+    }
+    private void openTrip(List<TripStop> stops,String name) {
+        if(s.active){notice("End the ride before changing its stops");return;}
+        if(stops.isEmpty()){notice("Add a destination first");return;}
+        if(s.simulation){s.simulation=false;s.fixAt=0;}
+        plannedTrip=new ArrayList<>(stops);TripStop end=stops.get(stops.size()-1);
+        destLat=end.lat;destLon=end.lon;destName=name;demoTrip=false;pendingPlan=true;go(Mode.ROUTE);
+        // While another route is still calculating, the trip waits and is planned as soon as that one finishes.
+        if(s.ready&&freshFix()&&!s.routing){pendingPlan=false;s.planTrip(plannedTrip,name);}else if(!s.routing)locate();
+        paintRoute();
     }
     private boolean resumeOffered;
     /**
@@ -1140,17 +1199,20 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             if (System.currentTimeMillis() - Math.max(r.getLong("at"), u.getLong("ride_alive", 0)) > 30 * 60_000L) { u.edit().remove("ride").apply(); return; }
             double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
             boolean killed = KeepAlive.killedBySystem(this);
-            choose(la, lo, name); resumeTries = 0; ui.removeCallbacks(resumeStart); ui.postDelayed(resumeStart, 1500);
+            JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");
+            // Back on the route the rider chose, not the quickest one (see NavSession.chosenVia).
+            if(via!=null&&via.length()==2)s.resumeVia(new double[]{via.getDouble(0),via.getDouble(1)});
+            if(stops!=null&&stops.length()>0)openTrip(TripStop.parse(stops.toString()),name);else choose(la, lo, name); resumeTries = 0; ui.removeCallbacks(resumeStart); ui.postDelayed(resumeStart, 1500);
             if (killed) notice("Your phone closed Daanvia, so your ride to " + name + " is starting again. Tap to stop your phone closing it", "Fix", () -> { if (KeepAlive.colorOs() != null) openSettings("coloros"); else KeepAlive.fix(this); }, 15000);
             else notice("Continuing your ride to " + name, null, null, 6000);
-        } catch (org.json.JSONException e) { u.edit().remove("ride").apply(); }
+        } catch (org.json.JSONException | IllegalArgumentException e) { u.edit().remove("ride").apply(); }
     }
-    private int resumeTries;
+    private int resumeTries; private boolean resuming;
     /** Start the picked-up ride once its route is ready and GPS is clear; after about two minutes, leave it to the rider. */
     private final Runnable resumeStart = new Runnable() { public void run() {
         if (s.active || mode != Mode.ROUTE || destName == null || demoTrip) return;
         boolean go = s.ready && !s.shape.isEmpty() && !s.routing && s.fixAt > 0 && SystemClock.elapsedRealtime() - s.fixAt < 12000 && s.accuracy <= 40;
-        if (go) { start(); return; }
+        if (go) { resuming = true; try { start(); } finally { resuming = false; } return; }
         if (++resumeTries < 80) ui.postDelayed(this, 1500); else notice("Your ride is ready. Tap Start ride once GPS is clear.");
     } };
 
@@ -1159,6 +1221,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (s.active) { notice("End the current ride first"); return; }
         if (!s.ready) { pendingDemo = true; notice("Getting the map ready first…"); return; }
         if (s.routing) { notice("Wait for the route calculation"); return; }
+        here.stop(); s.simulation=true; centerOnFix=false;
         s.lat = s.demoFrom[0]; s.lon = s.demoFrom[1]; s.fixAt = 0;
         destLat = s.demoTo[0]; destLon = s.demoTo[1]; destName = s.demoName; demoTrip = true; pendingPlan = false;
         go(Mode.ROUTE);
@@ -1178,6 +1241,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         parkPrice = input("₱ amount · optional", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL); c.addView(parkPrice, new LinearLayout.LayoutParams(-1, k.dp(52)));
         String[] basis = {"hour", "entry", "2h"};
         c.addView(k.segmented(new String[]{"Per hour", "Per entry", "Per 2 hours"}, 0, i -> parkBasis = basis[i]));
+        c.addView(k.text("Is this pin the motorcycle entrance?", 13, 600, INK_SOFT));
+        parkEntranceRow = k.column(0); c.addView(parkEntranceRow); paintParkEntrance(false);
         parkError = k.text("", 12.5f, 600, DANGER); parkError.setVisibility(View.GONE); c.addView(parkError);
         TextView save = k.primary("Save parking", this::saveParking); c.addView(save);
         return c;
@@ -1192,8 +1257,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void saveParking() {
         String name = parkName.getText().toString().trim();
         try {
-            s.saveParking(parkLat, parkLon, name.isEmpty() ? "Saved parking" : name, parkPrice.getText().toString(), parkBasis);
-            hideKeyboard(); parkName.setText(""); parkPrice.setText(""); parkError.setVisibility(View.GONE);
+            s.saveParking(parkLat, parkLon, name.isEmpty() ? "Saved parking" : name, parkPrice.getText().toString(), parkBasis,parkIsEntrance);
+            hideKeyboard(); parkName.setText(""); parkPrice.setText("");paintParkEntrance(false); parkError.setVisibility(View.GONE);
             go(Mode.EXPLORE); notice("Saved. The rate shows on the parking pin for 30 days.");
         } catch (Exception e) { parkError.setText("Enter a valid non-negative amount or leave it blank"); parkError.setVisibility(View.VISIBLE); Gabi.shake(parkPrice); }
     }
@@ -1209,6 +1274,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         maneuverDist = k.num("", 32, 800, INK); maneuverDist.setLetterSpacing(-0.02f); mt.addView(maneuverDist);
         maneuverStreet = k.single(k.text("", 15, 600, INK_SOFT)); mt.addView(maneuverStreet);
         maneuver.addView(mt, new LinearLayout.LayoutParams(0, -2, 1));
+        maneuver.setContentDescription("Repeat next direction"); Gabi.press(maneuver,()->{if(s.active)startService(new Intent(this,NavService.class).setAction("repeat"));});
         rideTop = k.column(6); rideTop.setClipChildren(false); rideTop.setClipToPadding(false);
         rideTop.addView(maneuver, new LinearLayout.LayoutParams(-1, -2));
         FrameLayout.LayoutParams ml = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP); ml.leftMargin = ml.rightMargin = k.dp(10);
@@ -1346,7 +1412,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!resumeOffered && s.ready && !s.active && mode == Mode.EXPLORE) { resumeOffered = true; offerResume(); }
         exploreStatus.setText(!s.ready ? "Getting the map ready…" : s.status.startsWith("Offline region could not load") ? "The map couldn't load. Open Settings › Support." : "");
         exploreStatus.setVisibility(exploreStatus.length() == 0 ? View.GONE : View.VISIBLE);
-        if (pendingPlan && s.ready && !s.routing && freshFix()) { pendingPlan = false; s.plan(destLat, destLon, destName, false); }
+        if (pendingPlan && s.ready && !s.routing && freshFix()) { pendingPlan = false; if(plannedTrip.isEmpty())s.plan(destLat, destLon, destName, false);else s.planTrip(plannedTrip,destName); }
         if (s.active && mode != Mode.RIDE) go(Mode.RIDE);
         else if (!s.active && mode == Mode.RIDE) { destName = null; demoTrip = false; go(Mode.EXPLORE); }
         if (mode == Mode.ROUTE) paintRoute();
@@ -1371,6 +1437,12 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         boolean routeMode = mode == Mode.ROUTE || mode == Mode.RIDE;
         List<double[]> shape = s.shape;
         boolean showRoute = routeMode && !shape.isEmpty() && (mode == Mode.RIDE || (destName != null && destName.equals(s.destination)));
+        List<RoutePlan> choices=showRoute&&mode==Mode.ROUTE?s.routeChoices:Collections.emptyList();
+        if(choices!=drawnChoices||drawnChoice!=s.selectedRoute){
+            drawnChoices=choices;drawnChoice=s.selectedRoute;ArrayList<Feature> other=new ArrayList<>();
+            for(int i=0;i<choices.size();i++)if(i!=s.selectedRoute){List<double[]> line=choices.get(i).shape;Feature f=Feature.fromGeometry(MapStyle.line(line,0,line.size(),null));f.addNumberProperty("choice",i);other.add(f);}
+            src(MapStyle.ALTERNATIVES).setGeoJson(org.maplibre.geojson.FeatureCollection.fromFeatures(other));
+        }
         GeoJsonSource route = src(MapStyle.ROUTE), done = src(MapStyle.DONE);
         if (!showRoute) {
             if (!routeCleared) { if (routeAnim != null) routeAnim.cancel(); route.setGeoJson(MapStyle.empty()); done.setGeoJson(MapStyle.empty()); MapStyle.routeProgress(style, 0, 1); routeCleared = true; }
@@ -1417,6 +1489,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void fitRoute(List<double[]> shape) {
         LatLngBounds.Builder b = new LatLngBounds.Builder();
         for (double[] p : shape) b.include(new LatLng(p[0], p[1]));
+        if(mode==Mode.ROUTE)for(RoutePlan option:s.routeChoices)for(double[] p:option.shape)b.include(new LatLng(p[0],p[1]));
         b.include(new LatLng(destLat, destLon));
         int sheetH = sheet.getHeight() > 0 ? sheet.getHeight() : k.dp(330);
         try {
@@ -1707,6 +1780,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // ================================================================ shared places
     private void handleIntent(Intent i) {
         if (i == null) return;
+        if(i.hasExtra("trip")){String raw=i.getStringExtra("trip"), name=i.getStringExtra("trip_name");i.removeExtra("trip");try{openTrip(TripStop.parse(raw),name==null?"My ride":name);}catch(Exception e){notice("Could not open trip: "+e.getMessage());}return;}
         if (i.getBooleanExtra("demo", false)) { i.removeExtra("demo"); demo(); return; }
         if (i.getBooleanExtra("select_area", false)) { i.removeExtra("select_area"); if (map != null) openSelect(null); else ui.postDelayed(() -> openSelect(null), 600); return; }
         String text = null;
@@ -1737,7 +1811,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** Keep trying to reach the saved dashboard while the app is open and the display is not live. */
     private void autoConnect() {
         if (!started || link == null || !link.profileReady() || StreamService.navigationActive || link.searching()) return;
-        if (!getSharedPreferences("ui", 0).getBoolean("autoconnect", true)) return;
         if (!link.hasPermissions()) { if (askedLinkPermissions) return; askedLinkPermissions = true; link.askPermissions(); refresh(); return; }
         link.autoNavigation(); refresh();
     }

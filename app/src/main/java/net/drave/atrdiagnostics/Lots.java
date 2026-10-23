@@ -15,10 +15,12 @@ public final class Lots {
     }
     public static final class Lot {
         public final String id, name, kind, moto, access, hours, fee, charge, capacity, capacityMoto, operator, type; public final double lat, lon;
+        public final String source,priceChecked;public final long verifiedAt;public final boolean entrance;
         Lot(JSONObject o) {
-            id = o.optString("id"); name = o.optString("name"); kind = o.optString("kind", "car"); moto = o.optString("moto"); access = o.optString("acc");
-            hours = o.optString("hrs"); fee = o.optString("fee"); charge = o.optString("chg"); capacity = o.optString("cap"); capacityMoto = o.optString("capm");
+            id = o.optString("id"); name = o.optString("name"); kind = o.optString("kind", o.optBoolean("motorcycle")?"moto":"car"); moto = o.optString("moto"); access = o.optString("acc",o.optString("access"));
+            hours = o.optString("hrs"); fee = o.optString("fee"); charge = o.optString("chg",o.optString("price_label")); capacity = o.optString("cap"); capacityMoto = o.optString("capm");
             operator = o.optString("op"); type = o.optString("typ"); lat = o.optDouble("lat"); lon = o.optDouble("lon");
+            source=o.optString("source","OpenStreetMap");verifiedAt=o.optLong("verified_at",0);priceChecked=o.optString("price_checked");entrance=o.optBoolean("entrance_confirmed",false);
         }
         /** Build from live OpenStreetMap tags, using the same short keys as lots.json. */
         public static Lot fromTags(String id, double lat, double lon, JSONObject t) {
@@ -27,7 +29,7 @@ public final class Lots {
                 o.put("id", id).put("lat", lat).put("lon", lon).put("name", t.optString("name")).put("kind", "motorcycle_parking".equals(t.optString("amenity")) ? "moto" : "car")
                  .put("moto", t.optString("motorcycle", "motorcycle_parking".equals(t.optString("amenity")) ? "yes" : "")).put("acc", t.optString("access")).put("hrs", t.optString("opening_hours"))
                  .put("fee", t.optString("fee")).put("chg", t.optString("charge")).put("cap", t.optString("capacity")).put("capm", t.optString("capacity:motorcycle"))
-                 .put("op", t.optString("operator")).put("typ", t.optString("parking"));
+                 .put("op", t.optString("operator")).put("typ", t.optString("parking")).put("price_checked",t.optString("check_date:charge"));
             } catch (JSONException ignored) {}
             return new Lot(o);
         }

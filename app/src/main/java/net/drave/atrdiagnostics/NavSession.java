@@ -16,11 +16,15 @@ public final class NavSession {
     public volatile boolean ready,active,simulation,calibration,routing,noMap;
     public volatile String status="Preparing offline maps…",instruction="Choose a destination",destination="";
     public volatile double lat=10.3157,lon=123.8854,destLat,destLon,remaining,seconds,distanceToTurn;
-    public volatile float accuracy=999,bearing;
+    public volatile float accuracy=999,bearing,speedMetersPerSecond;
     /** Where to draw the rider: on the route line while following it (snapped, heading along the road), else the raw fix. Routing always uses the raw fix. */
     public volatile double viewLat=10.3157,viewLon=123.8854;public volatile float viewBearing;public volatile boolean snapped;
     public volatile long fixAt;
+    /** Briefly yield turn announcements to a local command's microphone or reply. */
+    public volatile long commandAudioUntil;
     public volatile List<double[]> shape=Collections.emptyList();
+    public volatile List<RoutePlan> routeChoices=Collections.emptyList();
+    public volatile int selectedRoute;
     public volatile JSONArray parking=new JSONArray();public volatile Places places=Places.EMPTY;
     /** Road lines near any point, for the bike display. Empty until the area's roads are read. */
     public volatile RoadTiles.Index roadIndex=new RoadTiles.Index();
@@ -78,19 +82,38 @@ public final class NavSession {
         public int size() { return names.size(); }
     }
     public static final class Region {
-        public final String id,name;public final double[] bounds;public final double[][] areas;final String asset;final File dir;
-        Region(String id,String name,double[] bounds,double[][] areas,String asset,File dir){this.id=id;this.name=name;this.bounds=bounds;this.areas=areas==null||areas.length==0?new double[][]{bounds}:areas;this.asset=asset;this.dir=dir;}
+        public final String id,name;public final double[] bounds;public final double[][] areas;final String asset;final File dir;final String generation;final List<Region> parts;
+        Region(String id,String name,double[] bounds,double[][] areas,String asset,File dir){this(id,name,bounds,areas,asset,dir,"",Collections.emptyList());}
+        Region(String id,String name,double[] bounds,double[][] areas,String asset,File dir,String generation,List<Region> parts){this.id=id;this.name=name;this.bounds=bounds;this.areas=areas==null||areas.length==0?new double[][]{bounds}:areas;this.asset=asset;this.dir=dir;this.generation=generation;this.parts=Collections.unmodifiableList(new ArrayList<>(parts));}
         public boolean contains(double lat,double lon){for(double[] a:areas)if(lon>=a[0]&&lon<=a[2]&&lat>=a[1]&&lat<=a[3])return true;return false;}
         double size(){double s=0;for(double[] a:areas)s+=(a[2]-a[0])*(a[3]-a[1]);return s;}
         /** The smallest pack holding both points (a city pack beats its island pack), or null when no single pack can route between them. */
         public static Region pick(List<Region> list,double aLat,double aLon,double bLat,double bLon){Region best=null;for(Region r:list)if(r.contains(aLat,aLon)&&r.contains(bLat,bLon)&&(best==null||r.size()<best.size()))best=r;return best;}
         public static Region at(List<Region> list,double lat,double lon){return pick(list,lat,lon,lat,lon);}
     }
-    private NavSession(Context c){context=c;loadFit();worker.execute(this::load);}
+    /** Fixed general allowance for offline estimates; never adjusted using personal riding history. */
+    static final double OFFLINE_TIME_ALLOWANCE=1.5;
+    private NavSession(Context c){context=c;
+        // Remove timing calibration saved by earlier builds; preserve all other preferences.
+        android.content.SharedPreferences prefs=c.getSharedPreferences("ui",0);
+        android.content.SharedPreferences.Editor cleanup=prefs.edit().remove("pace");
+        for(String key:prefs.getAll().keySet())if(key.startsWith("pace_v2_"))cleanup.remove(key);
+        cleanup.apply();
+        loadFit();worker.execute(()->{
+        // Before any native engine opens: discard derived joins from previous processes. Installed maps stay intact.
+        // Merged routing tiles for trips across areas: keep the newest finished one (its name already changes whenever an
+        // area is updated, so it can't go stale) and clear the rest, instead of rebuilding after every start.
+        File[] merged=new File(context.getFilesDir(),"combined-graphs").listFiles(File::isDirectory);
+        if(merged!=null){Arrays.sort(merged,(x,y)->Long.compare(y.lastModified(),x.lastModified()));boolean kept=false;
+            for(File m:merged){if(!kept&&new File(m,"ready").isFile()){kept=true;continue;}AreaStore.delete(m);}}
+        File[] previous=new File(context.getFilesDir(),"engines").listFiles((dir,name)->name.startsWith("combined-"));
+        if(previous!=null)for(File dir:previous)AreaStore.delete(dir);
+        load();
+    });}
     public void signal(){context.sendBroadcast(new Intent(EVENT).setPackage(context.getPackageName()));}
     private final ArrayDeque<String> logs=new ArrayDeque<>();
     public void message(String text){status=text;String clean=destination.isEmpty()?text:text.replace(destination,"[destination]");clean=clean.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}","[coordinate]");synchronized(logs){if(logs.size()>=150)logs.removeFirst();logs.addLast(new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+clean);}signal();}
-    public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia "+BuildInfo.VERSION).put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("offline_region",regionId).put("installed_regions",regions.size()).put("layout",layout).put("location_and_identifiers","omitted");synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
+    public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia "+BuildInfo.VERSION).put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("offline_region",regionId).put("installed_regions",regions.size()).put("layout",layout).put("location_and_identifiers","omitted").put("ride_metrics",RideMetrics.forReport(context));synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
     private String asset(String p)throws Exception{return read(context.getAssets().open(p));}
     private static String read(InputStream stream)throws IOException{try(InputStream in=stream){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}}
     private String text(Region r,String file)throws Exception{return r.asset!=null?asset(r.asset+"/"+file):read(new FileInputStream(new File(r.dir,file)));}
@@ -102,7 +125,7 @@ public final class NavSession {
     private static Region region(JSONObject j,String asset,File dir)throws JSONException{
         JSONArray b=j.getJSONArray("bounds");double[] bounds={b.getDouble(0),b.getDouble(1),b.getDouble(2),b.getDouble(3)};JSONArray a=j.optJSONArray("areas");double[][] areas=null;
         if(a!=null){areas=new double[a.length()][];for(int i=0;i<a.length();i++){JSONArray x=a.getJSONArray(i);areas[i]=new double[]{x.getDouble(0),x.getDouble(1),x.getDouble(2),x.getDouble(3)};}}
-        return new Region(j.getString("id"),j.optString("display_name",j.optString("name",j.getString("id"))),bounds,areas,asset,dir);}
+        return new Region(j.getString("id"),j.optString("display_name",j.optString("name",j.getString("id"))),bounds,areas,asset,dir,j.optString("generation"),Collections.emptyList());}
     /** Packs unpacked in app storage (downloaded, or copied from a Play asset pack), then packs copied over USB to Android/data/…/files/regions, then the APK's own. The first copy of an id wins. */
     private List<Region> discover(){ArrayList<Region> list=new ArrayList<>();HashSet<String> ids=new HashSet<>();
         for(File base:new File[]{new File(context.getFilesDir(),"regions"),context.getExternalFilesDir("regions")}){File[] dirs=base==null?null:base.listFiles();if(dirs==null)continue;Arrays.sort(dirs);
@@ -154,6 +177,7 @@ public final class NavSession {
     }
     /** Worker thread only. A bundled graph is copied out of the APK once (again when its bundled size changes); an unpacked pack's graph is read in place. */
     private Valhalla engine(Region r)throws Exception{Valhalla e=engines.get(r.id);if(e!=null)return e;
+        CombinedGraph.prepare(r);
         File dir=new File(context.getFilesDir(),r.asset==null?"engines/"+r.id:"region-"+r.id);if(!dir.exists()&&!dir.mkdirs())throw new IOException("Cannot create offline storage");
         File tiles=r.asset==null?new File(r.dir,"valhalla_tiles.tar"):new File(dir,"valhalla_tiles.tar");
         if(r.asset!=null){JSONObject files=new JSONObject(text(r,"region.json")).optJSONObject("files");JSONObject spec=files==null?null:files.optJSONObject("valhalla_tiles.tar");long want=spec==null?-1:spec.optLong("bytes",-1);
@@ -166,6 +190,8 @@ public final class NavSession {
         else cfg.getJSONObject("mjolnir").put("tile_extract",tiles.getAbsolutePath()).put("tile_dir",dir.getAbsolutePath());
         cfg.getJSONObject("mjolnir").remove("tile_url");
         File config=new File(dir,"valhalla.json");try(FileOutputStream out=new FileOutputStream(config)){out.write(cfg.toString().getBytes("UTF-8"));}
+        // Only one merged engine at a time: a new one replaces the last instead of piling up.
+        if(r.id.startsWith("combined-"))engines.keySet().removeIf(id->id.startsWith("combined-")&&!id.equals(r.id));
         e=new Valhalla(config.getAbsolutePath());engines.put(r.id,e);return e;}
     /** Look for installed packs again, after a download or removal. A ride in progress keeps its pack. */
     public void reload(){reload(null);}
@@ -186,78 +212,196 @@ public final class NavSession {
         Region first=null;if(preferred!=null)for(Region r:found)if(r.id.equals(preferred))first=r;if(first==null){android.content.SharedPreferences cam=context.getSharedPreferences("ui",0);if(cam.contains("cam_lat"))first=Region.at(found,cam.getFloat("cam_lat",0),cam.getFloat("cam_lon",0));}if(first==null)first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");loadRoads(first);
     }catch(Throwable e){message("Offline region could not load: "+e.getClass().getSimpleName()+". Open Support.");android.util.Log.e("Daanvia","Offline load failed",e);}}
     public boolean inRegion(double a,double b){for(Region r:regions)if(r.contains(a,b))return true;return false;}
+    volatile List<TripStop> tripStops=Collections.emptyList();
+    private int passedStops;private int[] legEnds=new int[0];
+    public synchronized List<TripStop> remainingStops(){return new ArrayList<>(tripStops.subList(Math.min(passedStops,tripStops.size()),tripStops.size()));}
     public void plan(double a,double b,String name,boolean demo){
+        plan(a,b,name,demo,Collections.emptyList());
+    }
+    void planTrip(List<TripStop> stops,String name){
+        if(stops.isEmpty()||stops.size()>TripStop.MAX){message("Choose between 1 and "+TripStop.MAX+" stops");return;}
+        TripStop end=stops.get(stops.size()-1);plan(end.lat,end.lon,name,false,new ArrayList<>(stops));
+    }
+    static final class Detour {final TripStop stop;final double meters,seconds;Detour(TripStop stop,double meters,double seconds){this.stop=stop;this.meters=meters;this.seconds=seconds;}}
+    void detours(List<TripStop> original,List<TripStop> candidates,java.util.function.Consumer<List<Detour>> callback){
+        final double fromLat=lat,fromLon=lon;final double factor=OFFLINE_TIME_ALLOWANCE;
+        worker.execute(()->{List<Detour> found=new ArrayList<>();try{
+            RoutePlan base=estimate(original,fromLat,fromLon);
+            for(TripStop candidate:candidates){if(active)break;try{List<TripStop> via=new ArrayList<>(original);via.add(Math.max(0,via.size()-1),candidate);RoutePlan route=estimate(via,fromLat,fromLon);found.add(new Detour(candidate,Math.max(0,route.meters-base.meters),Math.max(0,(route.seconds-base.seconds)*factor)));}catch(Exception unreachable){}}
+            found.sort(java.util.Comparator.comparingDouble(d->d.seconds));
+        }catch(Exception unavailable){}callback.accept(found);});
+    }
+    private RoutePlan estimate(List<TripStop> stops,double fromLat,double fromLon)throws Exception{
+        if(stops.isEmpty())throw new IllegalArgumentException("Choose a destination");TripStop end=stops.get(stops.size()-1);
+        Region region=Region.pick(regions,fromLat,fromLon,end.lat,end.lon);
+        if(region!=null)for(TripStop stop:stops)if(!region.contains(stop.lat,stop.lon)){region=null;break;}
+        if(region==null)region=CombinedGraph.choose(new File(context.getFilesDir(),"combined-graphs"),regions,fromLat,fromLon,end.lat,end.lon);
+        if(region==null)throw new IOException("Missing offline coverage");
+        JSONArray locations=new JSONArray().put(new JSONObject().put("lat",fromLat).put("lon",fromLon).put("type","break"));
+        for(TripStop stop:stops){if(!region.contains(stop.lat,stop.lon))throw new IOException("Stop outside offline coverage");locations.put(stop.json());}
+        return RoutePlan.options(new JSONObject(engine(region).routeRaw(RouteRequest.through(locations,false).toString()))).get(0);
+    }
+    private void plan(double a,double b,String name,boolean demo,List<TripStop> stops){
         if(!ready){message("Wait for the offline region to finish loading");return;}
         if(routing){message("Route calculation in progress · wait before changing destination");return;}
-        final Region r=Region.pick(regions,lat,lon,a,b);
-        if(r==null){message(inRegion(a,b)&&inRegion(lat,lon)?"Start and destination are in different offline regions":regions.size()>1?"Outside the installed offline regions":"Outside the installed offline region ("+regionName+")");return;}
-        simulation=demo;destLat=a;destLon=b;destination=name;routeRegion=r;
-        if(r!=shown)worker.execute(()->{try{display(r);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();loadRoads(r);});else refreshParking();
-        route();
+        Region picked=Region.pick(regions,lat,lon,a,b);
+        if(picked!=null)for(TripStop stop:stops)if(!picked.contains(stop.lat,stop.lon)){picked=null;break;}
+        if(picked==null)picked=CombinedGraph.choose(new File(context.getFilesDir(),"combined-graphs"),regions,lat,lon,a,b);
+        if(picked!=null)for(TripStop stop:stops)if(!picked.contains(stop.lat,stop.lon)){picked=null;break;}
+        final Region r=picked;
+        if(r==null){shape=Collections.emptyList();routeChoices=Collections.emptyList();message(inRegion(a,b)&&inRegion(lat,lon)?"Start and destination need compatible offline maps. Update both areas to the same map build.":"Outside the installed offline regions. Download the start, destination and connecting areas.");return;}
+        simulation=demo;destLat=a;destLon=b;destination=name;routeRegion=r;followVia=nextVia;  // a new destination drops an old resume point
+        tripStops=Collections.unmodifiableList(stops);passedStops=0;
+        final Region visible=r.parts.isEmpty()?r:Region.at(regions,a,b);
+        if(visible!=null&&visible!=shown)worker.execute(()->{try{display(visible);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();loadRoads(visible);});else refreshParking();
+        shape=Collections.emptyList();routeChoices=Collections.emptyList();route();
     }
-    private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;final Region region=routeRegion;
-        worker.execute(()->{try{
+    private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;final Region region=routeRegion;final List<TripStop> stops=remainingStops();
+        final double[] via=nextVia;nextVia=null;
+        worker.execute(()->{boolean again=false;try{
             // A spot the router can't reach (a parking lot behind a private or customers-only road, the rider inside a gated
-            // lot) would leave no route at all: try again from and to the nearest public road beside it.
-            JSONObject response;usedPrivate=false;boolean fellBack=false;
-            try{response=routeBetween(region,a,b,c,d);}
-            catch(Throwable first){response=fallback(region,a,b,c,d,first);fellBack=true;}
-            JSONObject trip=response.getJSONObject("trip");JSONArray legs=trip.getJSONArray("legs");JSONObject leg=legs.getJSONObject(0);
-            List<double[]> route=GeoMath.decode(leg.getString("shape"));if(route.size()<2)throw new IOException("Empty route");
-            int onRoute=gatesOn(route,gates(region));  // reads the area's gates: outside the lock, which the main thread shares
-            synchronized(this){if(token!=requestId)return;shape=Collections.unmodifiableList(route);maneuvers=leg.getJSONArray("maneuvers");maneuver=0;progress=0;double[] prefix=new double[route.size()];for(int j=1;j<route.size();j++)prefix[j]=prefix[j-1]+GeoMath.distance(route.get(j-1)[0],route.get(j-1)[1],route.get(j)[0],route.get(j)[1]);cumulative=prefix;cumTime=sectionTimes(prefix,leg.getJSONArray("maneuvers"),trip.getJSONObject("summary").getDouble("time"));arrived=false;offRoute=0;routeMeters=prefix[prefix.length-1];remaining=routeMeters;routeSeconds=trip.getJSONObject("summary").getDouble("time");seconds=routeSeconds*pace();lastRemaining=routeSeconds;instruction="Route ready";gates=onRoute;privateRoad=usedPrivate;double[] end=route.get(route.size()-1);endsShort=usedPrivate||!fellBack?0:GeoMath.distance(end[0],end[1],c,d);}
+            // lot) would leave no route at all: try again from and to the nearest public road beside it, and only as the
+            // very last resort with access rules off (the route card then says the place is inside a private subdivision).
+            JSONObject response=null;boolean fellBack=false,usedPrivate=false;
+            // A ride picked up after the phone closed the app goes through a point ahead on the route the rider chose.
+            if(via!=null)try{response=request(region,a,b,via,stops,c,d,false);}catch(Throwable viaFailed){android.util.Log.w("Daanvia","Route through the chosen road failed",viaFailed);}
+            if(response==null&&stops.size()>1){
+                try{response=request(region,a,b,null,stops,c,d,false);}
+                catch(Throwable first){fellBack=true;
+                    try{response=request(region,a,b,null,toRoads(stops),c,d,false);}
+                    catch(Throwable second){response=request(region,a,b,null,stops,c,d,true);usedPrivate=true;}}
+            }else if(response==null){
+                try{response=routeBetween(region,a,b,c,d);}
+                catch(Throwable first){fellBack=true;fallbackPrivate=false;response=fallback(region,a,b,c,d,first);usedPrivate=fallbackPrivate;}
+            }
+            List<RoutePlan> options=RoutePlan.options(response);
+            // Gates are counted here, on the worker, for every option: tapping a route choice then needs no work.
+            float[] xy=gates(region);int[] counts=new int[options.size()];for(int i=0;i<counts.length;i++)counts[i]=gatesOn(options.get(i).shape,xy);
+            synchronized(this){if(token!=requestId)return;
+                // A stop passed while this was calculating: the route still goes back to it, so calculate again.
+                if(!stops.equals(remainingStops())){again=true;return;}
+                tripStops=Collections.unmodifiableList(stops);passedStops=0;routeChoices=options;routeGates=counts;selectedRoute=0;lastFellBack=fellBack;lastPrivate=usedPrivate;applyRoute(options.get(0),counts[0]);}
             message((simulation?"SIMULATION · ":"Offline route ready · ")+destination);
         // A failed reroute keeps the old route, so guidance goes on and the next reroute is tried 12 s later.
-        }catch(Throwable e){boolean riding;synchronized(this){if(token!=requestId)return;riding=active&&shape.size()>1;if(!riding)shape=Collections.emptyList();}message(riding?"Couldn't find a new route here · keeping the last one":"No offline route: "+e.getMessage());}finally{routing=false;signal();}});
+        }catch(Throwable e){boolean riding;synchronized(this){if(token!=requestId)return;riding=active&&shape.size()>1;if(!riding){shape=Collections.emptyList();routeChoices=Collections.emptyList();}}message(riding?"Couldn't find a new route here · keeping the last one":"No offline route: "+e.getMessage());}finally{synchronized(this){if(token==requestId)routing=false;}if(again)route();signal();}});
     }
-    private JSONObject routeBetween(Region region,double a,double b,double c,double d)throws Exception{return routeBetween(region,a,b,c,d,false);}
-    /** {@code anyAccess}: let the route use private roads too, for the last stretch to a place only reachable through one. */
-    private JSONObject routeBetween(Region region,double a,double b,double c,double d,boolean anyAccess)throws Exception{
-        // Gates cost time at the guardhouse; private roads (most gated subdivisions) are only used when nothing else reaches the place.
-        // Valhalla's motor_scooter costing reads top_speed, use_primary and use_hills, not use_highways or use_tolls; it keeps
-        // off motorways through their moped access in the map data instead.
-        JSONObject scooter=new JSONObject().put("top_speed",60).put("gate_cost",60).put("gate_penalty",300).put("private_access_penalty",600);if(anyAccess)scooter.put("ignore_access",true);
-        JSONObject req=new JSONObject().put("locations",new JSONArray().put(new JSONObject().put("lat",a).put("lon",b)).put(new JSONObject().put("lat",c).put("lon",d)))
-            .put("costing","motor_scooter").put("units","kilometers").put("language","en-US").put("costing_options",new JSONObject().put("motor_scooter",scooter));
+    /** A route from the rider through an optional pass-through point and the stops (or to the destination). */
+    private JSONObject request(Region region,double a,double b,double[] via,List<TripStop> stops,double c,double d,boolean anyAccess)throws Exception{
+        JSONArray locations=new JSONArray().put(new JSONObject().put("lat",a).put("lon",b).put("type","break"));
+        if(via!=null)locations.put(new JSONObject().put("lat",via[0]).put("lon",via[1]).put("type","through"));
+        if(stops.isEmpty())locations.put(new JSONObject().put("lat",c).put("lon",d).put("type","break"));else for(TripStop stop:stops)locations.put(stop.json());
+        JSONObject response=new JSONObject(engine(region).routeRaw(RouteRequest.through(locations,false,anyAccess).toString()));response.getJSONObject("trip");return response;}
+    /** Each stop moved to the nearest public road within 300 m, keeping its name; a stop with none stays where it is. */
+    private List<TripStop> toRoads(List<TripStop> stops){List<TripStop> out=new ArrayList<>();
+        for(TripStop stop:stops){List<double[]> near=nearestRoads(stop.lat,stop.lon,1,300);out.add(near.isEmpty()?stop:new TripStop(stop.name,near.get(0)[0],near.get(0)[1]));}return out;}
+    private volatile double[] nextVia;private boolean lastFellBack,lastPrivate,fallbackPrivate;private volatile int[] routeGates=new int[0];
+    /** For picking a ride up again: route the next calculation through this point (see chosenVia). */
+    void resumeVia(double[] via){nextVia=via;followVia=via;}
+    /** The chosen-route point a resumed ride was routed through, kept until the rider passes it. */
+    private volatile double[] followVia;
+    /**
+     * While riding a route the rider chose over the quickest one: a point ahead on it (halfway along what's left, at most
+     * 5 km on), so a ride picked up after the phone closed the app follows the same roads. Null on the quickest route or
+     * near the end.
+     */
+    public synchronized double[] chosenVia(){
+        List<double[]> route=shape;double[] cum=cumulative;if(route.size()<2||cum.length!=route.size())return null;
+        int from=Math.min(progress,route.size()-1);
+        // After a resume the route is the only option, so keep the point it was routed through until the rider passes it.
+        if(selectedRoute<=0){double[] v=followVia;if(v==null||routeChoices.size()>1)return null;
+            int near=from;double best=Double.MAX_VALUE;for(int i=from;i<route.size();i++){double d=GeoMath.distance(v[0],v[1],route.get(i)[0],route.get(i)[1]);if(d<best){best=d;near=i;}}
+            if(best>300||near<=from+1){followVia=null;return null;}return v;}
+        // The point ahead on the chosen route farthest from the quickest one: where they really differ (they often share
+        // the first stretch, and a point there would bring the quickest route back).
+        List<double[]> quickest=routeChoices.isEmpty()?Collections.emptyList():routeChoices.get(0).shape;if(quickest.isEmpty())return null;
+        int stepA=Math.max(1,(route.size()-from)/120),stepB=Math.max(1,quickest.size()/300);double far=0;double[] pick=null;
+        for(int i=from;i<route.size();i+=stepA){double[] p=route.get(i);double near=Double.MAX_VALUE;
+            for(int j=0;j<quickest.size();j+=stepB){double d=GeoMath.distance(p[0],p[1],quickest.get(j)[0],quickest.get(j)[1]);if(d<near)near=d;}
+            if(near>far){far=near;pick=p;}}
+        return far>150?pick:null;
+    }
+    private JSONObject routeBetween(Region region,double a,double b,double c,double d)throws Exception{
+        JSONObject req=RouteRequest.between(a,b,c,d,!active);
         JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));response.getJSONObject("trip");return response;}
+    /** Preview changes update the exact geometry and maneuvers used by phone, voice and TFT. */
+    public synchronized void selectRoute(int index){
+        if(active||routing||index<0||index>=routeChoices.size()||index==selectedRoute)return;
+        selectedRoute=index;int[] counts=routeGates;applyRoute(routeChoices.get(index),index<counts.length?counts[index]:0);signal();
+    }
+    private void applyRoute(RoutePlan plan,int gateCount){
+        shape=plan.shape;maneuvers=plan.maneuvers;cumulative=plan.cumulative;
+        legEnds=plan.legEnds;
+        cumTime=sectionTimes(cumulative,maneuvers,plan.seconds);maneuver=0;progress=0;arrived=false;offRoute=0;
+        routeMeters=plan.meters;remaining=routeMeters;routeSeconds=plan.seconds;seconds=routeSeconds*OFFLINE_TIME_ALLOWANCE;
+        instruction="Route ready";gates=gateCount;privateRoad=lastPrivate;
+        double[] first=shape.get(0),end=shape.get(shape.size()-1);
+        // Only a fallback route can stop short of the place or start away from the rider; a big building or campus whose
+        // pin is far from any road is a normal route and gets no warning.
+        endsShort=lastFellBack&&!lastPrivate?GeoMath.distance(end[0],end[1],destLat,destLon):0;
+        startsShort=lastFellBack?GeoMath.distance(first[0],first[1],lat,lon):0;
+        coverageGap=null;for(double[] point:shape)if(!inRegion(point[0],point[1])){coverageGap=point;break;}
+    }
     /**
      * The router couldn't reach the exact spot: it lay on a scrap of road it can't get to, typically a private lane or a
      * customers-only drive beside the place (the router then reports "search exhausted"). Try the nearest few streets
      * around it instead, named streets first (they are rarely private), then from the nearest street to the rider, then
      * the nearest road within 1.5 km that the router can reach (the route then stops short and the route card says how
-     * far). Only when none of that works does the whole route ignore access rules, which can cross other private roads.
+     * far). Access checks stay enabled for every attempt. An inaccessible endpoint never disables route access rules.
      */
     private JSONObject fallback(Region region,double a,double b,double c,double d,Throwable first)throws Throwable{
         for(double[] to:nearestRoads(c,d,4,300))try{return routeBetween(region,a,b,to[0],to[1]);}catch(Throwable ignored){}
         List<double[]> froms=nearestRoads(a,b,2,300),tos=nearestRoads(c,d,2,300);
         for(double[] from:froms)for(double[] to:tos)try{return routeBetween(region,from[0],from[1],to[0],to[1]);}catch(Throwable ignored){}
         for(double[] to:nearestRoads(c,d,12,1500)){if(to[2]<260)continue;try{return routeBetween(region,a,b,to[0],to[1]);}catch(Throwable ignored){}}
-        try{JSONObject r=routeBetween(region,a,b,c,d,true);usedPrivate=true;return r;}catch(Throwable ignored){}
+        // Last resort: nothing public reaches the place (a home deep inside a gated village), so ignore access rules.
+        try{JSONObject r=request(region,a,b,null,Collections.emptyList(),c,d,true);fallbackPrivate=true;return r;}catch(Throwable ignored){}
         throw first;}
-    private volatile boolean usedPrivate;
     private volatile Region gatesFor;private volatile float[] gateXY=new float[0];
     /** The area's gate points (gates.json: gates, lift gates and guardhouse barriers that aren't open to all), as lat,lon pairs. Worker thread. */
     private float[] gates(Region r){if(r==gatesFor)return gateXY;float[] xy=new float[0];
-        try{JSONArray a=new JSONArray(text(r,"gates.json"));xy=new float[a.length()*2];for(int i=0;i<a.length();i++){JSONObject g=a.getJSONObject(i);xy[i*2]=(float)g.getDouble("lat");xy[i*2+1]=(float)g.getDouble("lon");}}
+        try{JSONArray a=new JSONArray();for(Region part:r.parts.isEmpty()?Collections.singletonList(r):r.parts){try{JSONArray entries=new JSONArray(text(part,"gates.json"));for(int i=0;i<entries.length();i++)a.put(entries.get(i));}catch(FileNotFoundException ignored){}}xy=new float[a.length()*2];for(int i=0;i<a.length();i++){JSONObject g=a.getJSONObject(i);xy[i*2]=(float)g.getDouble("lat");xy[i*2+1]=(float)g.getDouble("lon");}}
         catch(Exception ignored){}  // areas downloaded before gates were mapped have none
         gatesFor=r;gateXY=xy;return xy;}
-    /** How many gates lie on the route (within 12 m of it); gates within 40 m of one already counted are the same entrance. */
+    /** Conservative geometry matches, not a count of guardhouses. A nearby driveway gate is not a route crossing.
+     * Require a gate at an interior router vertex (2 m allows stored coordinate rounding), with the path passing
+     * through it rather than merely ending or turning back there. Duplicate points at one entrance count once. */
     static int gatesOn(List<double[]> route,float[] xy){
-        if(route.size()<2||xy.length==0)return 0;double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
+        if(route.size()<3||xy.length==0)return 0;
+        double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
         for(double[] p:route){minLat=Math.min(minLat,p[0]);maxLat=Math.max(maxLat,p[0]);minLon=Math.min(minLon,p[1]);maxLon=Math.max(maxLon,p[1]);}
-        double pad=0.0002;ArrayList<double[]> found=new ArrayList<>();
-        for(int i=0;i+1<xy.length;i+=2){double la=xy[i],lo=xy[i+1];if(la<minLat-pad||la>maxLat+pad||lo<minLon-pad||lo>maxLon+pad)continue;
-            boolean on=false;for(int j=0;j+1<route.size()&&!on;j++)on=GeoMath.segmentDistance(la,lo,route.get(j),route.get(j+1))<12;if(!on)continue;
-            boolean seen=false;for(double[] f:found)if(GeoMath.distance(f[0],f[1],la,lo)<40){seen=true;break;}if(!seen)found.add(new double[]{la,lo});}
-        return found.size();}
-    /**
-     * Guardhouses and gates the route passes (from the map's barrier=gate points), and whether it only reaches the
-     * destination through a private road (a gated subdivision). The route card tells the rider so they can have an ID
-     * ready, or pick a spot outside the gate.
-     */
+        double pad=0.0003;ArrayList<double[]> found=new ArrayList<>();
+        for(int i=0;i+1<xy.length;i+=2){
+            double la=xy[i],lo=xy[i+1];if(!Double.isFinite(la)||!Double.isFinite(lo))continue;
+            if(la<minLat-pad||la>maxLat+pad||lo<minLon-pad||lo>maxLon+pad)continue;
+            boolean crossing=false;
+            for(int j=1;j+1<route.size()&&!crossing;j++){
+                double[] at=route.get(j);if(GeoMath.distance(la,lo,at[0],at[1])>2)continue;
+                int before=j-1,after=j+1;
+                while(before>=0&&GeoMath.distance(la,lo,route.get(before)[0],route.get(before)[1])<6)before--;
+                while(after<route.size()&&GeoMath.distance(la,lo,route.get(after)[0],route.get(after)[1])<6)after++;
+                if(before<0||after>=route.size())continue;
+                double[] a=route.get(before),b=route.get(after);double k=Math.cos(Math.toRadians(la));
+                // Through the gate, straight on or turning (up to about 150 degrees, as into a subdivision's mouth), but
+                // not in and back out the same way.
+                double ax=(a[1]-lo)*k,ay=a[0]-la,bx=(b[1]-lo)*k,by=b[0]-la,na=Math.hypot(ax,ay),nb=Math.hypot(bx,by);
+                crossing=na>0&&nb>0&&(ax*bx+ay*by)/(na*nb)<0.87;
+            }
+            if(!crossing)continue;
+            boolean seen=false;for(double[] f:found)if(GeoMath.distance(f[0],f[1],la,lo)<40){seen=true;break;}
+            if(!seen)found.add(new double[]{la,lo});
+        }
+        return found.size();
+    }
+    /** Possible mapped gate crossings on the chosen route; map points cannot establish staffed guardhouses. */
     public volatile int gates;public volatile boolean privateRoad;
     /** How far from the destination the route stops, in metres, when the router couldn't reach the place itself. */
-    public volatile double endsShort;
+    public volatile double endsShort,startsShort;
+    public volatile double[] coverageGap;
+    private volatile boolean displayLoading;
+    private void followArea(double lat,double lon){
+        if(displayLoading)return;Region next=Region.at(regions,lat,lon);if(next==null||next==shown)return;
+        displayLoading=true;worker.execute(()->{try{if(active){display(next);loadRoads(next);signal();}}catch(Exception e){android.util.Log.w("Daanvia","Could not show next area",e);}finally{displayLoading=false;}});
+    }
     /** The closest point on each of the nearest public-looking streets within {@code radius} m, nearest first, a named street counting 40 m closer. */
     private List<double[]> nearestRoads(double lat,double lon,int max,double radius){
         double pad=radius/111000.0,padLon=pad/Math.max(0.2,Math.cos(Math.toRadians(lat)));ArrayList<double[]> found=new ArrayList<>();
@@ -268,33 +412,7 @@ public final class NavSession {
         found.sort((x,y)->Double.compare(x[2],y[2]));
         return found.size()>max?new ArrayList<>(found.subList(0,max)):found;}
     private static final Set<String> MINOR=new HashSet<>(Arrays.asList("service","track","footway","path","steps","pedestrian","cycleway","corridor","bridleway","platform"));
-    public synchronized void stop(){learn();active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;shape=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
-    // ---- Trip times that match real riding ----
-    // The routing engine's times assume empty roads at the speed limit. City riding, with traffic, lights and jeepneys,
-    // takes longer, so its times are multiplied by this rider's pace: 1.5 to begin with, then learned from their own rides
-    // (time taken / the engine's time for the same stretch). During a ride the pace so far counts too, more as the ride
-    // goes on, so the arrival time settles on how this ride is actually going. Demo rides teach nothing.
-    private double plannedSpent,actualSpent,lastRemaining=-1;private long lastFixAt;private boolean paceDemo;
-    public double pace(){
-        double learned=context.getSharedPreferences("ui",0).getFloat("pace",1.5f);
-        if(!active||paceDemo||plannedSpent<120)return learned;
-        double w=Math.min(0.7,plannedSpent/1800.0),now=Math.max(0.8,Math.min(3.0,actualSpent/plannedSpent));
-        return learned*(1-w)+now*w;
-    }
-    private void track(boolean demo,long takenAt,double remSecs){
-        paceDemo|=demo||simulation;
-        // lastRemaining is the router's time left (seconds) at the last fix: the drop since then is the planned time covered.
-        if(lastRemaining>=0&&lastFixAt>0){double d=Math.max(0,lastRemaining-remSecs);long dt=takenAt-lastFixAt;
-            if(d<600&&dt>0&&dt<15000){plannedSpent+=d;actualSpent+=dt/1000.0;}}
-        lastRemaining=remSecs;lastFixAt=takenAt;
-    }
-    /** At the end of a real ride of at least five planned minutes, fold how long it took into the rider's pace. */
-    private void learn(){
-        if(!paceDemo&&plannedSpent>=300){double ratio=Math.max(0.8,Math.min(3.0,actualSpent/plannedSpent));
-            android.content.SharedPreferences p=context.getSharedPreferences("ui",0);double old=p.getFloat("pace",1.5f);
-            p.edit().putFloat("pace",(float)(old*0.6+ratio*0.4)).apply();}
-        plannedSpent=0;actualSpent=0;lastRemaining=-1;lastFixAt=0;paceDemo=false;
-    }
+    public synchronized void stop(){active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
     public void update(double a,double b,float acc,float direction,boolean demo){update(a,b,acc,direction,demo,SystemClock.elapsedRealtime());}
     /** {@code takenAt} is when the fix was taken (elapsedRealtime). Outside a ride any fix places the rider, however rough; during a ride only sharp ones count. */
     public synchronized void update(double a,double b,float acc,float direction,boolean demo,long takenAt){
@@ -303,6 +421,7 @@ public final class NavSession {
         // Remembered so the day/night look matches the rider's sky before the next fix (see Gabi.resolve).
         if(!demo&&SystemClock.elapsedRealtime()-savedFixAt>600000){savedFixAt=SystemClock.elapsedRealtime();context.getSharedPreferences("ui",0).edit().putFloat("fix_lat",(float)a).putFloat("fix_lon",(float)b).apply();}
         List<double[]> route=shape;if(!active||route.size()<2){signal();return;}
+        followArea(a,b);
         // Match the rider to the route a few hundred metres ahead at most, and count a stretch running against the rider's
         // heading as farther away: on a divided road the lanes back from a U-turn slot lie metres away, and matching them
         // would jump past the U-turn.
@@ -311,6 +430,12 @@ public final class NavSession {
         for(int i=Math.max(0,progress-8);i<route.size()-1;i++){if(measured&&cum[i]>reach)break;double[] p=route.get(i),q=route.get(i+1);double distance=GeoMath.segmentDistance(a,b,p,q);
             double sc=distance+(Math.abs(((GeoMath.bearing(p,q)-direction+540)%360)-180)>100?25:0);if(sc<score){score=sc;best=distance;nearest=i;}}
         if(best<Math.max(45,acc)){progress=Math.max(progress,nearest);offRoute=0;}
+        // A stop is passed once the rider reaches its point on the road (the end of its leg), however far the pin sits
+        // from the road (inside a mall or a big lot).
+        while(passedStops<tripStops.size()-1&&passedStops<legEnds.length&&progress>=legEnds[passedStops]-1){
+            int end=Math.min(legEnds[passedStops],route.size()-1);double[] at=route.get(end);
+            if(progress<legEnds[passedStops]&&GeoMath.distance(a,b,at[0],at[1])>45)break;passedStops++;
+        }
         // Draw the rider on the road being followed, pointing along it, like car navigation does; GPS scatter stays hidden.
         if(best<Math.min(45,Math.max(25,acc))){double[] p1=route.get(nearest),p2=route.get(Math.min(nearest+1,route.size()-1));double[] on=GeoMath.project(a,b,p1,p2);viewLat=on[0];viewLon=on[1];if(p1!=p2)viewBearing=GeoMath.bearing(p1,p2);snapped=true;}else if(acc<35&&best>65&&!arrived&&GeoMath.distance(a,b,destLat,destLon)>150){offRoute++;if(!demo&&offRoute>=3&&!routing&&SystemClock.elapsedRealtime()-lastReroute>12000){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
         // Distance and time left: to the next route point, then the rest from the running totals. The time left adds up
@@ -319,20 +444,20 @@ public final class NavSession {
         if(measured&&ct.length==route.size()){rem=toNext+cum[cum.length-1]-cum[nxt];int prev=Math.max(0,nxt-1);double segLen=cum[nxt]-cum[prev];
             remSecs=ct[ct.length-1]-ct[nxt]+(segLen>0?toNext*(ct[nxt]-ct[prev])/segLen:0);}
         else{rem=toNext;for(int i=nxt;i<route.size()-1;i++)rem+=GeoMath.distance(route.get(i)[0],route.get(i)[1],route.get(i+1)[0],route.get(i+1)[1]);remSecs=routeMeters>0?routeSeconds*rem/routeMeters:0;}
-        remaining=rem;track(demo,takenAt,remSecs);seconds=remSecs*pace();
+        remaining=rem;seconds=remSecs*OFFLINE_TIME_ALLOWANCE;
         try{
             int next=0;for(int i=0;i<maneuvers.length();i++)if(maneuvers.getJSONObject(i).optInt("begin_shape_index")>progress){next=i;break;}
             if(next==0)next=Math.max(0,maneuvers.length()-1);maneuver=next;JSONObject m=maneuvers.getJSONObject(next);int at=Math.min(route.size()-1,m.optInt("begin_shape_index"));double[] prefix=cumulative;int ahead=Math.min(progress+1,route.size()-1);distanceToTurn=at>=ahead&&prefix.length==route.size()?GeoMath.distance(a,b,route.get(ahead)[0],route.get(ahead)[1])+prefix[at]-prefix[ahead]:0;instruction=m.optString("instruction","Continue");
             // Near the picked point, or at the route's end where the road stops short of a pin inside a campus or mall.
             double[] end=route.get(route.size()-1);
             if(arrived||rem<35&&(GeoMath.distance(a,b,destLat,destLon)<45||GeoMath.distance(a,b,end[0],end[1])<30)){instruction="Destination nearby";
-                if(!arrived){arrived=true;learn();context.getSharedPreferences("ui",0).edit().remove("ride").apply();message((demo?"SIMULATION · ":"")+"Destination nearby");}}
+                if(!arrived){arrived=true;context.getSharedPreferences("ui",0).edit().remove("ride").apply();message((demo?"SIMULATION · ":"")+"Destination nearby");}}
         }catch(JSONException ignored){}signal();
     }
     private void refreshParking(){ArrayList<JSONObject> list=new ArrayList<>();for(int i=0;i<parking.length();i++){JSONObject p=parking.optJSONObject(i);if(p!=null&&GeoMath.distance(p.optDouble("lat"),p.optDouble("lon"),destLat,destLon)<=350)list.add(p);}list.sort((a,b)->Double.compare(GeoMath.distance(a.optDouble("lat"),a.optDouble("lon"),destLat,destLon),GeoMath.distance(b.optDouble("lat"),b.optDouble("lon"),destLat,destLon)));nearbyParking=Collections.unmodifiableList(list.size()>8?new ArrayList<>(list.subList(0,8)):list);}
     private void mergeSavedParking(){try{JSONArray saved=new JSONArray(context.getSharedPreferences("parking-local",0).getString("records","[]"));for(int i=0;i<saved.length();i++)parking.put(saved.getJSONObject(i));}catch(JSONException ignored){}}
-    public synchronized void saveParking(double a,double b,String name,String amount,String basis)throws Exception{
-        JSONObject lot=new JSONObject().put("id",UUID.randomUUID().toString()).put("lat",a).put("lon",b).put("name",name).put("source","Owner-entered").put("motorcycle",true).put("access","yes");
+    public synchronized void saveParking(double a,double b,String name,String amount,String basis,boolean entrance)throws Exception{
+        JSONObject lot=new JSONObject().put("id",UUID.randomUUID().toString()).put("lat",a).put("lon",b).put("name",name).put("source","Owner-entered").put("motorcycle",true).put("entrance_confirmed",entrance);
         if(!amount.trim().isEmpty()){java.math.BigDecimal price=new java.math.BigDecimal(amount.trim());if(price.signum()<0||price.compareTo(new java.math.BigDecimal("100000"))>0)throw new IllegalArgumentException("Invalid parking fee");lot.put("price_label","₱"+price.stripTrailingZeros().toPlainString()+" / "+basis).put("verified_at",System.currentTimeMillis());}
         JSONArray saved=new JSONArray(context.getSharedPreferences("parking-local",0).getString("records","[]"));saved.put(lot);context.getSharedPreferences("parking-local",0).edit().putString("records",saved.toString()).apply();parking.put(lot);refreshParking();signal();
     }

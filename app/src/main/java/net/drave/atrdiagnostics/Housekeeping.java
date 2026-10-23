@@ -34,7 +34,8 @@ public final class Housekeeping {
             for (File d : dirs) { installed.add(d.getName()); try { installed.add(new org.json.JSONObject(AreaStore.readAll(new java.io.FileInputStream(new File(d, "region.json")))).optString("id")); } catch (Exception ignored) {} }
         }
         File[] engines = new File(files, "engines").listFiles();
-        if (engines != null) for (File e : engines) if (!installed.contains(e.getName())) freed += remove(e);
+        // NavSession clears derived combined graphs before opening its first engine; never race an active join here.
+        if (engines != null) for (File e : engines) if (!e.getName().startsWith("combined-") && !installed.contains(e.getName())) freed += remove(e);
         // the copy of the first version's built-in Cebu map, now that maps are downloaded instead
         freed += remove(new File(files, "cebu-v1"));
         File[] legacy = files.listFiles((dir, name) -> name.startsWith("region-"));
