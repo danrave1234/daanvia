@@ -1399,8 +1399,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         String model = savedModel();
         if (StreamService.mirroring) dotChip(bikeChip, "Your screen is on the bike", OK);
         else if (StreamService.navigationActive) dotChip(bikeChip, "Bike display live", OK);
-        else if (link != null && link.searching()) dotChip(bikeChip, "Looking for " + (model == null ? "your bike" : model) + "…", ACCENT);
-        else dotChip(bikeChip, model == null ? "Set up your bike" : model + " · not connected", MUTED);
+        // No "Looking for…" state and no raw model code (e.g. 37501): the chip stays quiet until the display is live.
+        else dotChip(bikeChip, model == null ? "Set up your bike" : "Bike not connected", MUTED);
         paintMirror();
         if (pendingDemo && s.ready) { pendingDemo = false; demo(); }
         if (offerUninstallOld && s.ready && mode == Mode.EXPLORE) {
