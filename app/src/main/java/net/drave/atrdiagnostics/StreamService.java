@@ -164,6 +164,8 @@ public final class StreamService extends Service {
                     .put("package",PACKAGE).put("versionCode",6).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
                     .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",0).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
+                // The Wi-Fi time answer alone leaves the QJ clock at 00:00; Carbit sets it over Bluetooth (see BleClock).
+                synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,this::log);main.post(bleClock::start);}}
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
@@ -190,6 +192,7 @@ public final class StreamService extends Service {
     }
     /** From the dashboard's CLIENT_INFO: its model number, and whether it wants a formatted date with the time. */
     private volatile String clockChannel="";private volatile boolean clockWithDate;
+    private BleClock bleClock;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
     static String preview(byte[] b){return preview(b,600);}
@@ -253,6 +256,7 @@ public final class StreamService extends Service {
         navigationActive=false;mirroring=false;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;if(deadline!=null)main.removeCallbacks(deadline);main.removeCallbacks(watchdog);
+        synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}
         workers.shutdownNow();
         synchronized(encoderLock){if(encoder!=null){encoder.close();encoder=null;}}

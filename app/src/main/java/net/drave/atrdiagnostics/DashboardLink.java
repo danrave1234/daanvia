@@ -346,12 +346,23 @@ public final class DashboardLink {
 
     private void permissions(boolean mode) {
         requestedActive = mode;
-        if (!hasPermissions()) {
+        boolean askBluetooth = askBluetooth();
+        if (!hasPermissions() || askBluetooth) {
             ArrayList<String> p = new ArrayList<>();
             p.add(Manifest.permission.ACCESS_COARSE_LOCATION); p.add(Manifest.permission.ACCESS_FINE_LOCATION);
             if (Build.VERSION.SDK_INT >= 33) p.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+            if (askBluetooth) { p.addAll(java.util.Arrays.asList(BleClock.permissions())); context.getSharedPreferences("ui", 0).edit().putBoolean("bt_clock_asked", true).apply(); }
             ui.requestPermissions(p.toArray(new String[0]), PERMISSIONS);
         } else start(mode);
+    }
+    /**
+     * Bluetooth (Nearby devices) is only for the bike's clock, so it never blocks the display: asked for once, while
+     * Daanvia is on screen. A rider who says no can turn it on later in Android's app settings.
+     */
+    private boolean askBluetooth() {
+        if (BleClock.allowed(context) || BleClock.permissions().length == 0) return false;
+        if (context.getSharedPreferences("ui", 0).getBoolean("bt_clock_asked", false)) return false;
+        synchronized (hosts) { return !hosts.isEmpty(); }
     }
     /** Forward the screen's onRequestPermissionsResult for {@link #PERMISSIONS}. */
     public void onPermissionsResult() {
