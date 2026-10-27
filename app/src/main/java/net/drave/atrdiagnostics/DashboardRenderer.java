@@ -89,10 +89,10 @@ public final class DashboardRenderer {
         // Directions only (Settings › Bike display): the cards on a plain background, no moving map. About a third of the
         // work of the full picture (measured), and only a few frames a second are needed since little moves.
         boolean simple = s.directionsOnly() && s.active && !s.layoutEditing;
-        if (simple) { target.drawColor(land()); pixelsPerSecond = 0; } else drawMap(target, vw, vh);
         // With no map to keep clear, the cards fill the screen: a large turn card, and the trip along the bottom.
         RectF turn = simple ? new RectF(vw * 0.04f, vh * 0.04f, vw * 0.96f, vh * 0.68f) : card(s.turnCard, vw, vh);
         RectF trip = simple ? new RectF(vw * 0.04f, vh * 0.72f, vw * 0.96f, vh * 0.96f) : card(s.tripCard, vw, vh);
+        if (simple) { target.drawColor(land()); pixelsPerSecond = 0; } else drawMap(target, vw, vh, turn, trip);
         boolean sample = s.layoutEditing && !s.active;
         if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
         else idle(target, turn);
@@ -314,7 +314,37 @@ public final class DashboardRenderer {
         lastX = x; lastY = y; lastIn = in;
     }
 
-    private void drawMap(Canvas c, float w, float h) {
+    /**
+     * Where the rider's arrow goes: the spot set in Edit layout, unless a card covers it. A covered arrow hides the rider
+     * and the start of the route line, so the map looks as if it isn't following the ride. It then moves to the middle of
+     * the widest open stretch of map beside the cards, at the same height if there's room, else on the nearest open row.
+     * While the layout is being edited it stays exactly where the rider drags it.
+     */
+    private float[] arrowSpot(float w, float h, RectF turn, RectF trip) {
+        if (s.layoutEditing) return new float[]{s.arrowX * w, s.arrowY * h};
+        return arrowSpot(s.arrowX * w, s.arrowY * h, w, h, new float[][]{{turn.left, turn.top, turn.right, turn.bottom}, {trip.left, trip.top, trip.right, trip.bottom}});
+    }
+    /** {@link #arrowSpot(float, float, RectF, RectF)} with each card as {left, top, right, bottom}. */
+    static float[] arrowSpot(float x, float y, float w, float h, float[][] cards) {
+        float pad = 36;
+        boolean covered = false; for (float[] r : cards) covered |= covers(r, x, y, pad);
+        if (!covered) return new float[]{x, y};
+        for (float row : new float[]{y, h * 0.72f, h * 0.6f, h * 0.5f, h * 0.85f, h * 0.35f, h * 0.2f}) {
+            row = Math.max(pad, Math.min(h - pad, row));
+            // The row's open stretches between the cards that cross it, left to right; the widest wins.
+            List<float[]> across = new ArrayList<>();
+            for (float[] r : cards) if (row > r[1] - pad && row < r[3] + pad) across.add(r);
+            across.sort((a, b) -> Float.compare(a[0], b[0]));
+            float bestFrom = 0, bestWidth = 0, from = 0;
+            for (float[] r : across) { if (r[0] - pad - from > bestWidth) { bestWidth = r[0] - pad - from; bestFrom = from; } from = Math.max(from, r[2] + pad); }
+            if (w - from > bestWidth) { bestWidth = w - from; bestFrom = from; }
+            if (bestWidth >= pad * 2) return new float[]{bestFrom + bestWidth / 2, row};
+        }
+        return new float[]{w / 2, h * 0.66f};
+    }
+    private static boolean covers(float[] r, float x, float y, float pad) { return x > r[0] - pad && x < r[2] + pad && y > r[1] - pad && y < r[3] + pad; }
+
+    private void drawMap(Canvas c, float w, float h, RectF turnBox, RectF tripBox) {
         p.setStyle(Paint.Style.FILL); p.setColor(land()); c.drawRect(0, 0, w, h, p);
         boolean heading = s.active;
         List<double[]> route = s.shape;
@@ -323,7 +353,7 @@ public final class DashboardRenderer {
         mpp += (targetMpp() - mpp) * ease; tilt += (targetTilt() - tilt) * ease;
         clat = motion.lat == 0 ? s.viewLat : motion.lat; clon = motion.lon == 0 ? s.viewLon : motion.lon; coslat = Math.cos(Math.toRadians(clat));
         double theta = heading ? Math.toRadians(-motion.bearing) : 0; cos = (float)Math.cos(theta); sin = (float)Math.sin(theta);
-        cx = s.arrowX * w; cy = s.arrowY * h;
+        float[] spot = arrowSpot(w, h, turnBox, tripBox); cx = spot[0]; cy = spot[1];
         // How fast the picture moves on screen, in pixels a second: travel (doubled, since the tilt magnifies the road near
         // the bottom edge), turning at the screen's corners, and zoom and tilt changes. The encoder draws only as often as
         // that needs, so a straight road at an even speed costs far fewer frames than a turn.
