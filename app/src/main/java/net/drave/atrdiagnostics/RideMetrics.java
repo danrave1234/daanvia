@@ -47,7 +47,6 @@ final class RideMetrics {
             context.getSharedPreferences("ride-metrics",0).edit().putString("latest",report.toString()).apply();
         }catch(Exception e){android.util.Log.w("Daanvia","Ride diagnostics unavailable",e);}
     }
-    static JSONObject latest(Context c){return read(c,"latest");}
     private static JSONObject read(Context c,String key){try{return new JSONObject(c.getSharedPreferences("ride-metrics",0).getString(key,"{}"));}catch(Exception e){return new JSONObject();}}
     /**
      * For a shared report: this ride and the one before it, each thinned to at most 60 evenly spaced samples (the first

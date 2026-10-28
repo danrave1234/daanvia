@@ -24,7 +24,7 @@ final class RoadTiles {
     static boolean ready(File area) {
         File roads = new File(area, "roads.geojson"), done = new File(new File(area, DIR), DONE);
         if (!roads.isFile() || !done.isFile()) return false;
-        try { return stamp(roads).equals(AreaStore.readAll(new FileInputStream(done)).trim()); } catch (IOException e) { return false; }
+        try { return stamp(roads).equals(AreaStore.readFile(done).trim()); } catch (IOException e) { return false; }
     }
     private static String stamp(File roads) { return roads.length() + ":" + roads.lastModified(); }
 

@@ -1,12 +1,13 @@
 package net.drave.atrdiagnostics;
 import android.*;import android.app.*;import android.content.*;import android.content.pm.*;import android.location.*;import android.os.*;import java.util.*;
 public final class NavService extends Service {
-    private NavSession s;private LocationFeed gps;private VoiceOutput voice;private final Handler handler=new Handler(Looper.getMainLooper());private final GuidancePrompts prompts=new GuidancePrompts();private final FixFilter filter=new FixFilter();private int spoken=-1,demoIndex;private List<double[]> spokenRoute;private long lastWarning;private Runnable simulator;
+    private NavSession s;private LocationFeed gps;private VoiceOutput voice;private final Handler handler=new Handler(Looper.getMainLooper());private final GuidancePrompts prompts=new GuidancePrompts();private final FixFilter filter=new FixFilter();private int demoIndex;private List<double[]> spokenRoute;private Runnable simulator;
     public IBinder onBind(Intent i){return null;}
     private RideMetrics metrics;
     private final Runnable measure=new Runnable(){public void run(){if(s==null||!s.active)return;if(metrics==null)metrics=new RideMetrics(NavService.this);metrics.sample(s);handler.postDelayed(this,30000);}};
     @android.annotation.SuppressLint("MissingPermission") // removing location updates; subscribe() checks the permission itself
     public int onStartCommand(Intent i,int f,int id){
+        if(finishing!=null){handler.removeCallbacks(finishing);finishing=null;}
         // Restarted by Android after the phone closed Daanvia mid-ride (this service is sticky during real rides).
         if(i==null)return resumeAfterRestart()?START_STICKY:START_NOT_STICKY;
         if("stop".equals(i.getAction())){if(s!=null)s.stop();stopService(new Intent(this,StreamService.class));stopSelf();return START_NOT_STICKY;}
@@ -18,8 +19,7 @@ public final class NavService extends Service {
         try{
             foreground(demo);
             ensureVoice();
-            if("preview".equals(i.getAction())){subscribe();return START_NOT_STICKY;}
-            s.active=true;s.simulation=demo;spoken=-1;prompts.reset();filter.reset();
+            s.active=true;s.simulation=demo;prompts.reset();filter.reset();
             metrics=new RideMetrics(this);handler.removeCallbacks(measure);handler.post(measure);
             if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();}
             s.signal();searches=0;handler.removeCallbacks(bikeSearch);handler.postDelayed(bikeSearch,20000);
@@ -49,7 +49,7 @@ public final class NavService extends Service {
             if(System.currentTimeMillis()-seen>30*60000L)throw new IllegalStateException("ride too old");
             s=NavSession.get(this);foreground(false);
             ensureVoice();
-            subscribe();filter.reset();spoken=-1;
+            subscribe();filter.reset();
             final double la=r.getDouble("lat"),lo=r.getDouble("lon");final String name=r.optString("name","your destination");
             resumeTries=0;if(resumer!=null)handler.removeCallbacks(resumer);
             resumer=new Runnable(){public void run(){
@@ -58,7 +58,7 @@ public final class NavService extends Service {
                 boolean fix=s.fixAt>0&&SystemClock.elapsedRealtime()-s.fixAt<15000;
                 if(s.ready&&fix&&!s.routing){
                     if(s.shape.isEmpty()||Math.abs(s.destLat-la)>1e-6||Math.abs(s.destLon-lo)>1e-6){try{org.json.JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");if(via!=null&&via.length()==2)s.resumeVia(new double[]{via.getDouble(0),via.getDouble(1)});if(stops!=null&&stops.length()>0)s.planTrip(TripStop.parse(stops.toString()),name);else s.plan(la,lo,name,false);}catch(Exception badTrip){s.message("Saved trip could not be restored");stopSelf();return;}}
-                    else{s.active=true;s.simulation=false;spoken=-1;prompts.reset();filter.reset();handler.post(measure);s.message("Picked up your ride to "+name);s.signal();
+                    else{s.active=true;s.simulation=false;prompts.reset();filter.reset();handler.post(measure);s.message("Picked up your ride to "+name);s.signal();
                         DashboardLink.headless(NavService.this).allowAuto();searches=0;handler.removeCallbacks(bikeSearch);handler.post(bikeSearch);return;}
                 }
                 handler.postDelayed(this,2000);}};
@@ -93,7 +93,30 @@ public final class NavService extends Service {
         long now=SystemClock.elapsedRealtime(),at=l.getElapsedRealtimeNanos()>0?l.getElapsedRealtimeNanos()/1000000L:now;if(!filter.accept(l.getLatitude(),l.getLongitude(),l.getAccuracy(),at,now))return;
         // Heading from GPS is noise below walking speed; keep the last good one instead of snapping to north.
         boolean moving=l.hasBearing()&&(!l.hasSpeed()||l.getSpeed()>1.4f);
-        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():s.bearing,false);speak();}
+        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():s.bearing,false);speak();checkArrival(l);}
+    /**
+     * Arriving ends the ride on its own, so nobody has to tap End: once the rider has stopped near the arrival spot for
+     * 20 s (parked), has ridden 250 m past it, or 5 minutes after arriving. Measured from where the arrival was noticed,
+     * not the pin, which can sit far inside a campus or mall.
+     */
+    private long arrivedAt,stoppedSince;private double arrivedLat,arrivedLon;private Runnable finishing;
+    private void checkArrival(Location l){
+        if(!s.active||s.simulation||!s.arrived){arrivedAt=stoppedSince=0;return;}
+        long now=SystemClock.elapsedRealtime();
+        if(arrivedAt==0){arrivedAt=now;arrivedLat=l.getLatitude();arrivedLon=l.getLongitude();}
+        double away=GeoMath.distance(l.getLatitude(),l.getLongitude(),arrivedLat,arrivedLon);
+        if(s.speedMetersPerSecond>=1.5||away>150)stoppedSince=0;else if(stoppedSince==0)stoppedSince=now;
+        if(arrivalDone(stoppedSince>0?now-stoppedSince:0,away,now-arrivedAt))finishRide();
+    }
+    /** Parked for 20 s, ridden 250 m on, or 5 minutes since arriving. */
+    static boolean arrivalDone(long stoppedMs,double metresAway,long sinceArrivalMs){return stoppedMs>=20000||metresAway>250||sinceArrivalMs>=300000;}
+    private void finishRide(){
+        arrivedAt=stoppedSince=0;String name=s.destination;
+        if(voice!=null&&voice.ready()&&getSharedPreferences("ui",0).getBoolean("voice",true))voice.speak("You have arrived.");
+        s.finished=name.isEmpty()?"your destination":name;s.stop();if(gps!=null)gps.stop();
+        // A moment for the voice to finish before the service (and its voice) closes.
+        finishing=this::stopSelf;handler.postDelayed(finishing,4000);
+    }
     private void ensureVoice(){if(voice==null)voice=new VoiceOutput(this,message->{if(voice!=null&&!voice.ready())s.message(message);else s.signal();});}
     private void speakCurrent(){if(voice!=null&&s.active)voice.speak(s.arrived?"Destination nearby":GuidancePrompts.distance(s.distanceToTurn)+". "+s.instruction);}
     private void speak(){

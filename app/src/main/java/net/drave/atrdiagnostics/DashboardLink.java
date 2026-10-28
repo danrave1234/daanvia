@@ -131,16 +131,15 @@ public final class DashboardLink {
     private final List<NsdServiceInfo> services = new ArrayList<>();
     private boolean resolving;
     private boolean requestedActive;
-    private boolean destroyed;
 
     private final BroadcastReceiver streamReceiver = new BroadcastReceiver() {
         public void onReceive(Context c, Intent event) {
             String kind = event.getStringExtra("kind"), message = event.getStringExtra("message");
             if (message != null) log(message);
             if ("frames".equals(kind)) {
-                sawFrames = true; ui.onChanged();
                 String mode = event.getStringExtra("mode"); frameEvidence.put(mode, event.getLongExtra("frames", 0));
-                if (!visualEvidence.containsKey(mode)) label("Video sent • check the motorcycle screen");
+                // Only the first one changes what the screens show; refreshing on every one cost battery all ride.
+                if (!sawFrames) { sawFrames = true; ui.onChanged(); if (!visualEvidence.containsKey(mode)) label("Video sent • check the motorcycle screen"); }
             } else if ("negotiated".equals(kind)) label("Video format negotiated • sending…");
             else if ("stopped".equals(kind)) {
                 frameEvidence.put(event.getStringExtra("mode"), event.getLongExtra("frames", 0));
@@ -207,7 +206,6 @@ public final class DashboardLink {
     public boolean sawFrames() { return sawFrames; }
     public boolean serviceActive() { return serviceActive; }
     public boolean searching() { return running; }
-    public String lastStreamMode() { return lastStreamMode; }
     public String model() { return model; }
     public String status() { return verdict; }
     public String reportText() { synchronized(report) { return report.toString(); } }
@@ -248,8 +246,8 @@ public final class DashboardLink {
 
     private void log(String s) {
         String line = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + clean(s) + "\n";
-        synchronized(report) { if (report.length() < 150000) report.append(line); keep(line); }
-        main.post(() -> { if (!destroyed) ui.onLog(); });
+        synchronized(report) { if (report.length() > 150000) report.delete(0, report.length() - 120000); report.append(line); keep(line); }
+        main.post(ui::onLog);
     }
     /*
      * The log is also kept in a file, so a report shared after the app closed (or the bike display cut off) still holds
@@ -300,9 +298,8 @@ public final class DashboardLink {
         return s.replaceAll("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}", "[device address redacted]")
             .replaceAll("(?i)(pwd|password|passphrase|token|huid|uuid|serial|sn)[\\\"'\\s:=]+[^,}\\s]+", "$1=[redacted]");
     }
-    private void label(String s) { verdict = s; main.post(() -> { if (!destroyed) ui.onStatus(s); }); }
+    private void label(String s) { verdict = s; main.post(() -> ui.onStatus(s)); }
     public void note(String s) { log(s); }
-    public void setStatus(String s) { label(s); }
 
     public boolean hasPermissions() {
         return context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&

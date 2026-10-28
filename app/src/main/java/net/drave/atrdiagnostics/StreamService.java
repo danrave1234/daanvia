@@ -75,7 +75,12 @@ public final class StreamService extends Service {
                 .setContentText(navigation?"Tap Stop to disconnect":"Temporary test • tap Stop to end").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).build();
             int type=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
             if(mirror)type|=ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
-            startForeground(17,n,type);
+            // Without a ride the bike display still follows the rider (a free ride), so this service keeps location going
+            // itself; NavService takes over during a ride (see Here.feed).
+            boolean follow=navigation&&Here.precise(this);
+            try{startForeground(17,n,follow?type|ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION:type);}
+            catch(SecurityException noLocation){follow=false;startForeground(17,n,type);}
+            if(follow){freeRide=new Here(this,NavSession.get(this));freeRide.start();}
             if(navigation){navigationWake=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Daanvia:display");navigationWake.acquire();}
             if(mirror) {
                 Intent consent=intent.getParcelableExtra("consent");
@@ -139,11 +144,11 @@ public final class StreamService extends Service {
             Pxc f=Pxc.read(in);
             if(f.command!=0x70000000&&f.command!=0x70000001&&f.command!=Pxc.CLIENT_INFO&&shown.add(f.command)){
                 log("Dashboard sent 0x"+Integer.toHexString(f.command)+": "+preview(f.payload));remember(f.command,f.payload);}
-            if(f.command==0x70000000){heartbeatCount++;if(heartbeatCount==1||heartbeatCount%5==0)log("Received and replying to control heartbeat #"+heartbeatCount);}
-            if(f.command==0x70000001){acknowledged++;if(acknowledged==1||acknowledged%5==0)log("Dashboard replied to outgoing heartbeat #"+acknowledged+" on "+s.getPort());continue;}
+            if(f.command==0x70000000){heartbeatCount++;if(heartbeatCount==1)log("Received and replying to control heartbeat #"+heartbeatCount);}
+            if(f.command==0x70000001){acknowledged++;if(acknowledged==1)log("Dashboard replied to outgoing heartbeat #"+acknowledged+" on "+s.getPort());continue;}
             if((f.command==0x10000||f.command==0x20000)&&keepalive==null) {
                 String channel=f.command==0x10000?"CAR_CTRL":"CAR_DATA";
-                keepalive=new ControlKeepalive(out,2000,count->{if(running&&(count==1||count%5==0))log("Sent proactive heartbeat #"+count+" on "+channel);},error->{if(running)log("Keepalive write failed on "+channel+": "+error.getClass().getSimpleName());try{s.close();}catch(IOException ignored){}});
+                keepalive=new ControlKeepalive(out,2000,count->{if(running&&count==1)log("Sent proactive heartbeat #"+count+" on "+channel);},error->{if(running)log("Keepalive write failed on "+channel+": "+error.getClass().getSimpleName());try{s.close();}catch(IOException ignored){}});
                 if(!track(keepalive))return;log("Enabled phone-originated keepalive every 2000 ms on "+channel);
             }
             if(f.command==0x10000||f.command==0x20000||f.command==0x10690||f.command==0x70000000)out.write(Pxc.encode(f.command+1,""));
@@ -165,7 +170,7 @@ public final class StreamService extends Service {
                     .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",0).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
                 // The Wi-Fi time answer alone leaves the QJ clock at 00:00; Carbit sets it over Bluetooth (see BleClock).
-                synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,this::log);main.post(bleClock::start);}}
+                synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,m->event("log",m));main.post(bleClock::start);}}
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
@@ -192,7 +197,7 @@ public final class StreamService extends Service {
     }
     /** From the dashboard's CLIENT_INFO: its model number, and whether it wants a formatted date with the time. */
     private volatile String clockChannel="";private volatile boolean clockWithDate;
-    private BleClock bleClock;
+    private BleClock bleClock;private Here freeRide;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
     static String preview(byte[] b){return preview(b,600);}
@@ -221,6 +226,7 @@ public final class StreamService extends Service {
                 case 16: {
                     int[] cfg=f.captureConfig();
                     synchronized(encoderLock) {
+                        if(!running)throw new IOException("Stream stopped");  // never a new encoder after onDestroy
                         if(encoder==null) {
                             width=cfg[0];height=cfg[1];encoder=new VideoEncoder(this::log);
                             NavSession nav=NavSession.get(this);nav.screenReport(0,0,width,height,0,null);
@@ -244,7 +250,7 @@ public final class StreamService extends Service {
                     VideoEncoder current; synchronized(encoderLock){current=encoder;}
                     if(current==null)throw new IOException("Dashboard requested frames before configuration");
                     byte[] frame=current.next();writingSince=System.currentTimeMillis();MediaWire.writeVideo(out,frame);writingSince=0;frames++;bytes+=frame.length;lastFrameAt=System.currentTimeMillis();
-                    if(frames==1||frames%30==0)event("frames","Sent "+frames+" H.264 frames ("+bytes+" bytes) in response to dashboard pulls. Rendering is not automatically verified.");
+                    if(frames==1||frames%1800==0)event("frames","Sent "+frames+" H.264 frames ("+bytes+" bytes) in response to dashboard pulls. Rendering is not automatically verified.");
                     break;
                 }
                 default:throw new IOException("Unsupported media command "+f.command);
@@ -257,6 +263,7 @@ public final class StreamService extends Service {
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;if(deadline!=null)main.removeCallbacks(deadline);main.removeCallbacks(watchdog);
         synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
+        if(freeRide!=null){freeRide.stop();freeRide=null;}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}
         workers.shutdownNow();
         synchronized(encoderLock){if(encoder!=null){encoder.close();encoder=null;}}

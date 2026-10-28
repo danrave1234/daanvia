@@ -88,8 +88,9 @@ public final class ScanActivity extends ComponentActivity {
         String backup = zxing ? zxing(frame) : null;
         if (backup != null) { done(backup); frame.close(); return; }
         s.process(InputImage.fromMediaImage(image, frame.getImageInfo().getRotationDegrees()))
-            .addOnSuccessListener(analysis, codes -> { for (Barcode b : codes) if (b.getRawValue() != null && !b.getRawValue().isEmpty()) { done(b.getRawValue()); break; } })
-            .addOnCompleteListener(analysis, t -> frame.close());
+            // On the main thread: the analysis thread may already be shut down when a late result arrives.
+            .addOnSuccessListener(codes -> { for (Barcode b : codes) if (b.getRawValue() != null && !b.getRawValue().isEmpty()) { done(b.getRawValue()); break; } })
+            .addOnCompleteListener(t -> frame.close());
     }
     private static String zxing(ImageProxy frame) {
         try {

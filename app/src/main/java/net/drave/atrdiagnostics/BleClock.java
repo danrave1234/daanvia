@@ -130,8 +130,11 @@ final class BleClock {
     @SuppressLint("MissingPermission")
     private synchronized void connect(ScanResult r) {
         BluetoothDevice d = r.getDevice();
-        if (closed || d == null || !seen.add(d.getAddress())) return;
+        if (closed || d == null || seen.contains(d.getAddress())) return;
+        // Devices let go of free their place; one found while every place is taken is tried when it shows up again.
+        links.values().removeIf(l -> l.done);
         if (links.size() >= MAX_DEVICES) return;
+        seen.add(d.getAddress());
         found++;
         String name = null; try { name = d.getName(); } catch (Exception ignored) {}
         if (name == null && r.getScanRecord() != null) name = r.getScanRecord().getDeviceName();
@@ -241,14 +244,17 @@ final class BleClock {
                     if (++other <= 10) log(label + " sent message 0x" + String.format(Locale.US, "%02x", f.command & 0xff) + " (" + f.payload.length + " bytes); not a clock question, no reply.");
                     continue;
                 }
-                byte[] reply = EcBtp.answer(f, System.currentTimeMillis(), TimeZone.getDefault());
-                write(g, c, reply, f.command == EcBtp.SYNC_TIME ? "time as a number" : "time as text");
+                write(g, c, f, true);
             }
         }
 
+        /** Answers a time question with the time right now; a write Android refuses is tried once more 300 ms later. */
         @SuppressLint("MissingPermission")
         @SuppressWarnings("deprecation")
-        private void write(BluetoothGatt g, BluetoothGattCharacteristic from, byte[] reply, String what) {
+        private synchronized void write(BluetoothGatt g, BluetoothGattCharacteristic from, EcBtp.Frame question, boolean first) {
+            if (done) return;
+            byte[] reply = EcBtp.answer(question, System.currentTimeMillis(), TimeZone.getDefault());
+            String what = question.command == EcBtp.SYNC_TIME ? "time as a number" : "time as text";
             BluetoothGattCharacteristic to = writable(from) ? from : null;
             if (to == null) for (BluetoothGattCharacteristic c : from.getService().getCharacteristics()) if (CHARACTERISTICS.contains(c.getUuid()) && writable(c)) { to = c; break; }
             if (to == null) { log(label + " asked for the " + what + " but has no channel to answer on."); return; }
@@ -258,6 +264,8 @@ final class BleClock {
                 if (Build.VERSION.SDK_INT >= 33) ok = g.writeCharacteristic(to, reply, type) == android.bluetooth.BluetoothStatusCodes.SUCCESS;
                 else { to.setWriteType(type); to.setValue(reply); ok = g.writeCharacteristic(to); }
             } catch (Exception e) { ok = false; }
+            // Android runs one Bluetooth request at a time; one refused while another was still going gets one more try.
+            if (!ok && first) { main.postDelayed(() -> write(g, from, question, false), 300); return; }
             answers++;
             log(label + " asked for the " + what + (ok ? ". Sent the phone's time: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new java.util.Date()) + "." : ". Sending the answer failed."));
         }

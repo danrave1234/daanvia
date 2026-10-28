@@ -31,7 +31,7 @@ public final class Housekeeping {
         Set<String> installed = new HashSet<>();
         for (File base : new File[]{AreaStore.root(c), c.getExternalFilesDir("regions")}) {
             File[] dirs = base == null ? null : base.listFiles(); if (dirs == null) continue;
-            for (File d : dirs) { installed.add(d.getName()); try { installed.add(new org.json.JSONObject(AreaStore.readAll(new java.io.FileInputStream(new File(d, "region.json")))).optString("id")); } catch (Exception ignored) {} }
+            for (File d : dirs) { installed.add(d.getName()); try { installed.add(new org.json.JSONObject(AreaStore.readFile(new File(d, "region.json"))).optString("id")); } catch (Exception ignored) {} }
         }
         File[] engines = new File(files, "engines").listFiles();
         // NavSession clears derived combined graphs before opening its first engine; never race an active join here.

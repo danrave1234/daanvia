@@ -60,6 +60,4 @@ final class PlaceCache {
         out.sort(Comparator.comparingDouble(e -> GeoMath.distance(fromLat, fromLon, e.lat, e.lon)));
         return out.size() > limit ? new ArrayList<>(out.subList(0, limit)) : out;
     }
-    synchronized int size() { return entries.size(); }
-    synchronized void clear() { entries.clear(); file.delete(); }
 }

@@ -84,7 +84,6 @@ public final class Lots {
         try { JSONArray a = new JSONArray(json); for (int i = 0; i < a.length(); i++) out.add(new Lot(a.getJSONObject(i))); } catch (JSONException ignored) {}
         lots = out;
     }
-    public int size() { return lots.size(); }
 
     /** Lots within {@code meters} of a place, motorcycle-friendly and public first, then nearest. */
     public List<Lot> near(double lat, double lon, double meters) {

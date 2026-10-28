@@ -44,7 +44,6 @@ public final class SheetView extends FrameLayout {
         if (available > 0) cap = Math.min(cap, available);
         super.onMeasure(width, MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST));
     }
-    public void setPeek(int px) { peek = px; }
     private void report() { fadeRest(); if (listener != null) listener.onSheetMoved(getVisibility() == VISIBLE ? Math.max(0, getHeight() - getTranslationY()) : 0); }
     /** As the sheet folds, everything under its first row fades out, so a folded sheet shows one clean row. */
     private void fadeRest() {
@@ -82,11 +81,9 @@ public final class SheetView extends FrameLayout {
         animate().translationY(getHeight() + kit.dp(40)).setDuration(260).setInterpolator(Gabi.EASE_IN_OUT)
             .setUpdateListener(a -> report()).withEndAction(() -> { setVisibility(GONE); setTranslationY(0); report(); }).start();
     }
-    public boolean isCollapsed() { return collapsed; }
 
     // ---------------------------------------------------------------- drag
     /** Fold the sheet down to its title row; the map gets the room. */
-    public void collapse() { if (getVisibility() != VISIBLE) return; scroll.scrollTo(0,0); collapsed = true; spring.animateToFinalPosition(collapsedOffset()); }
     /** How far down the sheet slides when folded: just the handle and the content's first row stay above the gesture bar. */
     private float collapsedOffset() {
         int row = peek;

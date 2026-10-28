@@ -52,6 +52,8 @@ public final class NavSession {
     private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute,savedFixAt=-600000;private int offRoute,requestId;
     /** The rider reached the destination on this route: no more rerouting, and the arrival is announced once. */
     public volatile boolean arrived;
+    /** Set when a ride ended on its own at the destination (see NavService.checkArrival); the map screen says so once. */
+    public volatile String finished;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */
     public volatile List<Region> regions=Collections.emptyList();public volatile String regionId="";public volatile int regionVersion;
     /** Where the map reads the area's roads (file:// or asset://); MapLibre parses the file itself, off the main thread. Null without a map. */
@@ -249,7 +251,7 @@ public final class NavSession {
         if(picked==null)picked=CombinedGraph.choose(new File(context.getFilesDir(),"combined-graphs"),regions,lat,lon,a,b);
         if(picked!=null)for(TripStop stop:stops)if(!picked.contains(stop.lat,stop.lon)){picked=null;break;}
         final Region r=picked;
-        if(r==null){shape=Collections.emptyList();routeChoices=Collections.emptyList();message(inRegion(a,b)&&inRegion(lat,lon)?"Start and destination need compatible offline maps. Update both areas to the same map build.":"Outside the installed offline regions. Download the start, destination and connecting areas.");return;}
+        if(r==null){nextVia=null;followVia=null;shape=Collections.emptyList();routeChoices=Collections.emptyList();message(inRegion(a,b)&&inRegion(lat,lon)?"Start and destination need compatible offline maps. Update both areas to the same map build.":"Outside the installed offline regions. Download the start, destination and connecting areas.");return;}
         simulation=demo;destLat=a;destLon=b;destination=name;routeRegion=r;followVia=nextVia;  // a new destination drops an old resume point
         tripStops=Collections.unmodifiableList(stops);passedStops=0;
         final Region visible=r.parts.isEmpty()?r:Region.at(regions,a,b);
@@ -412,7 +414,7 @@ public final class NavSession {
         found.sort((x,y)->Double.compare(x[2],y[2]));
         return found.size()>max?new ArrayList<>(found.subList(0,max)):found;}
     private static final Set<String> MINOR=new HashSet<>(Arrays.asList("service","track","footway","path","steps","pedestrian","cycleway","corridor","bridleway","platform"));
-    public synchronized void stop(){active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
+    public synchronized void stop(){nextVia=null;followVia=null;active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
     public void update(double a,double b,float acc,float direction,boolean demo){update(a,b,acc,direction,demo,SystemClock.elapsedRealtime());}
     /** {@code takenAt} is when the fix was taken (elapsedRealtime). Outside a ride any fix places the rider, however rough; during a ride only sharp ones count. */
     public synchronized void update(double a,double b,float acc,float direction,boolean demo,long takenAt){
@@ -480,5 +482,4 @@ public final class NavSession {
         try{panelW=Integer.parseInt(v[0]);panelH=Integer.parseInt(v[1]);videoW=Integer.parseInt(v[2]);videoH=Integer.parseInt(v[3]);bikeFps=Integer.parseInt(v[4]);screenType=v[5];}catch(NumberFormatException ignored){}}
     public void loadFit(){android.content.SharedPreferences p=context.getSharedPreferences(fitStore(),0);insetLeft=p.getFloat("left",0);insetTop=p.getFloat("top",0);insetRight=p.getFloat("right",0);insetBottom=p.getFloat("bottom",0);textScale=p.getFloat("text",1);layout=p.getString("layout","Map focus");cards(p.getString("cards",""));loadScreen(p);}
     public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).putString("cards",cards(turnCard,tripCard,arrowX,arrowY)).apply();signal();}
-    public String routeJson(){try{JSONArray points=new JSONArray();for(double[] p:shape)points.put(new JSONArray().put(p[1]).put(p[0]));return new JSONObject().put("type","Feature").put("properties",new JSONObject()).put("geometry",new JSONObject().put("type","LineString").put("coordinates",points)).toString();}catch(Exception e){return "{\"type\":\"FeatureCollection\",\"features\":[]}";}}
 }

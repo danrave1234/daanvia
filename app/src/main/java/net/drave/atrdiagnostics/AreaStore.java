@@ -164,10 +164,6 @@ public final class AreaStore {
     /** Folders on their way out; Housekeeping clears any left behind. */
     static final String TRASH = "trash-";
     private static File trash(Context c, String id) { return new File(root(c), TRASH + id + "-" + System.nanoTime()); }
-    public static void rename(Area a, String name) throws Exception {
-        File f = new File(a.dir, "region.json"); JSONObject r = new JSONObject(readAll(new FileInputStream(f))); r.put("display_name", name);
-        try (FileOutputStream o = new FileOutputStream(f)) { o.write(r.toString(2).getBytes(StandardCharsets.UTF_8)); }
-    }
 
     // ---------------------------------------------------------------- download
     public interface Listener { void onArea(State s); }
@@ -273,7 +269,7 @@ public final class AreaStore {
     /** A demo route for the area: from its middle to a named place about 3 km away. */
     static JSONObject demo(File places, double[] home) {
         try {
-            JSONArray a = new JSONArray(readAll(new FileInputStream(places))); JSONObject best = null; double score = Double.MAX_VALUE;
+            JSONArray a = new JSONArray(readFile(places)); JSONObject best = null; double score = Double.MAX_VALUE;
             for (int i = 0; i < a.length(); i++) { JSONObject p = a.getJSONObject(i); double d = GeoMath.distance(home[0], home[1], p.optDouble("lat"), p.optDouble("lon")); if (Math.abs(d - 3000) < score) { score = Math.abs(d - 3000); best = p; } }
             if (best == null) return null;
             return new JSONObject().put("name", "Demo to " + best.optString("name")).put("from", new JSONArray().put(home[0]).put(home[1])).put("to", new JSONArray().put(best.getDouble("lat")).put(best.getDouble("lon")));
@@ -347,6 +343,8 @@ public final class AreaStore {
         }
         throw new IOException("Too many redirects");
     }
+    /** A whole file as text, closing it again (readAll leaves the stream open: a zip is read entry by entry). */
+    static String readFile(File f) throws IOException { try (InputStream in = new FileInputStream(f)) { return readAll(in); } }
     static String readAll(InputStream in) throws IOException { ByteArrayOutputStream o = new ByteArrayOutputStream(); byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) o.write(b, 0, n); return o.toString("UTF-8"); }
     public static long diskBytes(File f) { if (f.isFile()) return f.length(); long s = 0; File[] k = f.listFiles(); if (k != null) for (File x : k) s += diskBytes(x); return s; }
     /** The squares of {@code picked} in a newer index: the same ids, or the quarters a busy square was split into. */

@@ -156,7 +156,8 @@ public final class MoveActivity extends Activity {
                         byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) out.write(b, 0, n); session.fsync(out);
                     }
                     int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-                    session.commit(PendingIntent.getBroadcast(c, id, new Intent(c, AppUpdate.InstallReceiver.class), flags).getIntentSender()); committed = true;
+                    session.commit(PendingIntent.getBroadcast(c, id, new Intent(c, AppUpdate.InstallReceiver.class).putExtra("old", true), flags).getIntentSender()); committed = true;
+                    apk.delete();  // the install session holds its own copy
                 }
                 runOnUiThread(() -> { working = false; primary.setEnabled(true); status.setText("Confirm the update when Android asks, then come back here and tap Move."); });
             } catch (Exception e) {

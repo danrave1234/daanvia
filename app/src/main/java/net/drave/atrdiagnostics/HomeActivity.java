@@ -64,7 +64,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // save place
     private LinearLayout saveSheet; private EditText saveName; private TextView saveSub; private double saveLat, saveLon;
     // choosing an area to download
-    private Frame frame; private LinearLayout selSheet, selTop, townResults; private EditText townField; private TextView selTitle, selKm, selSize, selBtn, selAlt; private View selBar; private FrameLayout selTrack;
+    private Frame frame; private LinearLayout selSheet, selTop, townResults; private EditText townField; private TextView selTitle, selKm, selSize, selBtn; private View selBar; private FrameLayout selTrack;
     private AreaStore.Catalog catalog; private AreaStore.Selection selection; private SearchIndex towns; private boolean overview, suggestedOutside; private float sheetVisible; private String catalogError;
     private final AreaStore.Listener areas = this::onArea;
     private final AppUpdate.Listener updates = this::onAppUpdate; private boolean updateOffered;
@@ -90,7 +90,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     static final int SEARCH_PARKING_METERS = 150;
     private String drawnDest = null, drawnDrop = null;
     private boolean routeCleared; private List<double[]> drawnShape; private List<JSONObject> drawnParking; private Gabi.Palette drawnParkingPalette; private ValueAnimator routeAnim;
-    private boolean follow = true, haveShown; private double shownLat, shownLon; private float shownBearing; private ValueAnimator puckAnim, pulse; private long lastFix = -1;
+    private boolean follow = true; private double shownLat, shownLon; private float shownBearing; private long lastFix = -1;
     private long themeCheckedAt; private boolean centeredOnRegion, coastline; private int shownRegion = -1;
 
     private final BroadcastReceiver changes = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { refresh(); } };
@@ -179,7 +179,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     /** This launch only opened the move screen: nothing was set up, so there is nothing to tear down. */
     private boolean moving, offerUninstallOld;
-    protected void onDestroy() { if (moving) { super.onDestroy(); return; } ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (pulse != null) pulse.cancel(); if (puckAnim != null) puckAnim.cancel(); worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
+    protected void onDestroy() { if (moving) { super.onDestroy(); return; } ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (debugReceiver != null) unregisterReceiver(debugReceiver); style = null; layersReady = false; worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); if (mapView != null) mapView.onLowMemory(); }
     /*
      * The phone hidden in a pocket, or Android short of memory: let the map drop the tiles it keeps in memory. A smaller
@@ -187,7 +187,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
      */
     public void onTrimMemory(int level) {
         super.onTrimMemory(level); if (mapView == null) return;
-        if (level >= TRIM_MEMORY_UI_HIDDEN || level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) mapView.onLowMemory();
+        if (level >= TRIM_MEMORY_RUNNING_LOW) mapView.onLowMemory();
     }
     protected void onSaveInstanceState(Bundle b) { super.onSaveInstanceState(b); mapView.onSaveInstanceState(b); }
 
@@ -470,7 +470,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         selTrack.addView(selBar, new FrameLayout.LayoutParams(-1, -1)); selTrack.setVisibility(View.GONE);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, k.dp(6)); tp.bottomMargin = k.dp(14); c.addView(selTrack, tp);
         selBtn = k.primary("Download", this::downloadSelection); c.addView(selBtn);
-        selAlt = k.text("", 14, 650, MUTED); selAlt.setGravity(Gravity.CENTER); selAlt.setPadding(0, k.dp(14), 0, k.dp(2)); selAlt.setVisibility(View.GONE); c.addView(selAlt);
         return c;
     }
     private void paintTowns(String q) {
@@ -484,7 +483,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     private double[] whereAmI() {
         if (s.fixAt > 0) return new double[]{s.lat, s.lon};
-        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null;
+        if (!Here.allowed(this)) return null;
         android.location.Location last = null;
         try { android.location.LocationManager lm = (android.location.LocationManager)getSystemService(LOCATION_SERVICE);
             for (String pr : lm.getProviders(true)) { android.location.Location l = lm.getLastKnownLocation(pr); if (l != null && (last == null || l.getTime() > last.getTime())) last = l; } } catch (SecurityException ignored) {}
@@ -508,12 +507,12 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder(map.getCameraPosition()).target(h == null ? new LatLng(12.3, 122.6) : new LatLng(h[0], h[1]))
             .zoom(h == null ? 5.2 : 10.4).tilt(0).bearing(0).padding(0, 0, 0, 0).build()), 900);
         if (h != null || at != null) return;
-        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return;
+        if (!Here.allowed(this)) return;
         android.location.LocationManager lm = (android.location.LocationManager)getSystemService(LOCATION_SERVICE);
         String provider = lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) ? android.location.LocationManager.NETWORK_PROVIDER : android.location.LocationManager.GPS_PROVIDER;
         android.os.CancellationSignal stop = new android.os.CancellationSignal(); ui.postDelayed(stop::cancel, 15000);
         try { androidx.core.location.LocationManagerCompat.getCurrentLocation(lm, provider, stop, getMainExecutor(), loc -> {
-            if (loc != null && mode == Mode.SELECT && map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(loc.getLatitude(), loc.getLongitude()), 10.4), 1000); }); }
+            if (loc != null && !isDestroyed() && mode == Mode.SELECT && map != null) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(loc.getLatitude(), loc.getLongitude()), 10.4), 1000); }); }
         catch (SecurityException ignored) {}
     }
     private void closeSelect() {
@@ -524,7 +523,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private final Runnable reselect = () -> {
         if (mode != Mode.SELECT || map == null) return;
         AreaStore.State st = AreaStore.state(); if (st != null && st.running) { onArea(st); return; }
-        selTrack.setVisibility(View.GONE); selAlt.setVisibility(View.GONE);
+        selTrack.setVisibility(View.GONE);
         selTitle.setText(s.noMap ? "Choose your map area" : "Download this area?");
         android.graphics.RectF r = frame.rect();
         org.maplibre.android.maps.Projection pr = map.getProjection();
@@ -1102,7 +1101,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             if(!s.simulation&&s.startsShort>80)routeStatus.append((routeStatus.length()>0?"\n":"")+"Guidance starts on a reachable road "+Gabi.distance(s.startsShort)+" from your location. Check the way out before starting.");
         } else { routeEta.setText("—"); routeMeta.setText(""); routeStatus.setText(friendly(s.status)); }
         if(mine && s.coverageGap!=null)routeStatus.append((routeStatus.length()>0?"\n":"")+"This route leaves your downloaded detailed maps. Download the connecting areas before riding.");
-        String problem = s.status == null ? "" : s.status;
+        String problem = s.status;
         boolean noMap = problem.contains("Outside the installed") || problem.contains("compatible offline maps") || problem.contains("offline coverage");
         coverageButton.setVisibility(!busy && ((!mine && noMap) || (mine && s.coverageGap!=null)) ? View.VISIBLE : View.GONE);
         routeStatus.setVisibility(routeStatus.length() == 0 ? View.GONE : View.VISIBLE);
@@ -1164,7 +1163,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             Gabi.shake(startBtn); notice(s.fixAt > 0 && s.accuracy > 40 ? "Your location is still rough (±" + Math.round(s.accuracy) + " m). Step outside or wait a moment." : "Waiting for a clear GPS signal. Try again in a moment."); locate(); return;
         }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 72);
-        if (!demo && destName != null) {
+        if (!demo) {
             rememberRide(destLat, destLon, destName);
             // Kept until the ride ends, so a ride Android cut short (the app killed in the background) can be picked up again.
             try { getSharedPreferences("ui", 0).edit().putString("ride", new org.json.JSONObject().put("lat", destLat).put("lon", destLon).put("name", destName).put("stops",TripStop.json(s.remainingStops())).put("at", System.currentTimeMillis()).toString()).apply(); } catch (org.json.JSONException ignored) {}
@@ -1212,7 +1211,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private final Runnable resumeStart = new Runnable() { public void run() {
         if (s.active || mode != Mode.ROUTE || destName == null || demoTrip) return;
         boolean go = s.ready && !s.shape.isEmpty() && !s.routing && s.fixAt > 0 && SystemClock.elapsedRealtime() - s.fixAt < 12000 && s.accuracy <= 40;
-        if (go) { resuming = true; try { start(); } finally { resuming = false; } return; }
+        // Only while Daanvia is on screen: Android refuses to start the ride from the background.
+        if (go && started) { resuming = true; try { start(); } finally { resuming = false; } return; }
         if (++resumeTries < 80) ui.postDelayed(this, 1500); else notice("Your ride is ready. Tap Start ride once GPS is clear.");
     } };
 
@@ -1414,7 +1414,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         exploreStatus.setVisibility(exploreStatus.length() == 0 ? View.GONE : View.VISIBLE);
         if (pendingPlan && s.ready && !s.routing && freshFix()) { pendingPlan = false; if(plannedTrip.isEmpty())s.plan(destLat, destLon, destName, false);else s.planTrip(plannedTrip,destName); }
         if (s.active && mode != Mode.RIDE) go(Mode.RIDE);
-        else if (!s.active && mode == Mode.RIDE) { destName = null; demoTrip = false; go(Mode.EXPLORE); }
+        else if (!s.active && mode == Mode.RIDE) {
+            destName = null; demoTrip = false; go(Mode.EXPLORE);
+            String done = s.finished; if (done != null) { s.finished = null; notice("Arrived at " + done + " · ride ended"); }
+        }
         if (mode == Mode.ROUTE) paintRoute();
         if (mode == Mode.RIDE) paintRide();
         if (bikeMode) paintBikeMode();
@@ -1510,8 +1513,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // with a GeoJSON point updated many times a second was what made the dot and the map stutter.)
     private org.maplibre.android.location.LocationComponent locPuck; private boolean locPuckOn;
     /** Debug builds only: adb shell am broadcast -a net.drave.atrdiagnostics.DEBUG_MAP --es hide id,id --es show id --ez puck false (performance checks). */
+    private BroadcastReceiver debugReceiver;
     private void debugLayers() {
-        androidx.core.content.ContextCompat.registerReceiver(this, new BroadcastReceiver() { public void onReceive(Context c, Intent i) {
+        androidx.core.content.ContextCompat.registerReceiver(this, debugReceiver = new BroadcastReceiver() { public void onReceive(Context c, Intent i) {
             if (style == null) return;
             for (String key : new String[]{"hide", "show"}) { String ids = i.getStringExtra(key); if (ids == null) continue;
                 for (String id : ids.split(",")) { Layer l = style.getLayer(id); if (l != null) l.setProperties(org.maplibre.android.style.layers.PropertyFactory.visibility(key.equals("hide") ? org.maplibre.android.style.layers.Property.NONE : org.maplibre.android.style.layers.Property.VISIBLE)); } }
@@ -1553,31 +1557,27 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         return l;
     }
     private void paintPuck() {
-        GeoJsonSource puck = src(MapStyle.PUCK); if (puck == null) return;
+        if (style == null) return;
         boolean visible = s.fixAt > 0 || s.active;
-        if (!visible) { if (puckOnMap) { puck.setGeoJson(MapStyle.empty()); puckOnMap = false; } stopPulse(); haveShown = false; showLocationPuck(false); return; }
-        if (mode == Mode.RIDE && s.active) { stopPulse(); showLocationPuck(false); startRideFrames(); return; }
-        if (puckOnMap) { puck.setGeoJson(MapStyle.empty()); puckOnMap = false; }
-        stopPulse();
+        if (!visible) { showLocationPuck(false); return; }
+        if (mode == Mode.RIDE && s.active) { showLocationPuck(false); startRideFrames(); return; }
         if (locPuck == null) return;
         boolean was = locPuckOn; showLocationPuck(true);
         if (s.fixAt == lastFix && was) return;
-        lastFix = s.fixAt; shownLat = s.viewLat; shownLon = s.viewLon; shownBearing = s.viewBearing; haveShown = true;
+        lastFix = s.fixAt;
         if (locPuckOn) locPuck.forceLocationUpdate(puckLocation());
     }
     // During a ride the arrow moves every frame along the road at the rider's speed (the same motion as the bike
     // display), so it never trails a second behind the real position.
-    private RideMotion rideMotion; private boolean rideFrames, puckOnMap = true; private long rideFrameAt, routeSplitAt; private ImageView rideArrow;
+    private RideMotion rideMotion; private boolean rideFrames; private long rideFrameAt, routeSplitAt; private ImageView rideArrow;
     private final android.view.Choreographer.FrameCallback rideFrame = new android.view.Choreographer.FrameCallback() {
         public void doFrame(long nanos) {
             if (!rideFrames || isDestroyed()) return;
-            if (mode != Mode.RIDE || !s.active) { rideFrames = false; placeRideArrow(false); puckOnMap = true; lastFix = -1; return; }
-            GeoJsonSource puck = src(MapStyle.PUCK);
+            if (mode != Mode.RIDE || !s.active) { rideFrames = false; placeRideArrow(false); lastFix = -1; return; }
             long now = SystemClock.elapsedRealtime(); float gap = rideFrameAt == 0 ? 16f : Math.min(1000f, now - rideFrameAt); rideFrameAt = now;
             rideMotion.update(now, gap);
-            if (puck != null && rideMotion.lat != 0) {
-                shownLat = rideMotion.lat; shownLon = rideMotion.lon; shownBearing = rideMotion.bearing; haveShown = true;
-                if (puckOnMap) { puck.setGeoJson(MapStyle.empty()); puckOnMap = false; }
+            if (style != null && rideMotion.lat != 0) {
+                shownLat = rideMotion.lat; shownLon = rideMotion.lon; shownBearing = rideMotion.bearing;
                 if (follow) follow();
                 placeRideArrow(true);
                 if (now - nearAt > 1000) { nearAt = now; updateNearRoads(); }
@@ -1642,7 +1642,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     private void enterBikeMode() {
         if (bikeMode || mode != Mode.RIDE || !s.active) return;
-        bikeMode = true; ui.removeCallbacks(autoBikeMode); rideFrames = false; stopPulse(); if (puckAnim != null) puckAnim.cancel(); placeRideArrow(false);
+        bikeMode = true; ui.removeCallbacks(autoBikeMode); rideFrames = false; placeRideArrow(false);
         paintBikeMode();
         bikeView.setAlpha(0f); bikeView.setVisibility(View.VISIBLE); bikeView.animate().alpha(1f).setDuration(400).withEndAction(() -> { if (bikeMode) mapView.setVisibility(View.INVISIBLE); }).start();
         WindowManager.LayoutParams lp = getWindow().getAttributes(); savedBrightness = lp.screenBrightness; lp.screenBrightness = 0.05f; getWindow().setAttributes(lp);
@@ -1691,15 +1691,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             .zoom(s.remaining < 600 ? 17.4 : 16.8).padding(landscape ? panelW : 0, landscape ? h * 0.3 : h * 0.42, 0, 0).build();
         map.moveCamera(CameraUpdateFactory.newCameraPosition(pos));
     }
-    /** A still halo under the dot instead of an endless pulse, which kept the whole map redrawing every frame. */
-    private void startPulse() {
-        if (pulse != null && pulse.isRunning()) return;
-        Layer l = style.getLayer("puck-pulse"); if (l == null) return;
-        pulse = ValueAnimator.ofFloat(0, 1); pulse.setDuration(2200); pulse.setRepeatCount(ValueAnimator.INFINITE); pulse.setInterpolator(Gabi.EASE_OUT);
-        pulse.addUpdateListener(a -> { float v = (float)a.getAnimatedValue(); l.setProperties(circleRadius(9 + 18 * v), circleOpacity(0.4f * (1 - v))); });
-        pulse.start();
-    }
-    private void stopPulse() { if (pulse != null) { pulse.cancel(); pulse = null; Layer l = style == null ? null : style.getLayer("puck-pulse"); if (l != null) l.setProperties(circleOpacity(0f)); } }
 
     // ================================================================ GPS & screens
     private void locate() {

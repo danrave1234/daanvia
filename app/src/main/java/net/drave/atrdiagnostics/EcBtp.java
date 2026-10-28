@@ -97,7 +97,7 @@ final class EcBtp {
                 if (b.length < size) {
                     // Maybe that 0x24 was a stray byte: a complete message further on wins.
                     for (int k = 1; k < b.length; k++) if (b[k] == START && completeAt(b, k)) { drop(b, k); break; }
-                    if (buf.size() == b.length) { if (b.length > 512) buf.reset(); return null; }
+                    if (buf.size() == b.length) return null;
                     continue;
                 }
                 byte[] one = new byte[size]; System.arraycopy(b, 0, one, 0, size);

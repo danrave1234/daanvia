@@ -30,7 +30,7 @@ final class MapStyle {
     /** The streets on screen, swapped in square by square (see RoadTiles). */
     static final String ROADS_NEAR = "roads-near";
     static final String ALTERNATIVES = "route-alternatives";
-    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking", PUCK = "puck";
+    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking";
 
     static String base(Gabi.Palette p) {
         return "{\"version\":8,\"glyphs\":\"" + GLYPHS + "\",\"sources\":{},\"layers\":[{\"id\":\"background\",\"type\":\"background\",\"paint\":{\"background-color\":\"" + hex(p.bg) + "\"}}]}";
@@ -121,17 +121,7 @@ final class MapStyle {
         st.addSource(new GeoJsonSource(CELLS));
         st.addLayer(new FillLayer("cells-fill", CELLS).withProperties(fillOpacity(0.16f)));
         st.addLayer(new LineLayer("cells-line", CELLS).withProperties(lineWidth(1.4f), lineOpacity(0.7f), lineDasharray(new Float[]{2f, 2f})));
-        st.addSource(new GeoJsonSource(PUCK));
-        // How sure the location is: a circle in metres (r0 is its radius in pixels at zoom 0), hidden once the fix is sharp.
-        st.addLayer(new CircleLayer("puck-accuracy", PUCK).withProperties(circleRadius(interpolate(exponential(2f), zoom(), stop(0, product(get("r0"), literal(1f))), stop(22, product(get("r0"), literal(4194304f))))),
-            circleOpacity(0.12f), circleStrokeWidth(1f), circleStrokeOpacity(0.45f), circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP)));
-        st.addLayer(new CircleLayer("puck-pulse", PUCK).withProperties(circleRadius(8f), circleOpacity(0f), circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP)));
-        st.addLayer(new SymbolLayer("puck", PUCK).withProperties(iconImage(get("icon")), iconRotate(get("bearing")), iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP), iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
-            iconAllowOverlap(true), iconIgnorePlacement(false)));
-
-        st.addImage("puck-arrow", puck(c, true)); st.addImage("puck-dot", puck(c, false)); st.addImage("puck-ride", ridePuck(c)); st.addImage("puck-heading", headingPuck(c)); st.addImage("puck-beam", beam(c)); st.addImage("puck-none", Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
         st.addImage("dest", dest(c)); st.addImage("drop", drop(c));
-        st.addImage("poi-dot", poiDot(c), true);
         st.addImage("poi-other", poiBadge(c, 0, 0xFF8A949E));
         for (Object[] t : POI_TYPES) st.addImage("poi-" + t[0], poiBadge(c, (int)t[1], (int)t[2]));
     }
@@ -154,8 +144,6 @@ final class MapStyle {
         if (src == null) return;
         if (uri == null) src.setGeoJson(empty()); else try { src.setUri(new java.net.URI(uri)); } catch (java.net.URISyntaxException e) { src.setGeoJson(empty()); }
     }
-    /** Pixels at zoom 0 for a circle of {@code meters} at this latitude (512 px world, like MapLibre). */
-    static double accuracyAtZoom0(double meters, double lat) { return meters / (78271.517 * Math.cos(Math.toRadians(lat))); }
 
     private static void addRoad(Style st, String id, String[] kinds, Expression fill, Expression casing, float caseMinZoom) { addRoad(st, id, kinds, fill, casing, caseMinZoom, ROADS); }
     private static void addRoad(Style st, String id, String[] kinds, Expression fill, Expression casing, float caseMinZoom, String source) {
@@ -193,8 +181,6 @@ final class MapStyle {
         line(st, "route-line", n ? 0xFFFFB020 : 0xFFFFAA0F, 1f);
         routeLine = n ? 0xFFFFB020 : 0xFFFFAA0F; routeCase = n ? 0xFF3B2804 : 0xFF8A5600; routeGlow = p.accent; routeDone = n ? 0x995E6B78 : 0x99A9B1B9;
         routeProgress(st, progressFrom, progressTo);
-        Layer pulse = st.getLayer("puck-pulse"); if (pulse != null) pulse.setProperties(circleColor(p.accent));
-        Layer acc = st.getLayer("puck-accuracy"); if (acc != null) acc.setProperties(circleColor(p.accent), circleStrokeColor(p.accent));
         // Online detail, toned to sit under the Gabi roads and route.
         Layer ow = st.getLayer("online-water"); if (ow != null) ow.setProperties(fillColor(sea), fillOutlineColor(sea));
         Layer park = st.getLayer("online-park"); if (park != null) park.setProperties(fillColor(n ? 0xFF13261D : 0xFFD3E8C8));
@@ -315,54 +301,15 @@ final class MapStyle {
     private static Paint paint() { Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); p.setStyle(Paint.Style.FILL); return p; }
     private static float d(Context c) { return c.getResources().getDisplayMetrics().density; }
 
-    /** The rider on the map, Google Maps sized: an orange dot in a thin white ring (22 dp), or the same with a heading arrow. */
-    static Bitmap puck(Context c, boolean arrow) {
-        float s = d(c); int size = Math.round(30 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
-        float cx = size / 2f;
-        p.setShadowLayer(3 * s, 0, 1 * s, 0x55000000); p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 11 * s, p); p.clearShadowLayer();
-        p.setColor(0xFFFFB020); cv.drawCircle(cx, cx, 8.5f * s, p);
-        if (arrow) {
-            Path a = new Path(); a.moveTo(cx, cx - 5.5f * s); a.lineTo(cx + 4.2f * s, cx + 4.5f * s); a.lineTo(cx, cx + 2.2f * s); a.lineTo(cx - 4.2f * s, cx + 4.5f * s); a.close();
-            p.setColor(0xFF1A1203); cv.drawPath(a, p);
-        }
-        return b;
-    }
-    /** The dot with a beam showing which way the phone faces (from its compass), like Google Maps' blue dot. Drawn pointing up; the map turns it. */
-    static Bitmap headingPuck(Context c) {
-        float s = d(c); int size = Math.round(84 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
-        float cx = size / 2f, r = 40 * s;
-        p.setShader(new android.graphics.RadialGradient(cx, cx, r, new int[]{0xAAFFB020, 0x55FFB020, 0x00FFB020}, new float[]{0.2f, 0.6f, 1f}, android.graphics.Shader.TileMode.CLAMP));
-        Path beam = new Path(); beam.moveTo(cx, cx); beam.arcTo(new android.graphics.RectF(cx - r, cx - r, cx + r, cx + r), -90 - 32, 64); beam.close(); cv.drawPath(beam, p); p.setShader(null);
-        p.setShadowLayer(3 * s, 0, 1 * s, 0x55000000); p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 11 * s, p); p.clearShadowLayer();
-        p.setColor(0xFFFFB020); cv.drawCircle(cx, cx, 8.5f * s, p);
-        return b;
-    }
-    /** The compass beam alone, pointing up; MapLibre's location puck turns it and draws the dot on top. */
-    static Bitmap beam(Context c) {
-        float s = d(c); int size = Math.round(84 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
-        float cx = size / 2f, r = 40 * s;
-        p.setShader(new android.graphics.RadialGradient(cx, cx, r, new int[]{0xAAFFB020, 0x55FFB020, 0x00FFB020}, new float[]{0.2f, 0.6f, 1f}, android.graphics.Shader.TileMode.CLAMP));
-        Path beam = new Path(); beam.moveTo(cx, cx); beam.arcTo(new android.graphics.RectF(cx - r, cx - r, cx + r, cx + r), -90 - 32, 64); beam.close(); cv.drawPath(beam, p);
-        return b;
-    }
     /** The navigation arrow during a ride: larger, so it reads at a glance on a handlebar mount. */
-    static Bitmap ridePuck(Context c) { return ridePuck(c, true); }
-    private static Bitmap ridePuck(Context c, boolean arrow) {
+    static Bitmap ridePuck(Context c) {
         float s = d(c); int size = Math.round(52 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
         float cx = size / 2f;
         p.setColor(0x40FFB020); cv.drawCircle(cx, cx, 25 * s, p);
         p.setShadowLayer(4 * s, 0, 1.5f * s, 0x66000000); p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cx, 13 * s, p); p.clearShadowLayer();
-        p.setColor(0xFFFFB020);
-        if (arrow) {
-            Path a = new Path(); a.moveTo(cx, cx - 8.5f * s); a.lineTo(cx + 6.5f * s, cx + 7 * s); a.lineTo(cx, cx + 3.5f * s); a.lineTo(cx - 6.5f * s, cx + 7 * s); a.close();
-            p.setColor(0xFF1A1203); cv.drawPath(a, p);
-        } else cv.drawCircle(cx, cx, 7.5f * s, p);
+        Path a = new Path(); a.moveTo(cx, cx - 8.5f * s); a.lineTo(cx + 6.5f * s, cx + 7 * s); a.lineTo(cx, cx + 3.5f * s); a.lineTo(cx - 6.5f * s, cx + 7 * s); a.close();
+        p.setColor(0xFF1A1203); cv.drawPath(a, p);
         return b;
-    }
-    /** A plain disc, added as an SDF image so each place type can tint it and give it a halo. */
-    static Bitmap poiDot(Context c) {
-        float s = d(c); int size = Math.round(12 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
-        p.setColor(0xFFFFFFFF); cv.drawCircle(size / 2f, size / 2f, 4.5f * s, p); return b;
     }
     static Bitmap dest(Context c) {
         float s = d(c); int size = Math.round(40 * s); Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint(); float cx = size / 2f;

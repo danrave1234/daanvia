@@ -48,7 +48,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         FrameLayout track = new FrameLayout(this); k.fill(track, 2, CHIP); progress = new View(this); k.fill(progress, 2, ACCENT); track.addView(progress, new FrameLayout.LayoutParams(k.dp(80), -1));
         bike.addView(track, new LinearLayout.LayoutParams(-1, k.dp(3)));
         progressAnim = ValueAnimator.ofFloat(-0.3f, 1.1f); progressAnim.setDuration(1200); progressAnim.setRepeatCount(ValueAnimator.INFINITE); progressAnim.setInterpolator(Gabi.EASE_IN_OUT);
-        progressAnim.addUpdateListener(a -> progress.setTranslationX((float)a.getAnimatedValue() * track.getWidth())); progressAnim.start();
+        progressAnim.addUpdateListener(a -> progress.setTranslationX((float)a.getAnimatedValue() * track.getWidth()));
         primary = k.primary("", this::onPrimary); bike.addView(primary);
         scanRow = k.row(8);
         scanRow.addView(k.ghost("Scan QR", this::scanCamera), new LinearLayout.LayoutParams(0, -2, 1));
@@ -195,6 +195,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         statusText.setText(live ? "Daanvia is on the dashboard" : link.status());
         liveChip.setVisibility(live ? View.VISIBLE : View.GONE);
         ((View)progress.getParent()).setVisibility(busy ? View.VISIBLE : View.GONE);
+        // The searching bar moves only while it shows; running all the time it redrew Settings every frame.
+        if (busy) { if (!progressAnim.isStarted()) progressAnim.start(); } else progressAnim.cancel();
         primary.setText(busy ? "Stop searching" : live ? "Back to the map" : ready ? "Send Daanvia to dashboard" : "Scan dashboard QR");
         scanRow.setVisibility(ready && !busy ? View.VISIBLE : View.GONE);
         adjust.setVisibility(fitting ? View.GONE : View.VISIBLE);
@@ -274,8 +276,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         List<AreaStore.Area> list = AreaStore.installed(this);
         for (AreaStore.Area a : list) {
             boolean update = a.outdated(catalog), confirming = a.id.equals(confirmRemove);
-            Long bytes = sizes.get(a.dir.getPath()); if (bytes == null) { bytes = a.diskBytes(); sizes.put(a.dir.getPath(), bytes); }
-            String sub = a.kmLabel() + " · " + Math.max(1, Math.round(bytes / 1048576.0)) + " MB" + (update ? " · update available" : "");
+            Long bytes = sizes.get(a.dir.getPath()); if (bytes == null) measureSizes(list);
+            String sub = a.kmLabel() + (bytes == null ? "" : " · " + Math.max(1, Math.round(bytes / 1048576.0)) + " MB") + (update ? " · update available" : "");
             LinearLayout r = k.listRow(IconDrawable.MAP, a.name, sub, null, null);
             if (update) { TextView u = k.text("Update", 13.5f, 700, ACCENT); u.setPadding(k.dp(12), k.dp(8), k.dp(6), k.dp(8)); Gabi.press(u, () -> updateArea(a)); r.addView(u); }
             TextView del = k.text(confirming ? "Remove?" : "Remove", 13.5f, 700, confirming ? DANGER : MUTED); del.setPadding(k.dp(12), k.dp(8), 0, k.dp(8));
@@ -288,6 +290,15 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         }
         if (st == null || !st.running) paintStorage();
         if (list.isEmpty() && (st == null || !st.running)) mapList.addView(k.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
+    }
+    /** An area's size means walking thousands of tile files: done off the main thread, then the list is painted again. */
+    private boolean measuring;
+    private void measureSizes(List<AreaStore.Area> areas) {
+        if (measuring) return; measuring = true;
+        new Thread(() -> {
+            java.util.HashMap<String, Long> found = new java.util.HashMap<>(); for (AreaStore.Area a : areas) found.put(a.dir.getPath(), a.diskBytes());
+            runOnUiThread(() -> { measuring = false; if (isDestroyed()) return; sizes.putAll(found); paintMaps(); });
+        }, "area-sizes").start();
     }
     private void paintStorage() {
         new Thread(() -> { long[] u = Housekeeping.usage(this); runOnUiThread(() -> storageText.setText("Daanvia uses " + mb(u[0] + u[1] + u[2]) + " on this phone: " + mb(u[0]) + " of downloaded maps"

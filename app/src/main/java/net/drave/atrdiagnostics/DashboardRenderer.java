@@ -269,8 +269,8 @@ public final class DashboardRenderer {
         long now = android.os.SystemClock.uptimeMillis();
         // On a ride the scene counts as still only after 15 s stopped, so creeping through traffic, or GPS speed
         // wobbling around walking pace, never lowers the frame rate.
-        if (s.active && (s.simulation || motion.speed > 0.4)) movedAt = now;
-        return now - movedAt > (s.active ? 15000 : 3000) && Math.abs(targetMpp() - mpp) < 0.02 * mpp && Math.abs(targetTilt() - tilt) < 0.3f;
+        if (s.simulation || motion.speed > 0.4) movedAt = now;
+        return now - movedAt > (riding() ? 15000 : 3000) && Math.abs(targetMpp() - mpp) < 0.02 * mpp && Math.abs(targetTilt() - tilt) < 0.3f;
     }
     private long movedAt = android.os.SystemClock.uptimeMillis();
     private double prevLat, prevLon, prevMpp; private float prevTilt, prevBearing;
@@ -279,13 +279,26 @@ public final class DashboardRenderer {
     public float pixelsPerSecond() { return pixelsPerSecond; }
     /** Metres per pixel: close like Google Maps, a little wider at speed, closer for a turn and when arriving. */
     private double targetMpp() {
-        if (!s.active) return 3.0;
+        if (!riding()) return 3.0;
         double z = Math.max(1.0, Math.min(2.4, 1.0 + motion.speed * 0.07));
-        if (s.distanceToTurn > 0 && s.distanceToTurn < 200) z *= 0.8;
-        if (s.remaining < 400) z = Math.min(z, 0.85);
+        if (s.active && s.distanceToTurn > 0 && s.distanceToTurn < 200) z *= 0.8;
+        if (s.active && s.remaining < 400) z = Math.min(z, 0.85);
         return z;
     }
-    private float targetTilt() { return !s.active ? 0 : s.remaining < 400 ? 58 : 48; }
+    private float targetTilt() { return !riding() ? 0 : s.active && s.remaining < 400 ? 58 : 48; }
+    /**
+     * The ride view (heading-up, tilted, zoom by speed): on a ride, and also riding around without one while the bike
+     * display is on. Without a ride it holds for 20 s after slowing below about 7 km/h, so a red light doesn't flip the
+     * map back to the flat, north-up view.
+     */
+    private boolean riding() {
+        if (s.active) return true;
+        if (s.layoutEditing || s.fixAt == 0) return false;
+        long now = SystemClock.elapsedRealtime();
+        if (motion.speed > 2) cruisingUntil = now + 20000;
+        return now < cruisingUntil;
+    }
+    private long cruisingUntil;
     private void project(double lat, double lon, float[] out) {
         float x = (float)((lon - clon) * coslat * 111195 / mpp), y = (float)(-(lat - clat) * 111195 / mpp);
         out[0] = cx + x * cos - y * sin; out[1] = cy + x * sin + y * cos;
@@ -346,7 +359,7 @@ public final class DashboardRenderer {
 
     private void drawMap(Canvas c, float w, float h, RectF turnBox, RectF tripBox) {
         p.setStyle(Paint.Style.FILL); p.setColor(land()); c.drawRect(0, 0, w, h, p);
-        boolean heading = s.active;
+        boolean heading = riding();
         List<double[]> route = s.shape;
         long now = SystemClock.elapsedRealtime(); float gap = lastFrame == 0 ? 1000f : Math.min(1000f, now - lastFrame), ease = Math.min(1f, gap / 700f); lastFrame = now;
         motion.update(now, gap);

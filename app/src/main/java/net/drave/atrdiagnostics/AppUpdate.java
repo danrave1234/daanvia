@@ -183,6 +183,7 @@ public final class AppUpdate {
                 Intent confirm = Build.VERSION.SDK_INT >= 33 ? i.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class) : legacy(i);
                 if (confirm != null) c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else if (status != PackageInstaller.STATUS_SUCCESS) {
+                if (i.getBooleanExtra("old", false)) return;  // the old app's handover install (MoveActivity), not Daanvia's own update
                 committedAt = 0; State s = state;
                 post(new State(s == null ? null : s.release, 0, false, false, false, false, status == PackageInstaller.STATUS_FAILURE_ABORTED ? "Update cancelled" : "The update couldn’t be installed"));
             }

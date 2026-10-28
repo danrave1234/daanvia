@@ -104,9 +104,6 @@ public final class Gabi {
     public static GradientDrawable round(int color, float radius, int stroke, int strokeWidth) {
         GradientDrawable d = round(color, radius); if (strokeWidth > 0) d.setStroke(strokeWidth, stroke); return d;
     }
-    public static GradientDrawable rounded(int color, float tl, float tr, float br, float bl) {
-        GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadii(new float[]{tl, tl, tr, tr, br, br, bl, bl}); return d;
-    }
 
     // ---------------------------------------------------------------- view kit
     public static final class Kit {
@@ -167,7 +164,6 @@ public final class Gabi {
             t.add(p -> v.setBackground(round(bg.color(p), dp(99))));
             return v;
         }
-        public View dot(Role role) { View v = new View(c); t.add(p -> v.setBackground(round(role.color(p), dp(4)))); v.setLayoutParams(new LinearLayout.LayoutParams(dp(8), dp(8))); return v; }
         public View grab() {
             View g = new View(c); fill(g, 2, Role.GRAB);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(38), dp(4)); lp.gravity = Gravity.CENTER_HORIZONTAL; lp.bottomMargin = dp(12); g.setLayoutParams(lp); return g;
