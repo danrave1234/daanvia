@@ -98,6 +98,15 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         boolean simple = getSharedPreferences("ui", 0).getBoolean("directionsonly", false);
         tft.addView(k.segmented(new String[]{"Map and directions", "Directions only"}, simple ? 1 : 0, i -> { getSharedPreferences("ui", 0).edit().putBoolean("directionsonly", i == 1).apply(); s.signal(); }));
         tft.addView(k.text("Directions only shows the next turn and your trip on a plain screen, without the moving map. The phone does about a third of the work, so it runs cooler and the battery lasts longer on long rides.", 12.5f, 500, MUTED));
+        tft.addView(k.text("Calls and messages on the bike", 15, 650, INK));
+        tft.addView(k.segmented(new String[]{"On", "Off"}, RideNotifications.enabled(this) && RideNotifications.allowed(this) ? 0 : 1, i -> {
+            RideNotifications.setEnabled(this, i == 0);
+            if (i == 0 && !RideNotifications.allowed(this)) {
+                android.widget.Toast.makeText(this, "Turn on Daanvia here, then come back", android.widget.Toast.LENGTH_LONG).show();
+                try { startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
+            }
+        }));
+        tft.addView(k.text("An incoming call or a new message (texts, Messenger, WhatsApp, Viber, Telegram and other chat apps) shows on the bike display for a few seconds: who it's from and the start of the message. Needs Android's Notification access. Nothing is saved or sent anywhere.", 12.5f, 500, MUTED));
         TextView layoutBtn = k.primary("Edit display layout", () -> { if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then edit the layout while parked.", android.widget.Toast.LENGTH_SHORT).show(); return; } startActivity(new Intent(this, TftLayoutActivity.class)); });
         tft.addView(layoutBtn);
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
@@ -141,6 +150,9 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         test.addView(k.listRow(IconDrawable.PLAY, "Demo ride", "Simulates a sample route on the phone and the bike display, to check the setup while parked", null,
             () -> { startActivity(new Intent(this, HomeActivity.class).putExtra("demo", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }));
         test.addView(k.listRow(IconDrawable.TOOLS, "Support and test tools", "Connection test, test pattern, mirror test, logs", null, () -> startActivity(new Intent(this, SupportActivity.class))));
+        test.addView(k.text("Send diagnostics to the developer", 14, 650, INK));
+        test.addView(k.segmented(new String[]{"On", "Off"}, LogUpload.enabled(this) ? 0 : 1, i -> LogUpload.setEnabled(this, i == 0)));
+        test.addView(k.text("During the beta, Daanvia sends its connection and ride log every few minutes, so problems like a bike display that drops can be fixed. It never includes where you are or where you’re going, passwords or device addresses: only the log lines, the app version, the phone model and a random id.", 12.5f, 500, MUTED));
         c.addView(test);
 
         // ---- about

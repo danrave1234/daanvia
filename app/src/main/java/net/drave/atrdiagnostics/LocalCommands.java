@@ -2,7 +2,7 @@ package net.drave.atrdiagnostics;
 
 /** A small, predictable beta command vocabulary; no network interpretation or generated navigation data. */
 final class LocalCommands {
-    enum Action { REPEAT, ETA, DISTANCE, MUTE, CONFIRM_MUTE, UNMUTE, STOP, CONFIRM_STOP, CANCEL, TRAFFIC, UNKNOWN }
+    enum Action { REPEAT, ETA, DISTANCE, MUTE, CONFIRM_MUTE, UNMUTE, STOP, CONFIRM_STOP, CANCEL, TRAFFIC, BLOCKED, UNKNOWN }
     static Action match(String transcript){
         String text=SearchIndex.fold(transcript==null?"":transcript);
         text=text.replaceFirst("^(hey )?daanvia ","").replaceFirst("^(please |can you )","").replaceFirst(" please$","");
@@ -16,6 +16,7 @@ final class LocalCommands {
         if(text.matches("confirm (stop|end|end ride)"))return Action.CONFIRM_STOP;
         if(text.matches("confirm (mute|quiet)"))return Action.CONFIRM_MUTE;
         if(text.matches("(cancel|keep navigating|continue navigation|continue ride)"))return Action.CANCEL;
+        if(text.matches("((the )?road (is )?(blocked|closed)|blocked|road closed|road block|roadblock|block (this|the) road)"))return Action.BLOCKED;
         if(text.matches(".*\\btraffic\\b.*"))return Action.TRAFFIC;
         return Action.UNKNOWN;
     }

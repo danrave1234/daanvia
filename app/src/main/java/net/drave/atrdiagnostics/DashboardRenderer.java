@@ -97,7 +97,30 @@ public final class DashboardRenderer {
         if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
         else idle(target, turn);
         if (s.layoutEditing) outlines(target, turn, trip, s.arrowX * vw, s.arrowY * vh);
+        popup(target, vw, vh);
         target.restore();
+    }
+    /**
+     * An incoming call or a new message (RideNotifications): a card across the top, over everything, for a few seconds.
+     * Who it's from in large type, a call or the app's name above it, and up to two lines of the message.
+     */
+    private void popup(Canvas c, float vw, float vh) {
+        if (s.calibration || SystemClock.elapsedRealtime() > s.popupUntil) return;
+        float w = Math.min(vw * 0.88f, 640), pad = 18, tile = 56, x = (vw - w) / 2, y = vh * 0.04f, textX = x + pad + tile + 16, textW = w - pad * 2 - tile - 16;
+        String head = s.popupCall ? "INCOMING CALL" : (s.popupApp.isEmpty() ? "MESSAGE" : s.popupApp.toUpperCase(Locale.US));
+        String from = s.popupTitle.isEmpty() ? (s.popupCall ? "Unknown caller" : s.popupApp) : s.popupTitle;
+        List<String> lines = s.popupCall || s.popupText.isEmpty() ? Collections.emptyList() : wrap(s.popupText, textW, 24, semi, 2);
+        RectF r = new RectF(x, y, x + w, y + pad * 2 + 20 + 36 + lines.size() * 31);
+        p.setStyle(Paint.Style.FILL); p.setColor(0x55000000); c.drawRoundRect(r.left, r.top + 4, r.right, r.bottom + 4, 18, 18, p);
+        cardBackground(c, r);
+        RectF t = new RectF(x + pad, y + pad, x + pad + tile, y + pad + tile);
+        p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(t, tile * 0.3f, tile * 0.3f, p);
+        String initial = from.isEmpty() ? "?" : from.substring(0, from.offsetByCodePoints(0, 1)).toUpperCase(Locale.ROOT);
+        p.setTypeface(black); p.setTextSize(28); float iw = p.measureText(initial);
+        text(c, initial, t.centerX() - iw / 2, t.centerY() + 10, 28, 0xFF1A1203, black);
+        text(c, head, textX, y + pad + 16, 15, s.popupCall ? pal.accent : muted(), black);
+        text(c, fit(from, textW, 30, bold), textX, y + pad + 20 + 32, 30, ink(), bold);
+        for (int i = 0; i < lines.size(); i++) text(c, lines.get(i), textX, y + pad + 20 + 36 + 26 + i * 31, 24, soft(), semi);
     }
     // ---- Cards recorded once and replayed ----
     // The turn and trip cards change far less often than the map moves: the distance to the turn about once a second,
@@ -147,9 +170,9 @@ public final class DashboardRenderer {
         boolean stale = !sample && !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
         int type = sample ? 10 : arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
         String dist = sample ? "200 m" : stale ? "GPS weak" : arriving ? "Arriving" : distance(s.distanceToTurn);
-        String street = sample ? "Sample Street" : arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : streetOf(m, s.instruction);
+        String street = sample ? "Sample Street" : arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : Maneuvers.label(m, streetOf(m, s.instruction));
         JSONObject next = sample || arriving ? null : s.maneuvers.optJSONObject(s.maneuver + 1);
-        String then = sample ? "Turn left" : next == null ? null : (next.optInt("type") >= 4 && next.optInt("type") <= 6 ? "Arrive" : streetOf(next, next.optString("instruction", "")));
+        String then = sample ? "Turn left" : next == null ? null : (next.optInt("type") >= 4 && next.optInt("type") <= 6 ? "Arrive" : Maneuvers.label(next, streetOf(next, next.optString("instruction", ""))));
         int thenIcon = sample ? 15 : next == null ? 8 : next.optInt("type", 8);
         boolean wide = r.width() > r.height() * 1.55f;
         float k = unit(r, wide ? 420 : 280, wide ? 150 : 270), pad = 16 * k;

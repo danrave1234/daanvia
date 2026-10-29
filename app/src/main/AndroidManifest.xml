@@ -47,6 +47,10 @@
         <activity android:name=".SupportActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <service android:name=".NavService" android:exported="false" android:foregroundServiceType="location|connectedDevice" />
         <activity android:name=".ScanActivity" android:exported="false" android:configChanges="orientation|screenSize" />
+        <service android:name=".RideNotifications" android:exported="true" android:label="Calls and messages on the bike display"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
         <service android:name=".StreamService" android:exported="false" android:foregroundServiceType="connectedDevice|mediaProjection|location" />
         <receiver android:name=".AppUpdate$InstallReceiver" android:exported="false" />
         <activity android:name=".MoveActivity" android:exported="false" android:configChanges="orientation|screenSize" />

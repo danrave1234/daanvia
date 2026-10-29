@@ -14,6 +14,9 @@ final class GabiPage {
         k.t.add(p -> Gabi.barIcons(w, p));
         root = new FrameLayout(a); k.t.add(p -> root.setBackgroundColor(p.bg));
         scroll = new ScrollView(a); scroll.setClipToPadding(false); scroll.setVerticalScrollBarEnabled(false);
+        // The page keeps focus itself. Otherwise, when a part of the page is rebuilt (the map list, the update row), Android
+        // hands focus to the first item on the page and scrolls all the way up to it while the rider is reading further down.
+        scroll.setFocusable(true); scroll.setFocusableInTouchMode(true); scroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);
         content = k.column(14); content.setPadding(k.dp(16), 0, k.dp(16), k.dp(24));
         LinearLayout head = k.row(12); head.setPadding(0, k.dp(6), 0, k.dp(6));
         head.addView(k.circle(IconDrawable.BACK, 44, Gabi.Role.CHIP, Gabi.Role.INK, a::finish));

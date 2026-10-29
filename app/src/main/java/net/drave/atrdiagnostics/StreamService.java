@@ -49,7 +49,9 @@ public final class StreamService extends Service {
     /** The display stream has no time limit, so end it (and let the app reconnect) when the bike stops talking to it. */
     private final Runnable watchdog=new Runnable(){public void run(){if(!running)return;long now=System.currentTimeMillis();
         if(frames==0&&now-startedAt>45000){log("The display never asked for video within 45 s.");stopSelf();return;}
-        if(frames>0&&!controlOpen&&now-lastFrameAt>15000){log("The display stopped asking for video.");stopSelf();return;}
+        // The bike can go back to its speedometer and stop asking for video while still holding the control connection open,
+        // so a quiet video link alone ends the session; auto-connect then brings the directions back.
+        if(frames>0&&now-lastFrameAt>12000){log("The bike stopped asking for video ("+(controlOpen?"its control link was still open":"its control link had closed")+"). Reconnecting.");stopSelf();return;}
         // A video send that never finishes (the Wi-Fi link stalled) can leave the control channel looking healthy, so it is
         // caught on its own; ending the session lets auto-connect start a fresh one.
         long w=writingSince;if(w>0&&now-w>15000){log("Sending video to the display has been stuck for 15 s; restarting the connection.");stopSelf();return;}

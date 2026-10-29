@@ -52,6 +52,9 @@ public final class NavSession {
     private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute,savedFixAt=-600000;private int offRoute,requestId;
     /** The rider reached the destination on this route: no more rerouting, and the arrival is announced once. */
     public volatile boolean arrived;
+    /** A call or message shown on the bike display until popupUntil (elapsedRealtime), see RideNotifications. */
+    public volatile String popupApp="",popupTitle="",popupText="",popupKey="";public volatile boolean popupCall;public volatile long popupUntil;
+    void popup(String app,String title,String text,boolean call,String key,long until){popupApp=app;popupTitle=title;popupText=text;popupCall=call;popupKey=key;popupUntil=until;signal();}
     /** Set when a ride ended on its own at the destination (see NavService.checkArrival); the map screen says so once. */
     public volatile String finished;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */
@@ -114,7 +117,7 @@ public final class NavSession {
     });}
     public void signal(){context.sendBroadcast(new Intent(EVENT).setPackage(context.getPackageName()));}
     private final ArrayDeque<String> logs=new ArrayDeque<>();
-    public void message(String text){status=text;String clean=destination.isEmpty()?text:text.replace(destination,"[destination]");clean=clean.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}","[coordinate]");synchronized(logs){if(logs.size()>=150)logs.removeFirst();logs.addLast(new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+clean);}signal();}
+    public void message(String text){status=text;String clean=destination.isEmpty()?text:text.replace(destination,"[destination]");clean=clean.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}","[coordinate]");String line=new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+clean;synchronized(logs){if(logs.size()>=150)logs.removeFirst();logs.addLast(line);}LogUpload.add(context,line.replaceFirst(" ","  Ride: ")+"\n");signal();}
     public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia "+BuildInfo.VERSION).put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("offline_region",regionId).put("installed_regions",regions.size()).put("layout",layout).put("location_and_identifiers","omitted").put("ride_metrics",RideMetrics.forReport(context));synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
     private String asset(String p)throws Exception{return read(context.getAssets().open(p));}
     private static String read(InputStream stream)throws IOException{try(InputStream in=stream){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}}
@@ -279,6 +282,7 @@ public final class NavSession {
             List<RoutePlan> options=RoutePlan.options(response);
             // Gates are counted here, on the worker, for every option: tapping a route choice then needs no work.
             float[] xy=gates(region);int[] counts=new int[options.size()];for(int i=0;i<counts.length;i++)counts[i]=gatesOn(options.get(i).shape,xy);
+            for(RoutePlan option:options)structures(region,option);
             synchronized(this){if(token!=requestId)return;
                 // A stop passed while this was calculating: the route still goes back to it, so calculate again.
                 if(!stops.equals(remainingStops())){again=true;return;}
@@ -287,12 +291,48 @@ public final class NavSession {
         // A failed reroute keeps the old route, so guidance goes on and the next reroute is tried 12 s later.
         }catch(Throwable e){boolean riding;synchronized(this){if(token!=requestId)return;riding=active&&shape.size()>1;if(!riding){shape=Collections.emptyList();routeChoices=Collections.emptyList();}}message(riding?"Couldn't find a new route here · keeping the last one":"No offline route: "+e.getMessage());}finally{synchronized(this){if(token==requestId)routing=false;}if(again)route();signal();}});
     }
+    /**
+     * Marks the turns that go up onto an overpass or down into an underpass ("structure" in the maneuver), from the road
+     * graph's bridge and tunnel flags. On the map an overpass and the road beside it are drawn on top of each other and
+     * often share a name, so "keep left" alone was easy to miss; the turn card and the voice now name it.
+     */
+    private void structures(Region region,RoutePlan plan){
+        if(plan.shape.size()<2||plan.shape.size()>30000)return;
+        try{
+            JSONArray points=new JSONArray();for(double[] p:plan.shape)points.put(new JSONObject().put("lat",p[0]).put("lon",p[1]));
+            JSONObject req=new JSONObject().put("shape",points).put("costing","motor_scooter").put("shape_match","edge_walk")
+                .put("filters",new JSONObject().put("action","include").put("attributes",new JSONArray().put("edge.bridge").put("edge.tunnel").put("edge.begin_shape_index").put("edge.end_shape_index")));
+            JSONArray edges=new JSONObject(engine(region).traceAttributesRaw(req.toString())).optJSONArray("edges");
+            if(edges==null)return;
+            for(int i=0;i<plan.maneuvers.length();i++){JSONObject m=plan.maneuvers.getJSONObject(i);
+                if(!Maneuvers.fork(m.optInt("type")))continue;int at=m.optInt("begin_shape_index",-1);if(at<1||at>=plan.cumulative.length)continue;
+                // Up to the next turn, and at most 300 m on.
+                int limit=i+1<plan.maneuvers.length()?plan.maneuvers.getJSONObject(i+1).optInt("begin_shape_index",at):plan.shape.size()-1;
+                while(limit>at&&plan.cumulative[Math.min(limit,plan.cumulative.length-1)]-plan.cumulative[at]>300)limit--;
+                String kind=structureAt(edges,at,limit);if(kind!=null)m.put("structure",kind);}
+        }catch(Throwable e){android.util.Log.w("Daanvia","Overpass check skipped",e);}
+    }
+    /**
+     * "overpass" or "underpass" when, from the turn at shape point {@code at} up to {@code limit}, the route goes onto a
+     * bridge or into a tunnel it wasn't on before the turn; else null. A ramp up to a flyover usually starts at ground
+     * level, so the stretch after the turn counts, not just its first road.
+     */
+    static String structureAt(JSONArray edges,int at,int limit){
+        if(at<1)return null;JSONObject before=null;
+        for(int i=0;i<edges.length();i++){JSONObject e=edges.optJSONObject(i);if(e!=null&&e.optInt("begin_shape_index",-1)<at&&at<=e.optInt("end_shape_index",-1))before=e;}
+        boolean wasBridge=before!=null&&before.optBoolean("bridge"),wasTunnel=before!=null&&before.optBoolean("tunnel");
+        for(int i=0;i<edges.length();i++){JSONObject e=edges.optJSONObject(i);if(e==null)continue;int b=e.optInt("begin_shape_index",-1);
+            if(b<at||b>limit)continue;
+            if(e.optBoolean("bridge")&&!wasBridge)return "overpass";
+            if(e.optBoolean("tunnel")&&!wasTunnel)return "underpass";}
+        return null;
+    }
     /** A route from the rider through an optional pass-through point and the stops (or to the destination). */
     private JSONObject request(Region region,double a,double b,double[] via,List<TripStop> stops,double c,double d,boolean anyAccess)throws Exception{
         JSONArray locations=new JSONArray().put(new JSONObject().put("lat",a).put("lon",b).put("type","break"));
         if(via!=null)locations.put(new JSONObject().put("lat",via[0]).put("lon",via[1]).put("type","through"));
         if(stops.isEmpty())locations.put(new JSONObject().put("lat",c).put("lon",d).put("type","break"));else for(TripStop stop:stops)locations.put(stop.json());
-        JSONObject response=new JSONObject(engine(region).routeRaw(RouteRequest.through(locations,false,anyAccess).toString()));response.getJSONObject("trip");return response;}
+        return avoiding(region,RouteRequest.through(locations,false,anyAccess),a,b);}
     /** Each stop moved to the nearest public road within 300 m, keeping its name; a stop with none stays where it is. */
     private List<TripStop> toRoads(List<TripStop> stops){List<TripStop> out=new ArrayList<>();
         for(TripStop stop:stops){List<double[]> near=nearestRoads(stop.lat,stop.lon,1,300);out.add(near.isEmpty()?stop:new TripStop(stop.name,near.get(0)[0],near.get(0)[1]));}return out;}
@@ -323,8 +363,33 @@ public final class NavSession {
         return far>150?pick:null;
     }
     private JSONObject routeBetween(Region region,double a,double b,double c,double d)throws Exception{
-        JSONObject req=RouteRequest.between(a,b,c,d,!active);
+        return avoiding(region,RouteRequest.between(a,b,c,d,!active),a,b);}
+    /**
+     * Runs a route request keeping away from roads the rider marked blocked (RoadBlocks). If that can't work (a block
+     * right at the start or the destination), the same request runs without them.
+     */
+    private JSONObject avoiding(Region region,JSONObject req,double a,double b)throws Exception{
+        JSONArray blocks=RoadBlocks.near(context,a,b,80);
+        if(blocks.length()>0)try{JSONObject response=new JSONObject(engine(region).routeRaw(new JSONObject(req.toString()).put("exclude_locations",blocks).toString()));response.getJSONObject("trip");return response;}
+        catch(Throwable withBlocks){android.util.Log.w("Daanvia","Route around blocked roads failed",withBlocks);}
         JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));response.getJSONObject("trip");return response;}
+    /**
+     * The rider says the road ahead is blocked: the route's next stretch (about 25 m on, past the junction they're at) is
+     * remembered as blocked, and a new route is found from where they are, which may mean turning back.
+     */
+    public void blockAhead(){
+        double la,lo;
+        synchronized(this){
+            if(!active||shape.size()<2){la=lat;lo=lon;}
+            else{int i=Math.min(progress,shape.size()-1);double[] cum=cumulative;
+                if(cum.length==shape.size()){double want=cum[i]+25;while(i<shape.size()-1&&cum[i]<want)i++;}
+                la=shape.get(i)[0];lo=shape.get(i)[1];}
+            lastReroute=SystemClock.elapsedRealtime();offRoute=0;
+        }
+        RoadBlocks.add(context,la,lo);
+        message("Road marked as blocked · finding another way");
+        route();
+    }
     /** Preview changes update the exact geometry and maneuvers used by phone, voice and TFT. */
     public synchronized void selectRoute(int index){
         if(active||routing||index<0||index>=routeChoices.size()||index==selectedRoute)return;

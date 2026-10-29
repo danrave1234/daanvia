@@ -127,9 +127,16 @@ public final class NavService extends Service {
         org.json.JSONObject maneuver=s.maneuvers.optJSONObject(s.maneuver);
         String instruction=maneuver==null?s.instruction:maneuver.optString("verbal_pre_transition_instruction",s.instruction);
         String text=stage==GuidancePrompts.ARRIVAL?"You are near your destination.":stage==GuidancePrompts.TURN?instruction:"In "+GuidancePrompts.distance(s.distanceToTurn)+", "+instruction;
+        // An overpass and the road beside it look the same on the map and often share a name: say which one.
+        String structure=maneuver==null?"":maneuver.optString("structure","");
+        if(stage!=GuidancePrompts.ARRIVAL&&!structure.isEmpty())text+=" Take the "+structure+".";
         if(voice.speak(text))prompts.spoken(stage,now);
     }
     private void startSimulation(){if(simulator!=null)handler.removeCallbacks(simulator);demoIndex=0;simulator=new Runnable(){public void run(){if(!s.active||!s.simulation)return;if(!s.shape.isEmpty()){double[] p=s.shape.get(Math.min(demoIndex,s.shape.size()-1));double[] next=s.shape.get(Math.min(demoIndex+1,s.shape.size()-1));s.speedMetersPerSecond=8;s.update(p[0],p[1],3,GeoMath.bearing(p,next),true);speak();demoIndex=Math.min(demoIndex+1,s.shape.size()-1);}handler.postDelayed(this,900);}};handler.post(simulator);}
     @android.annotation.SuppressLint("MissingPermission")
-    public void onDestroy(){handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+    public void onDestroy(){
+        // The ride's battery, heat and display numbers go with the log, sent now that the ride is over.
+        if(metrics!=null&&s!=null&&!s.simulation)LogUpload.add(this,new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  Ride diagnostics: "+RideMetrics.forReport(this)+"\n");
+        LogUpload.now(this);
+        handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }

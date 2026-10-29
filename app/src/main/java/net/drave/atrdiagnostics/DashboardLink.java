@@ -160,6 +160,7 @@ public final class DashboardLink {
     private void dropped() {
         long now = SystemClock.elapsedRealtime(); boolean quick = now - streamStartedAt < 20000;
         quickDrops = quick ? quickDrops + 1 : 0;
+        LogUpload.now(context);  // a drop is exactly what the log is for: send it now, not in two minutes
         NavSession s = NavSession.get(context);
         if (quickDrops >= 4) {
             reconnectUntil = 0; label("Bike display keeps dropping • tap Connect to try again");
@@ -225,6 +226,13 @@ public final class DashboardLink {
         quiet = true; pendingStream = MODE_NAVIGATION; start(true);
     }
     private boolean quiet;
+    /**
+     * Background searches repeat every few minutes while the bike is off. Only the first one in a row logs its details;
+     * the rest log one line each, until the display connects or the rider searches by hand.
+     */
+    private int quietMisses;
+    private boolean verbose() { return !quiet || quietMisses == 0; }
+    private void detail(String s) { if (verbose()) log(s); }
     /** Ask for Nearby devices once for auto-connect; once allowed it searches the quiet way. */
     public void askPermissions() { if (!profileReady) return; quiet = true; pendingStream = MODE_NAVIGATION; permissions(true); }
     /** Same as the old "Test connection" button. */
@@ -256,6 +264,7 @@ public final class DashboardLink {
     private final File logFile;
     private void keep(String line) {
         try (FileOutputStream f = new FileOutputStream(logFile, true)) { f.write(line.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
+        LogUpload.add(context, line);
     }
     private void earlier() {
         String before = "";
@@ -377,8 +386,8 @@ public final class DashboardLink {
         if (pendingStream == 0) identificationAccepted = false;
         ui.onChanged();
         trustedInterface = null; trustedOwner = null;
-        log("\n--- " + (mode ? "ACTIVE IDENTIFICATION" : "WORKING CONNECTION INSPECTION") + " ---");
-        log(mode ? "Only the QR-matched dashboard will receive the bounded identification exchange." : "Inspection only: no projection probe or new pairing request.");
+        detail("\n--- " + (mode ? "ACTIVE IDENTIFICATION" : "WORKING CONNECTION INSPECTION") + " ---");
+        detail(mode ? "Only the QR-matched dashboard will receive the bounded identification exchange." : "Inspection only: no projection probe or new pairing request.");
         if (wifi == null || !wifi.isWifiEnabled()) { log("Wi-Fi is off. Enable Wi-Fi and rerun."); finishRun("Wi-Fi is off"); return; }
         LocationManager lm = (LocationManager)context.getSystemService(Context.LOCATION_SERVICE);
         if (lm != null && !lm.isLocationEnabled()) log("Location switch is OFF. Android may block peer discovery; enable it and retry if nothing appears.");
@@ -398,6 +407,8 @@ public final class DashboardLink {
         }, 18000);
         deadline = () -> {
             if (running && g == generation) {
+                if (tested.isEmpty() && !verbose()) { quietMisses++; log("Bike display not found (background search " + quietMisses + "); still looking."); cleanup(); label("Not connected"); ui.onChanged(); return; }
+                if (tested.isEmpty() && quiet) quietMisses++;
                 if (tested.isEmpty()) log("Could not establish a verified dashboard endpoint. This is inconclusive. Check the bike’s QR page is open and Carbit is fully closed, then retry.");
                 finishRun(tested.isEmpty() ? "No connection confirmed • share report" : verdict);
             }
@@ -413,7 +424,7 @@ public final class DashboardLink {
     private WifiP2pManager.ActionListener action(String name, Runnable success) {
         int g = generation;
         return new WifiP2pManager.ActionListener() {
-            public void onSuccess() { if (running && g == generation) { log(name + " accepted by Android."); if (success != null) success.run(); } }
+            public void onSuccess() { if (running && g == generation) { detail(name + " accepted by Android."); if (success != null) success.run(); } }
             public void onFailure(int reason) { if (running && g == generation) { connecting = false; log(name + " failed: " + (reason == 2 ? "BUSY" : reason == 1 ? "UNSUPPORTED" : "ERROR " + reason)); } }
         };
     }
@@ -425,8 +436,8 @@ public final class DashboardLink {
                 if (!cap.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue;
                 WifiInfo wi = cap.getTransportInfo() instanceof WifiInfo ? (WifiInfo)cap.getTransportInfo() : null;
                 String ssid = wi == null ? "<hidden by Android>" : wi.getSSID();
-                log("Wi-Fi interface=" + lp.getInterfaceName() + ", network=" + n + ", SSID=" + (matches(ssid) ? SSID : "[other network or hidden]") + ", Internet=" + cap.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED));
-                for (LinkAddress a : lp.getLinkAddresses()) if (a.getAddress() instanceof Inet4Address) log("  Phone IPv4=" + a);
+                detail("Wi-Fi interface=" + lp.getInterfaceName() + ", network=" + n + ", SSID=" + (matches(ssid) ? SSID : "[other network or hidden]") + ", Internet=" + cap.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED));
+                for (LinkAddress a : lp.getLinkAddresses()) if (a.getAddress() instanceof Inet4Address) detail("  Phone IPv4=" + a);
                 if (matches(ssid)) {
                     trustedInterface = lp.getInterfaceName();
                     for (RouteInfo r : lp.getRoutes()) {
@@ -440,7 +451,7 @@ public final class DashboardLink {
                 NetworkInterface f = all.nextElement();
                 if (!f.isUp() || f.isLoopback()) continue;
                 for (InterfaceAddress a : f.getInterfaceAddresses()) if (a.getAddress() instanceof Inet4Address)
-                    log("Interface " + f.getName() + ": " + a.getAddress().getHostAddress() + "/" + a.getNetworkPrefixLength());
+                    detail("Interface " + f.getName() + ": " + a.getAddress().getHostAddress() + "/" + a.getNetworkPrefixLength());
             }
         } catch (Exception e) { log("Network snapshot: " + e.getClass().getSimpleName() + " " + e.getMessage()); }
     }
@@ -450,7 +461,7 @@ public final class DashboardLink {
         try {
             p2p.requestGroupInfo(channel, grp -> {
                 if (!running || g != generation) return;
-                if (grp == null) { log("No Wi-Fi Direct group visible to this app."); return; }
+                if (grp == null) { detail("No Wi-Fi Direct group visible to this app."); return; }
                 WifiP2pDevice owner = grp.getOwner();
                 boolean match = matches(grp.getNetworkName()) || (owner != null && (matches(owner.deviceName) || matches(owner.deviceAddress)));
                 if (!match) for (WifiP2pDevice d : grp.getClientList()) if (matches(d.deviceName) || matches(d.deviceAddress)) match = true;
@@ -473,7 +484,7 @@ public final class DashboardLink {
         int g = generation;
         try { p2p.requestPeers(channel, list -> {
             if (!running || g != generation) return;
-            log("Wi-Fi Direct peers visible: " + list.getDeviceList().size());
+            detail("Wi-Fi Direct peers visible: " + list.getDeviceList().size());
             if (connecting || trustedInterface != null) return;
             for (WifiP2pDevice d : list.getDeviceList()) if (matches(d.deviceName) || matches(d.deviceAddress)) {
                 connecting = true;
@@ -492,7 +503,7 @@ public final class DashboardLink {
             multicast = wifi.createMulticastLock("atr-discovery"); multicast.setReferenceCounted(false); multicast.acquire();
             int g = generation;
             discovery = new NsdManager.DiscoveryListener() {
-                public void onDiscoveryStarted(String t) { if (running && g == generation) log("Listening for EasyConn service advertisements."); }
+                public void onDiscoveryStarted(String t) { if (running && g == generation) detail("Listening for EasyConn service advertisements."); }
                 public void onDiscoveryStopped(String t) {}
                 public void onStartDiscoveryFailed(String t, int e) { if (running && g == generation) log("Service discovery unavailable: " + e); }
                 public void onStopDiscoveryFailed(String t, int e) {}
@@ -572,7 +583,7 @@ public final class DashboardLink {
                             .putExtra("mode", lastStreamMode).putExtra("network", network == null ? 0 : network.getNetworkHandle()).putExtra("keep", selected == MODE_MIRROR && keepMirror);
                         if (consent != null) service.putExtra("consent", consent);
                         expectStop = false; streamStartedAt = SystemClock.elapsedRealtime();
-                        try { context.startForegroundService(service); if (selected == MODE_NAVIGATION) { main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } else if (selected == MODE_MIRROR && keepMirror) { settle(); label("Your screen is on the bike display"); } }
+                        try { context.startForegroundService(service); quietMisses = 0; if (selected == MODE_NAVIGATION) { main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } else if (selected == MODE_MIRROR && keepMirror) { settle(); label("Your screen is on the bike display"); } }
                         catch (Exception e) {
                             // Android 12+ refuses to start it from the background; the next search after Daanvia is opened connects.
                             serviceActive = false; log(e.getClass().getSimpleName());

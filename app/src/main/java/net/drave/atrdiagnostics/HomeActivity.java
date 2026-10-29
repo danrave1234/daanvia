@@ -1297,11 +1297,25 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         endBtn = k.text("End", 15, 800, WHITE); endBtn.setGravity(Gravity.CENTER); endBtn.setPadding(k.dp(20), 0, k.dp(20), 0); endBtn.setMinHeight(k.dp(52));
         theme.add(p -> endBtn.setBackground(Gabi.round(p.danger, k.dp(26))));
         Gabi.press(endBtn, this::onEnd);
+        // The offline map can't know about closures: the rider marks the road ahead blocked and gets a way around it.
+        blockBtn = k.text("Blocked", 15, 800, INK); blockBtn.setGravity(Gravity.CENTER); blockBtn.setPadding(k.dp(16), 0, k.dp(16), 0); blockBtn.setMinHeight(k.dp(52));
+        theme.add(p -> blockBtn.setBackground(Gabi.round(p.chip, k.dp(26))));
+        Gabi.press(blockBtn, this::onBlocked);
+        etaBar.addView(blockBtn); LinearLayout.LayoutParams bl = (LinearLayout.LayoutParams)blockBtn.getLayoutParams(); bl.rightMargin = k.dp(8); blockBtn.setLayoutParams(bl);
         etaBar.addView(endBtn);
         FrameLayout.LayoutParams el = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); el.leftMargin = el.rightMargin = k.dp(10);
         root.addView(etaBar, el); etaBar.setVisibility(View.GONE);
     }
     private final Runnable disarmEnd = () -> { endArmed = false; endBtn.setText("End"); };
+    private TextView blockBtn; private boolean blockArmed;
+    private final Runnable disarmBlock = () -> { blockArmed = false; blockBtn.setText("Blocked"); };
+    /** First tap asks, second marks the road ahead blocked and finds a way around it (NavSession.blockAhead). */
+    private void onBlocked() {
+        if (!s.active || s.simulation) return;
+        if (!blockArmed) { blockArmed = true; blockBtn.setText("Road blocked?"); ui.removeCallbacks(disarmBlock); ui.postDelayed(disarmBlock, 4000); return; }
+        ui.removeCallbacks(disarmBlock); disarmBlock.run();
+        s.blockAhead(); notice("Finding a way around the blocked road");
+    }
     private void onEnd() {
         if (!endArmed && !"Destination nearby".equals(s.instruction)) { endArmed = true; endBtn.setText("Tap to end"); ui.removeCallbacks(disarmEnd); ui.postDelayed(disarmEnd, 3000); return; }
         ui.removeCallbacks(disarmEnd); disarmEnd.run();
@@ -1314,7 +1328,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         boolean arriving = "Destination nearby".equals(s.instruction);
         boolean stale = !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
         int type = arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
-        String street = arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : streetOf(m, s.instruction);
+        String street = arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : Maneuvers.label(m, streetOf(m, s.instruction));
         if (idx != shownManeuver) {
             shownManeuver = idx; maneuver.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
             View content = maneuverIcon; content.setScaleX(0.6f); content.setScaleY(0.6f); content.setRotation(-12);
@@ -1326,7 +1340,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         maneuverDist.setTextColor(stale ? theme.palette.danger : theme.palette.ink);
         maneuverStreet.setText(street);
         JSONObject next = arriving ? null : ms.optJSONObject(idx + 1);
-        if (next != null) { thenIcon.setImageDrawable(iconFor(Maneuvers.icon(next.optInt("type", 8)), theme.palette.ink, 2.2f)); thenText.setText(next.optInt("type") >= 4 && next.optInt("type") <= 6 ? (s.destination.isEmpty() ? "Arrive" : s.destination) : streetOf(next, next.optString("instruction", ""))); }
+        if (next != null) { thenIcon.setImageDrawable(iconFor(Maneuvers.icon(next.optInt("type", 8)), theme.palette.ink, 2.2f)); thenText.setText(next.optInt("type") >= 4 && next.optInt("type") <= 6 ? (s.destination.isEmpty() ? "Arrive" : s.destination) : Maneuvers.label(next, streetOf(next, next.optString("instruction", "")))); }
         Gabi.show(thenChip, next != null, -k.dp(6));
         etaMin.setText(arriving ? "You’re here" : Gabi.minutes(s.seconds));
         if (!endArmed) endBtn.setText(arriving ? "Finish" : "End");
@@ -1661,7 +1675,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         int type = arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
         bikeIcon.setImageDrawable(iconFor(Maneuvers.icon(type), theme.palette.onAccent, 2.6f));
         bikeDist.setText(arriving ? "Arriving" : Gabi.distance(s.distanceToTurn));
-        bikeStreet.setText(arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : streetOf(m, s.instruction));
+        bikeStreet.setText(arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : Maneuvers.label(m, streetOf(m, s.instruction)));
         bikeEta.setText(Gabi.minutes(s.seconds) + " · " + Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
         if (!endArmed) bikeEnd.setText(arriving ? "Finish" : "End");
     }

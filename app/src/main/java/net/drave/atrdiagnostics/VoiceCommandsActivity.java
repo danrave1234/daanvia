@@ -66,6 +66,7 @@ public final class VoiceCommandsActivity extends Activity implements Recognition
             case STOP:if(!s.active){reply("No ride is running");break;}confirmUntil=SystemClock.elapsedRealtime()+15000;confirm.setVisibility(View.VISIBLE);reply("End this ride? Say confirm stop, or cancel.");main.postDelayed(()->{if(SystemClock.elapsedRealtime()>=confirmUntil)confirm.setVisibility(View.GONE);},15000);break;
             case CONFIRM_STOP:if(s.active&&confirmUntil>SystemClock.elapsedRealtime()){confirmUntil=0;confirm.setVisibility(View.GONE);startService(new Intent(this,NavService.class).setAction("stop"));reply("Ride ended");}else reply("Say end ride first");break;
             case CANCEL:confirmUntil=0;muteUntil=0;confirm.setVisibility(View.GONE);reply("Cancelled. Your ride is unchanged.");break;
+            case BLOCKED:if(!s.active||s.simulation){reply("Start a ride first");break;}s.blockAhead();reply("Marked the road ahead as blocked. Finding another way.");break;
             case TRAFFIC:reply("Live traffic is unavailable. Daanvia uses offline road estimates.");break;
             default:reply("Try repeat, how long, how far, mute guidance, unmute guidance, or end ride.");
         }
