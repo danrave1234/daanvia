@@ -15,7 +15,7 @@ def build(root, gen, cells, base=('base_l1_1',)):
         return {'file': name, 'bytes': len(data), 'sha256': sha}
     bases = [put(b, ('tiles ' + b).encode()) for b in base]
     entries = [{'id': cid, 'box': [0, 0, 1, 1], 'needs': [b['file'] for b in bases], 'label': '', 'roads_bytes': 1, **put(cid, text.encode())} for cid, text in cells.items()]
-    (d / 'areas-index.json').write_text(json.dumps({'version': 2, 'package_schema': 3, 'generation': gen, 'built': gen, 'osm_timestamp': 'x',
+    (d / 'areas-index.json').write_text(json.dumps({'version': 2, 'package_schema': 4, 'generation': gen, 'built': gen, 'osm_timestamp': 'x',
                                                    'engine': {'name': 'valhalla', 'version': '3.9.0'}, 'cells': entries, 'base': bases}), encoding='utf-8')
     return d
 

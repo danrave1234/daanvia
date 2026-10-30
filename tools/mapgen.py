@@ -12,7 +12,9 @@ from shapely.geometry import LineString
 
 # What a cell zip holds. 2: grid cells, each road whole in the cell of its first point.
 # 3: roads cut at the cell box and carried EDGE past it; files named after their sha256.
-PACKAGE_SCHEMA = 3
+# 4: roads also carry bridge, tunnel (1 when set) and layer (when not 0), so the map can draw overpasses and
+#    underpasses. Older apps ignore the extra properties.
+PACKAGE_SCHEMA = 4
 # Each cell's roads run this far past its box (~110 m), so a road leaving a downloaded cell for one that is not
 # downloaded does not stop exactly at the line. Neighbouring cells therefore share a ~220 m band of road pieces.
 EDGE = 0.001

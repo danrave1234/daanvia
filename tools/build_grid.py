@@ -42,6 +42,17 @@ r6 = lambda v: round(v, 6)
 _lots_src = pathlib.Path(__file__).with_name('build_lots.py').read_text(encoding='utf-8')  # lots.json record shape
 exec(compile(ast.Module([n for n in ast.parse(_lots_src).body if isinstance(n, ast.FunctionDef) and n.name == 'record'], []), 'build_lots.py', 'exec'))
 
+def road_props(t, hw):
+    """A road's properties: name and kind, plus bridge / tunnel / layer only when set (most roads have none), so the map
+    can draw an overpass above the road it crosses and an underpass beneath it."""
+    props = {'name': t.get('name', ''), 'kind': hw}
+    if t.get('bridge', 'no') not in ('no', ''): props['bridge'] = 1
+    if t.get('tunnel', 'no') not in ('no', '', 'culvert'): props['tunnel'] = 1
+    try: layer = int(str(t.get('layer', '0')).split(';')[0].strip() or 0)
+    except ValueError: layer = 0
+    if layer: props['layer'] = max(-5, min(5, layer))
+    return props
+
 def cell_of(lon, lat): return (math.floor((lon + 180) / DEG + 1e-9), math.floor((lat + 90) / DEG + 1e-9))
 def cell_box(c): return [round(c[0] * DEG - 180, 6), round(c[1] * DEG - 90, 6), round((c[0] + 1) * DEG - 180, 6), round((c[1] + 1) * DEG - 90, 6)]
 def cell_id(c): b = cell_box(c); return 'cell_%.2f_%.2f' % (b[0], b[1])
@@ -117,7 +128,7 @@ for o in fp:
         named_line = bool(t.get('name')) and bool(hw or 'natural' not in t) and not park and not is_poi(t)
         spread = cut(pts) if road or named_line else []
         if road:
-            props = {'name': t.get('name', ''), 'kind': hw}
+            props = road_props(t, hw)
             for c, pieces, mid in spread:
                 k = cell_at(c); k.core += mid is not None
                 for p in pieces: k.road({'type': 'Feature', 'properties': props, 'geometry': {'type': 'LineString', 'coordinates': p}})
