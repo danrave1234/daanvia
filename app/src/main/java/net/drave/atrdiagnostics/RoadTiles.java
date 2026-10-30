@@ -26,18 +26,22 @@ final class RoadTiles {
         if (!roads.isFile() || !done.isFile()) return false;
         try { return stamp(roads).equals(AreaStore.readFile(done).trim()); } catch (IOException e) { return false; }
     }
-    private static String stamp(File roads) { return roads.length() + ":" + roads.lastModified(); }
+    /** The roads file it was built from, and the tile format: v2 keeps bridge / tunnel / layer, so older tiles are built again once. */
+    private static String stamp(File roads) { return "v2:" + roads.length() + ":" + roads.lastModified(); }
 
     /** Collects features while the roads file is read, then writes the main-roads file and one file per square. */
     static final class Writer {
         private final File area; private final String from; private final ByteArrayOutputStream majors = new ByteArrayOutputStream(1 << 20);
         private final HashMap<Long, ByteArrayOutputStream> cells = new HashMap<>();
         Writer(File area) { this.area = area; from = stamp(new File(area, "roads.geojson")); }
-        void add(String name, String kind, float[] xy, int n) {
+        void add(String name, String kind, boolean bridge, boolean tunnel, int layer, float[] xy, int n) {
             if (n < 4) return;
             StringBuilder b = new StringBuilder(32 + n * 9);
             b.append("{\"type\":\"Feature\",\"properties\":{\"kind\":").append(org.json.JSONObject.quote(kind));
             if (!name.isEmpty()) b.append(",\"name\":").append(org.json.JSONObject.quote(name));
+            if (bridge) b.append(",\"bridge\":1");
+            if (tunnel) b.append(",\"tunnel\":1");
+            if (layer != 0) b.append(",\"layer\":").append(layer);
             b.append("},\"geometry\":{\"type\":\"LineString\",\"coordinates\":[");
             double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
             for (int i = 0; i + 1 < n; i += 2) {

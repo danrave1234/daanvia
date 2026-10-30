@@ -16,9 +16,9 @@ public class RoadTilesTest {
     @Test public void mainRoadsStayWholeAndStreetsAreFiledBySquare() throws Exception {
         File dir = area(); assertFalse(RoadTiles.ready(dir));
         RoadTiles.Writer w = new RoadTiles.Writer(dir);
-        w.add("EDSA", "primary", xy(14.55, 121.03, 14.56, 121.04), 4);
-        w.add("Jupiter \"St\"", "residential", xy(14.551, 121.031, 14.552, 121.032), 4);
-        w.add("", "service", xy(14.651, 121.101, 14.652, 121.102), 4);
+        w.add("EDSA", "primary", false, false, 0, xy(14.55, 121.03, 14.56, 121.04), 4);
+        w.add("Jupiter \"St\"", "residential", true, false, 1, xy(14.551, 121.031, 14.552, 121.032), 4);
+        w.add("", "service", false, true, -1, xy(14.651, 121.101, 14.652, 121.102), 4);
         w.finish();
         assertTrue(RoadTiles.ready(dir));
         File tiles = new File(dir, RoadTiles.DIR);
@@ -26,12 +26,16 @@ public class RoadTilesTest {
         assertTrue(major.contains("EDSA")); assertFalse(major.contains("Jupiter"));
         org.json.JSONObject near = new org.json.JSONObject(RoadTiles.collection(tiles, 14.54, 121.02, 14.56, 121.04, 50));
         assertEquals(1, near.getJSONArray("features").length());
-        assertEquals("Jupiter \"St\"", near.getJSONArray("features").getJSONObject(0).getJSONObject("properties").getString("name"));
+        org.json.JSONObject props = near.getJSONArray("features").getJSONObject(0).getJSONObject("properties");
+        assertEquals("Jupiter \"St\"", props.getString("name"));
+        assertEquals("an overpass keeps its bridge and layer for the map", 1, props.getInt("bridge"));
+        assertEquals(1, props.getInt("layer"));
+        assertFalse(major.contains("\"bridge\"") || major.contains("\"tunnel\""));
         assertEquals("both small streets in the wider box", 2, new org.json.JSONObject(RoadTiles.collection(tiles, 14.54, 121.02, 14.70, 121.20, 500)).getJSONArray("features").length());
         assertNull("too many squares", RoadTiles.collection(tiles, 10, 120, 15, 125, 50));
     }
     @Test public void changedRoadsFileMeansTilesAreRebuilt() throws Exception {
-        File dir = area(); RoadTiles.Writer w = new RoadTiles.Writer(dir); w.add("EDSA", "primary", xy(14.55, 121.03, 14.56, 121.04), 4); w.finish();
+        File dir = area(); RoadTiles.Writer w = new RoadTiles.Writer(dir); w.add("EDSA", "primary", false, false, 0, xy(14.55, 121.03, 14.56, 121.04), 4); w.finish();
         assertTrue(RoadTiles.ready(dir));
         Files.write(new File(dir, "roads.geojson").toPath(), "{\"type\":\"FeatureCollection\",\"features\":[]}".getBytes(StandardCharsets.UTF_8));
         assertFalse(RoadTiles.ready(dir));

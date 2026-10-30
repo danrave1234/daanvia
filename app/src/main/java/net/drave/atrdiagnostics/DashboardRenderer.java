@@ -278,6 +278,9 @@ public final class DashboardRenderer {
 
     // ---------------------------------------------------------------- map
     private final Path[] layers = {new Path(), new Path(), new Path(), new Path()};
+    /** Overpasses by road class, drawn last on a dark edge; underpasses in one faded path under everything (see drawMap). */
+    private final Path[] bridges = {new Path(), new Path(), new Path(), new Path()}; private final Path tunnels = new Path();
+    private final DashPathEffect tunnelDash = new DashPathEffect(new float[]{14, 9}, 0);
     /** Drawing order: small streets, tertiary, secondary, then main roads on top. */
     private static int layer(String kind) { return kind.contains("primary") || kind.contains("trunk") || kind.contains("motorway") ? 3 : kind.contains("secondary") ? 2 : kind.contains("tertiary") ? 1 : 0; }
     private float cx, cy, cos, sin, tilt; private double clat, clon, mpp = 3, coslat; private long lastFrame;
@@ -305,6 +308,9 @@ public final class DashboardRenderer {
         if (!riding()) return 3.0;
         double z = Math.max(1.0, Math.min(2.4, 1.0 + motion.speed * 0.07));
         if (s.active && s.distanceToTurn > 0 && s.distanceToTurn < 200) z *= 0.8;
+        // A split (keep left/right, a ramp onto a flyover) gets closer, sooner: the branches only separate on screen up close.
+        JSONObject next = s.active ? s.maneuvers.optJSONObject(s.maneuver) : null;
+        if (next != null && Maneuvers.fork(next.optInt("type")) && s.distanceToTurn > 0 && s.distanceToTurn < 300) z *= 0.8;
         if (s.active && s.remaining < 400) z = Math.min(z, 0.85);
         return z;
     }
@@ -422,16 +428,27 @@ public final class DashboardRenderer {
         }
         List<NavSession.Road> nearby = nearCache;
         for (Path l : layers) l.reset();
+        for (Path l : bridges) l.reset();
+        tunnels.reset();
         double tiny = 2 * mpp / 111195;
         for (NavSession.Road road : nearby) {
             if (road.size() < 2 || path(road.kind)) continue;
             if (road.maxLat - road.minLat < tiny && road.maxLon - road.minLon < tiny) continue;
             if (road.maxLat < clat - dLat || road.minLat > clat + dLat || road.maxLon < clon - dLon || road.minLon > clon + dLon) continue;
-            Path l = layers[layer(road.kind)];
+            Path l = road.tunnel ? tunnels : road.bridge ? bridges[layer(road.kind)] : layers[layer(road.kind)];
             for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); point(l, pt[0], pt[1], j == 0); }
         }
         String[] kinds = {"residential", "tertiary", "secondary", "primary"};
+        // Underpasses first, faded and dashed; then the roads at ground level; then overpasses on a dark edge, so a flyover
+        // and the road beneath it no longer read as one line at a split.
+        p.setColor(road("residential")); p.setAlpha(pal.night ? 150 : 170); p.setStrokeWidth(5 * roadScale); p.setPathEffect(tunnelDash); c.drawPath(tunnels, p); p.setPathEffect(null); p.setAlpha(255);
         for (int i = 0; i < layers.length; i++) { p.setColor(road(kinds[i])); p.setStrokeWidth(roadWidth(kinds[i]) * roadScale); c.drawPath(layers[i], p); }
+        p.setStrokeCap(Paint.Cap.BUTT);
+        for (int i = 0; i < bridges.length; i++) {
+            p.setColor(pal.night ? 0xFF020509 : 0xFF8F7F5A); p.setStrokeWidth((roadWidth(kinds[i]) + 5) * roadScale); c.drawPath(bridges[i], p);
+            p.setColor(road(kinds[i])); p.setStrokeWidth(roadWidth(kinds[i]) * roadScale); c.drawPath(bridges[i], p);
+        }
+        p.setStrokeCap(Paint.Cap.ROUND);
         if (route.size() > 1) {
             int from = s.active ? Math.max(0, Math.min(motion.routeFrom, route.size() - 1)) : 0;
             path.reset();

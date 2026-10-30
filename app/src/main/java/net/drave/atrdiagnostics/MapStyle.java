@@ -75,6 +75,9 @@ final class MapStyle {
         LineLayer path = new LineLayer("road-path", ROADS_NEAR).withFilter(kinds(PATHS)).withProperties(lineWidth(width(15, 0.8f, 18, 2.4f)), lineDasharray(new Float[]{1.2f, 1.6f}));
         path.setMinZoom(15);
         st.addLayer(path);
+        Expression motorable = not(kinds(PATHS));
+        addTunnels(st, "road-tunnel", ROADS, all(has("tunnel"), motorable), null, 9);
+        addTunnels(st, "road-tunnel-near", ROADS_NEAR, all(has("tunnel"), motorable), null, 13);
         addRoad(st, "minor", MINOR, width(11, 0.3f, 14, 2.2f, 16, 6, 18, 15), width(13, 0.6f, 14, 3.4f, 16, 8, 18, 18), 13, ROADS_NEAR);
         addRoad(st, "tertiary", TERTIARY, width(10, 0.5f, 14, 3.4f, 16, 8, 18, 19), width(10, 0.9f, 14, 5, 16, 10.5f, 18, 23), 0);
         addRoad(st, "secondary", SECONDARY, width(9, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23), width(9, 1.2f, 14, 6, 16, 12.5f, 18, 27), 0);
@@ -82,12 +85,19 @@ final class MapStyle {
 
         // Cached online road fills cover the fallback outlines. Drawing those outlines over
         // newer online geometry produces dark seams and capped fragments inside a continuous road.
-        LineLayer onlineMinor = new LineLayer("online-road-minor", ONLINE).withFilter(match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true)))
+        Expression onlineLevel = not(match(get("brunnel"), literal(false), stop("bridge", true), stop("tunnel", true)));
+        Expression onlineRoad = match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true));
+        addTunnels(st, "online-road-tunnel", ONLINE, all(eq(get("brunnel"), "tunnel"), onlineRoad), "transportation", 12);
+        LineLayer onlineMinor = new LineLayer("online-road-minor", ONLINE).withFilter(all(onlineLevel, match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true))))
             .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(12, 0.4f, 14, 2.2f, 16, 6, 18, 15)));
         online(st, onlineMinor, "transportation", 12);
-        LineLayer onlineMajor = new LineLayer("online-road-major", ONLINE).withFilter(match(get("class"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true)))
+        LineLayer onlineMajor = new LineLayer("online-road-major", ONLINE).withFilter(all(onlineLevel, match(get("class"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true))))
             .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(8, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23)));
         online(st, onlineMajor, "transportation", 6);
+        // Overpasses on top of every other road, offline and online.
+        addBridges(st, "road-bridge", ROADS, all(has("bridge"), motorable), null, 9);
+        addBridges(st, "road-bridge-near", ROADS_NEAR, all(has("bridge"), motorable), null, 13);
+        addBridges(st, "online-road-bridge", ONLINE, all(eq(get("brunnel"), "bridge"), onlineRoad), "transportation", 12);
 
         online(st, new SymbolLayer("online-street-names", ONLINE).withFilter(has("name")).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), textField(get("name")), textFont(FONT),
             textSize(interpolate(linear(), zoom(), stop(13, 10f), stop(17, 13f))), textMaxAngle(30f), textPadding(4f)), "transportation_name", 14.5f);
@@ -147,10 +157,29 @@ final class MapStyle {
 
     private static void addRoad(Style st, String id, String[] kinds, Expression fill, Expression casing, float caseMinZoom) { addRoad(st, id, kinds, fill, casing, caseMinZoom, ROADS); }
     private static void addRoad(Style st, String id, String[] kinds, Expression fill, Expression casing, float caseMinZoom, String source) {
-        LineLayer cs = new LineLayer("road-" + id + "-case", source).withFilter(kinds(kinds)).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(casing));
+        Expression level = all(kinds(kinds), not(has("bridge")), not(has("tunnel")));
+        LineLayer cs = new LineLayer("road-" + id + "-case", source).withFilter(level).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(casing));
         if (caseMinZoom > 0) cs.setMinZoom(caseMinZoom);
         st.addLayer(cs);
-        st.addLayer(new LineLayer("road-" + id, source).withFilter(kinds(kinds)).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(fill)));
+        st.addLayer(new LineLayer("road-" + id, source).withFilter(level).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(fill)));
+    }
+    /*
+     * Overpasses and underpasses. On a flat map a flyover and the road under it are one line, so the rider couldn't tell
+     * which way at a split went up. Underpasses are drawn first, faded and dashed, under everything; overpasses last, on a
+     * dark edge that reads as a shadow, ordered by their OSM layer so a higher deck covers a lower one.
+     */
+    private static final Expression BRIDGE_FILL = width(9, 1.2f, 14, 5, 16, 11, 18, 25), BRIDGE_CASE = width(9, 2.6f, 14, 8, 16, 16, 18, 33);
+    private static void addTunnels(Style st, String id, String source, Expression filter, String sourceLayer, float minZoom) {
+        LineLayer t = new LineLayer(id, source).withFilter(filter).withProperties(lineCap(Property.LINE_CAP_BUTT), lineJoin(Property.LINE_JOIN_ROUND),
+            lineWidth(width(9, 1f, 14, 4, 16, 9, 18, 21)), lineDasharray(new Float[]{2f, 1.2f}));
+        if (sourceLayer != null) online(st, t, sourceLayer, minZoom); else { t.setMinZoom(minZoom); st.addLayer(t); }
+    }
+    private static void addBridges(Style st, String id, String source, Expression filter, String sourceLayer, float minZoom) {
+        Expression sort = coalesce(toNumber(get("layer")), literal(1));
+        LineLayer cs = new LineLayer(id + "-case", source).withFilter(filter).withProperties(lineCap(Property.LINE_CAP_BUTT), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(BRIDGE_CASE), lineSortKey(sort));
+        LineLayer fill = new LineLayer(id, source).withFilter(filter).withProperties(lineCap(Property.LINE_CAP_BUTT), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(BRIDGE_FILL), lineSortKey(sort));
+        if (sourceLayer != null) { online(st, cs, sourceLayer, minZoom); online(st, fill, sourceLayer, minZoom); }
+        else { cs.setMinZoom(minZoom); fill.setMinZoom(minZoom); st.addLayer(cs); st.addLayer(fill); }
     }
 
     /** Recolor every layer in place; MapLibre crossfades paint changes, so a theme switch is a soft dissolve. */
@@ -186,6 +215,17 @@ final class MapStyle {
         Layer park = st.getLayer("online-park"); if (park != null) park.setProperties(fillColor(n ? 0xFF13261D : 0xFFD3E8C8));
         Layer bld = st.getLayer("online-building"); if (bld != null) bld.setProperties(fillColor(n ? 0xFF1A2430 : 0xFFE6E0D4), fillOutlineColor(n ? 0xFF222E3B : 0xFFD9D1C2));
         line(st, "online-road-minor", n ? 0xFF1C2733 : 0xFFFFFFFF, 1f);
+        Expression offlineFill = match(get("kind"), color((n ? 0xFF27323F : 0xFFFFFFFF)), stop("primary", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("trunk", color(n ? 0xFF3E4C5C : 0xFFFFDE93)),
+            stop("motorway", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("primary_link", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("trunk_link", color(n ? 0xFF3E4C5C : 0xFFFFDE93)),
+            stop("secondary", color(n ? 0xFF313E4C : 0xFFFFF1CC)), stop("secondary_link", color(n ? 0xFF313E4C : 0xFFFFF1CC)));
+        Expression onlineFill = match(get("class"), color((n ? 0xFF27323F : 0xFFFFFFFF)), stop("primary", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("trunk", color(n ? 0xFF3E4C5C : 0xFFFFDE93)),
+            stop("motorway", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("secondary", color(n ? 0xFF313E4C : 0xFFFFF1CC)));
+        int edge = n ? 0xFF020509 : 0xFF8F7F5A, under = n ? 0xFF2A3644 : 0xFFC9C2B0;
+        for (String id : new String[]{"road-bridge", "road-bridge-near", "online-road-bridge"}) {
+            line(st, id + "-case", edge, 1f);
+            Layer l = st.getLayer(id); if (l != null) l.setProperties(lineColor(id.startsWith("online") ? onlineFill : offlineFill), lineOpacity(1f));
+        }
+        for (String id : new String[]{"road-tunnel", "road-tunnel-near", "online-road-tunnel"}) line(st, id, under, 0.75f);
         line(st, "online-road-major", n ? 0xFF313E4C : 0xFFFFF1CC, 1f);
         text(st, "online-street-names", n ? 0xFF9AA8B6 : 0xFF5E6670, n ? 0xFF0E151C : 0xFFFFFFFF);
         text(st, "online-poi", n ? 0xFFC9D3DC : 0xFF3A424B, n ? 0xFF0E151C : 0xFFFFFFFF); text(st, "online-poi-major", n ? 0xFFDCE3EA : 0xFF2B323A, n ? 0xFF0E151C : 0xFFFFFFFF);

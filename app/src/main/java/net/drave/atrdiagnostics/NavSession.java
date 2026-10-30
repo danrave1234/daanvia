@@ -75,8 +75,10 @@ public final class NavSession {
     static String cards(float[] t,float[] r,float ax,float ay){StringBuilder b=new StringBuilder();for(float v:t)b.append(v).append(',');for(float v:r)b.append(v).append(',');return b.append(ax).append(',').append(ay).toString();}
     void cards(String saved){resetLayout();if(saved==null||saved.isEmpty())return;try{String[] v=saved.split(",");if(v.length!=10)return;float[] n=new float[10];for(int i=0;i<10;i++)n[i]=Float.parseFloat(v[i]);turnCard=new float[]{n[0],n[1],n[2],n[3]};tripCard=new float[]{n[4],n[5],n[6],n[7]};arrowX=n[8];arrowY=n[9];}catch(NumberFormatException e){resetLayout();}}
     /** A road line for the bike display, its points packed as lat,lon floats (about 1 m precision) to keep a large area in memory. */
-    public static final class Road {private final float[] xy;public final String name,kind;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
-        Road(float[] xy,String n,String k){this.xy=xy;name=n;kind=k;for(int i=0;i+1<xy.length;i+=2){minLat=Math.min(minLat,xy[i]);maxLat=Math.max(maxLat,xy[i]);minLon=Math.min(minLon,xy[i+1]);maxLon=Math.max(maxLon,xy[i+1]);}}
+    /** A road line; bridge / tunnel / layer come from the map data (package schema 4) and draw overpasses above the roads they cross. */
+    public static final class Road {private final float[] xy;public final String name,kind;public final boolean bridge,tunnel;public final int layer;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
+        Road(float[] xy,String n,String k){this(xy,n,k,false,false,0);}
+        Road(float[] xy,String n,String k,boolean bridge,boolean tunnel,int layer){this.xy=xy;name=n;kind=k;this.bridge=bridge;this.tunnel=tunnel;this.layer=layer;for(int i=0;i+1<xy.length;i+=2){minLat=Math.min(minLat,xy[i]);maxLat=Math.max(maxLat,xy[i]);minLon=Math.min(minLon,xy[i+1]);maxLon=Math.max(maxLon,xy[i+1]);}}
         public int size(){return xy.length/2;} public double lat(int i){return xy[i*2];} public double lon(int i){return xy[i*2+1];}}
     /** One offline pack: region.json plus its graph and data, either bundled under assets/ or unpacked in a directory. Areas are [minLon,minLat,maxLon,maxLat] boxes. */
     /** The area's place names for search, held as plain arrays rather than JSON objects. */
@@ -165,15 +167,21 @@ public final class NavSession {
         return new Places(names,Arrays.copyOf(la,n),Arrays.copyOf(lo,n));
     }
     /** The road lines the bike display draws, streamed from roads.geojson after the map is already usable. Worker thread. */
+    private int lastNumber;
+    /** A 0/1 (or true/false) property; for "layer" the number itself is kept in lastNumber. */
+    private boolean flag(android.util.JsonReader reader)throws IOException{
+        switch(reader.peek()){case BOOLEAN:lastNumber=reader.nextBoolean()?1:0;break;case NUMBER:lastNumber=reader.nextInt();break;
+            case STRING:try{lastNumber=Integer.parseInt(reader.nextString().trim());}catch(NumberFormatException e){lastNumber=1;}break;default:reader.skipValue();lastNumber=0;}
+        return lastNumber!=0;}
     private void loadRoads(Region r){
         try{RoadTiles.Index index=new RoadTiles.Index();RoadTiles.Writer tiles=r.dir!=null&&!RoadTiles.ready(r.dir)?new RoadTiles.Writer(r.dir):null;
             try(android.util.JsonReader reader=json(r,"roads.geojson")){
                 reader.beginObject();while(reader.hasNext()){String key=reader.nextName();if(!"features".equals(key)){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){
-                    String name="",kind="";float[] pts=new float[64];int np=0;reader.beginObject();while(reader.hasNext()){String field=reader.nextName();
-                        if("properties".equals(field)){reader.beginObject();while(reader.hasNext()){String property=reader.nextName();if("name".equals(property))name=reader.nextString();else if("kind".equals(property))kind=reader.nextString();else reader.skipValue();}reader.endObject();}
+                    String name="",kind="";boolean bridge=false,tunnel=false;int layer=0;float[] pts=new float[64];int np=0;reader.beginObject();while(reader.hasNext()){String field=reader.nextName();
+                        if("properties".equals(field)){reader.beginObject();while(reader.hasNext()){String property=reader.nextName();if("name".equals(property))name=reader.nextString();else if("kind".equals(property))kind=reader.nextString();else if("bridge".equals(property))bridge=flag(reader);else if("tunnel".equals(property))tunnel=flag(reader);else if("layer".equals(property))layer=flag(reader)?lastNumber:0;else reader.skipValue();}reader.endObject();}
                         else if("geometry".equals(field)){reader.beginObject();while(reader.hasNext()){if(!"coordinates".equals(reader.nextName())){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){reader.beginArray();double longitude=reader.nextDouble(),latitude=reader.nextDouble();while(reader.hasNext())reader.skipValue();reader.endArray();if(np+2>pts.length)pts=Arrays.copyOf(pts,pts.length*2);pts[np++]=(float)latitude;pts[np++]=(float)longitude;}reader.endArray();}reader.endObject();}
                         else reader.skipValue();
-                    }reader.endObject();index.add(new Road(Arrays.copyOf(pts,np),name,kind));if(tiles!=null)tiles.add(name,kind,pts,np);
+                    }reader.endObject();index.add(new Road(Arrays.copyOf(pts,np),name,kind,bridge,tunnel,layer));if(tiles!=null)tiles.add(name,kind,bridge,tunnel,layer,pts,np);
                 }reader.endArray();}reader.endObject();
             }
             if(shown==r)roadIndex=index;
