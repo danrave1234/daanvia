@@ -45,6 +45,31 @@ final class DashClock {
         } catch (JSONException e) { return ""; }
     }
 
+    /** How long after the hello a dashboard gets to ask for the time itself before it is sent unasked. */
+    static final long ASK_GRACE_MS = 5000;
+    /** Below this, currentHUTime is milliseconds since the bike was switched on, not a date (1e11 ms is 1973). */
+    static final long COUNTER_LIMIT = 100_000_000_000L;
+    /** More than this from the phone's local time counts as wrong. */
+    static final long TOLERANCE_MS = 120_000;
+
+    /**
+     * Whether the dashboard's clock needs the phone's time: currentHUTime (from its hello, {@code sinceMs} ago) is a count
+     * since switch-on, or more than two minutes from local time. The dashboard keeps local time as if it were UTC (what
+     * "currentTime" in the 0x10451 answer says), so that is what it's compared with.
+     */
+    static boolean needsTime(long huTime, long sinceMs, long nowMs, TimeZone zone) {
+        if (huTime < COUNTER_LIMIT) return true;
+        return Math.abs(huTime + sinceMs - (nowMs + zone.getOffset(nowMs))) > TOLERANCE_MS;
+    }
+    /** For the log: what the dashboard's clock said in its hello. */
+    static String describe(long huTime, long nowMs, TimeZone zone) {
+        if (huTime <= 0) return "Dashboard clock: not reported.";
+        if (huTime < COUNTER_LIMIT) return "Dashboard clock: not set (counting " + Math.round(huTime / 1000.0) + " s since the bike was switched on).";
+        SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US); f.setTimeZone(TimeZone.getTimeZone("UTC"));
+        long off = huTime - (nowMs + zone.getOffset(nowMs));
+        return "Dashboard clock: " + f.format(new Date(huTime)) + (Math.abs(off) <= TOLERANCE_MS ? " (matches the phone)." : " (" + (off > 0 ? "ahead" : "behind") + " by " + Math.round(Math.abs(off) / 60000.0) + " min).");
+    }
+
     /** Body of the 0x10601 reply to a 0x10600 request. */
     static byte[] timeSyncReply(byte[] request, long nowMs, TimeZone zone) {
         byte[] out = new byte[SYNC_REPLY_SIZE];

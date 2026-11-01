@@ -43,12 +43,18 @@ public final class StreamService extends Service {
     private final java.util.concurrent.atomic.AtomicInteger channelIds=new java.util.concurrent.atomic.AtomicInteger();
     private Runnable deadline;
     private PowerManager.WakeLock navigationWake;
-    private volatile long lastFrameAt; private volatile boolean controlOpen;
+    private volatile long lastFrameAt; private volatile boolean controlOpen; private boolean waitingNoted;
     /** When the video frame now being sent started sending; 0 when none is. A send stuck this long means a stalled link. */
     private volatile long writingSince;
     /** The display stream has no time limit, so end it (and let the app reconnect) when the bike stops talking to it. */
     private final Runnable watchdog=new Runnable(){public void run(){if(!running)return;long now=System.currentTimeMillis();
-        if(frames==0&&now-startedAt>45000){log("The display never asked for video within 45 s.");stopSelf();return;}
+        // Holding the control link open without asking for video means the bike is showing its own screen (the rider left
+        // projection, or it came back after the phone closed Daanvia). Starting over every 45 s didn't bring the video back
+        // (logs of 1 Nov: four restarts, no video) and gave the dashboard a new session each time, so wait for it instead.
+        if(frames==0&&now-startedAt>45000){
+            if(!controlOpen){log("The display never asked for video within 45 s.");stopSelf();return;}
+            if(!waitingNoted){waitingNoted=true;log("The bike is connected but showing its own screen; waiting for it to ask for directions.");}
+        }
         // The bike can go back to its speedometer and stop asking for video while still holding the control connection open,
         // so a quiet video link alone ends the session; auto-connect then brings the directions back.
         if(frames>0&&now-lastFrameAt>12000){log("The bike stopped asking for video ("+(controlOpen?"its control link was still open":"its control link had closed")+"). Reconnecting.");stopSelf();return;}
@@ -161,7 +167,7 @@ public final class StreamService extends Service {
                 if(pw<=0||ph<=0){pw=vw;ph=vh;}
                 NavSession.get(this).screenReport(pw,ph,vw,vh,0,bike.optString("screenType",bike.optString("productType","")));
                 log("Dashboard screen: panel "+pw+"x"+ph+", video "+vw+"x"+vh+", type "+bike.optString("screenType","?")+".");
-                log("Dashboard info: "+preview(f.payload));remember(f.command,f.payload);
+                log("Dashboard info: "+preview(f.payload,2000));remember(f.command,f.payload);
                 clockChannel=bike.optString("channel","");clockWithDate=bike.optBoolean("supportSyncCorrectTime",false);
                 if(huid.isEmpty()||huid.getBytes(StandardCharsets.UTF_8).length>100)throw new IOException("Missing or unsupported dashboard identity field");
                 Cipher rsa=Cipher.getInstance("RSA/ECB/PKCS1Padding");rsa.init(Cipher.ENCRYPT_MODE,identity.getPrivate());
@@ -171,6 +177,8 @@ public final class StreamService extends Service {
                     .put("package",PACKAGE).put("versionCode",6).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
                     .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",0).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
+                long huTime=bike.optLong("currentHUTime",0),seenAt=SystemClock.elapsedRealtime();log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
+                final PxcWriter clockOut=out;main.postDelayed(()->workers.execute(()->pushClock(clockOut,huTime,seenAt)),DashClock.ASK_GRACE_MS);
                 // The Wi-Fi time answer alone leaves the QJ clock at 00:00; Carbit sets it over Bluetooth (see BleClock).
                 synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,m->event("log",m));main.post(bleClock::start);}}
             } else if(f.command==0x103e0) {
@@ -180,6 +188,7 @@ public final class StreamService extends Service {
             } else if(f.command==0x201c1)log("Dashboard acknowledged the client session check.");
             // The dashboard asks the phone for the time; an empty answer left its clock counting up from 00:00 (see DashClock).
             else if(f.command==DashClock.QUERY_TIME) {
+                timeAsked=true;
                 long now=System.currentTimeMillis();TimeZone zone=TimeZone.getDefault();
                 out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel)));
                 log("Told the dashboard the time: "+clock()+".");
@@ -199,6 +208,20 @@ public final class StreamService extends Service {
     }
     /** From the dashboard's CLIENT_INFO: its model number, and whether it wants a formatted date with the time. */
     private volatile String clockChannel="";private volatile boolean clockWithDate;
+    /** The dashboard asked for the time in this session (0x10450); then it is answered, never pushed. */
+    private volatile boolean timeAsked;
+    /**
+     * Reconnects never ask for the time, and the first answer doesn't always stick (logs of 30 Oct: the clock stayed a
+     * count since the bike was switched on). So a few seconds after the hello, a dashboard that didn't ask and whose clock
+     * is a count, or more than two minutes off, is sent the time anyway, as MOTO-HUB found Carbit Ride does.
+     */
+    private void pushClock(PxcWriter out,long huTime,long seenAt){
+        if(!running||timeAsked)return;
+        long now=System.currentTimeMillis();TimeZone zone=TimeZone.getDefault();
+        if(!DashClock.needsTime(huTime,SystemClock.elapsedRealtime()-seenAt,now,zone))return;
+        try{out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel)));log("The dashboard didn't ask for the time and its clock was wrong; sent the phone's time: "+clock()+".");}
+        catch(Exception e){log("Couldn't send the time: "+e.getClass().getSimpleName());}
+    }
     private BleClock bleClock;private Here freeRide;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */

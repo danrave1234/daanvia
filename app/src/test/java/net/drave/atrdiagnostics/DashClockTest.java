@@ -46,4 +46,23 @@ public class DashClockTest {
         assertEquals(7, out[0]);
         assertEquals("2026-10-22 10:42:07.123000000", new String(out, 16, 29, StandardCharsets.US_ASCII));
     }
+
+    // From the 1 Nov logs: 17:53:29 in Manila, and the dashboard's clock read 1793555609237 (local time kept as UTC).
+    private static final long NOV1 = 1793555609237L - 8 * 3600_000L;
+
+    @Test public void aCounterSinceSwitchOnNeedsTheTime() {
+        assertTrue(DashClock.needsTime(77087, 5000, NOV1, MANILA));
+        assertTrue(DashClock.describe(77087, NOV1, MANILA).contains("not set"));
+    }
+
+    @Test public void aClockThatMatchesIsLeftAlone() {
+        assertFalse(DashClock.needsTime(1793555609237L, 5000, NOV1 + 5000, MANILA));
+        assertTrue(DashClock.describe(1793555609237L, NOV1, MANILA).contains("matches the phone"));
+    }
+
+    @Test public void aClockHoursOffNeedsTheTime() {
+        long utcInstead = NOV1;  // the instant itself, read as local: 8 hours behind
+        assertTrue(DashClock.needsTime(utcInstead, 0, NOV1, MANILA));
+        assertTrue(DashClock.describe(utcInstead, NOV1, MANILA).contains("behind by 480 min"));
+    }
 }
