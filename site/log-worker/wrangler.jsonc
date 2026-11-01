@@ -9,6 +9,8 @@
   "d1_databases": [
     { "binding": "daanvia_logs", "database_name": "daanvia-logs", "database_id": "18b18a03-f4af-46da-97f8-e3f042d29e01" }
   ],
+  // Uploads per address: the app key is public (it ships in the APK).
+  "ratelimits": [{ "name": "UPLOADS", "namespace_id": "4401", "simple": { "limit": 10, "period": 60 } }],
   // Daily: delete uploads older than 30 days.
   "triggers": { "crons": ["17 3 * * *"] }
   // Reading logs needs a secret: `wrangler secret put ADMIN_TOKEN` (kept in ~/.daanvia/logs-admin-token).
