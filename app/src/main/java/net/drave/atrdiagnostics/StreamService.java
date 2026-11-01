@@ -98,7 +98,9 @@ public final class StreamService extends Service {
             try{startForeground(17,n,follow?type|ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION:type);}
             catch(SecurityException noLocation){follow=false;startForeground(17,n,type);}
             if(follow){freeRide=new Here(this,NavSession.get(this));freeRide.start();}
-            if(navigation){navigationWake=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Daanvia:display");navigationWake.acquire();}
+            if(navigation){navigationWake=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Daanvia:display");navigationWake.acquire();
+                // OPPO/OnePlus/realme close apps ~5 min after the screen goes off unless they play audio (see QuietAudio).
+                if(KeepAlive.colorOs()!=null){quiet=new QuietAudio(m->event("log",m));quiet.start(this);}}
             if(mirror) {
                 Intent consent=intent.getParcelableExtra("consent");
                 if(consent==null)throw new IOException("Fresh screen-sharing permission is required");
@@ -231,7 +233,7 @@ public final class StreamService extends Service {
         try{out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel)));log("The dashboard didn't ask for the time and its clock was wrong; sent the phone's time: "+clock()+".");}
         catch(Exception e){log("Couldn't send the time: "+e.getClass().getSimpleName());}
     }
-    private BleClock bleClock;private Here freeRide;
+    private BleClock bleClock;private Here freeRide;private QuietAudio quiet;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
     static String preview(byte[] b){return preview(b,600);}
@@ -298,6 +300,7 @@ public final class StreamService extends Service {
         running=false;main.removeCallbacksAndMessages(null);
         synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
         if(freeRide!=null){freeRide.stop();freeRide=null;}
+        if(quiet!=null){quiet.stop();quiet=null;}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}
         workers.shutdownNow();
         synchronized(encoderLock){if(encoder!=null){encoder.close();encoder=null;}}

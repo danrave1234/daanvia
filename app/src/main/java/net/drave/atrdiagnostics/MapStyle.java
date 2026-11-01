@@ -213,7 +213,7 @@ final class MapStyle {
         line(st, "alternative-line", n ? 0xFF889FBE : 0xFF9AB5D8, 1f);
         line(st, "route-case", n ? 0xFF3B2804 : 0xFF8A5600, 1f);
         line(st, "route-line", n ? 0xFFFFB020 : 0xFFFFAA0F, 1f);
-        routeLine = n ? 0xFFFFB020 : 0xFFFFAA0F; routeCase = n ? 0xFF3B2804 : 0xFF8A5600; routeGlow = p.accent; routeDone = n ? 0x995E6B78 : 0x99A9B1B9;
+        routeLine = n ? 0xFFFFB020 : 0xFFFFAA0F; routeCase = n ? 0xFF3B2804 : 0xFF8A5600; routeGlow = p.accent;
         routeProgress(st, progressFrom, progressTo);
         // Online detail, toned to sit under the Gabi roads and route.
         Layer ow = st.getLayer("online-water"); if (ow != null) ow.setProperties(fillColor(sea), fillOutlineColor(sea));
@@ -276,12 +276,13 @@ final class MapStyle {
     // The route is handed to the map once. Revealing it (drawing in from the start) and greying out the part already
     // ridden only change how the line is painted, a gradient along it, the way car navigation apps do it: no
     // re-processing of the line's data on every frame, which is what made both stutter.
-    private static int routeLine = 0xFFFFB020, routeCase = 0xFF3B2804, routeGlow = 0xFFFFB020, routeDone = 0x995E6B78;
+    private static int routeLine = 0xFFFFB020, routeCase = 0xFF3B2804, routeGlow = 0xFFFFB020;
     private static float progressFrom = 0, progressTo = 1;
     /** Paint the route from {@code from} to {@code to} (fractions of its length); before {@code from} it shows as ridden, after {@code to} not at all. */
     static void routeProgress(Style st, float from, float to) {
         from = Math.max(0, Math.min(1, from)); to = Math.max(from, Math.min(1, to)); progressFrom = from; progressTo = to;
-        gradient(st, "route-line", routeDone, routeLine, from, to);
+        // The ridden part disappears, like on the bike display; greyed out, it still read as the whole route from start to end.
+        gradient(st, "route-line", 0, routeLine, from, to);
         gradient(st, "route-case", 0, routeCase, from, to);
         gradient(st, "route-glow", 0, routeGlow, from, to);
     }

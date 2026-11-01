@@ -36,9 +36,10 @@ final class RideMetrics {
                 .put("screen_on",power!=null&&power.isInteractive()).put("thermal_status",power==null?-1:power.getCurrentThermalStatus())
                 .put("display_connected",connected).put("display_connections",displayConnections)
                 .put("gps_age_s",s.fixAt==0?-1:(SystemClock.elapsedRealtime()-s.fixAt)/1000)
-                .put("gps_accuracy_m",s.accuracy).put("rerouting",s.routing);
+                .put("gps_accuracy_m",Math.round(s.accuracy*10)/10.0).put("rerouting",s.routing);
             if(battery!=null){int level=battery.getIntExtra(BatteryManager.EXTRA_LEVEL,-1),scale=battery.getIntExtra(BatteryManager.EXTRA_SCALE,100);
-                row.put("battery_percent",level<0||scale<=0?-1:100.0*level/scale).put("battery_temperature_c",battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE,0)/10.0)
+                // One decimal: long decimals look like coordinates to the upload scrubber (LogUpload.scrub), which broke the JSON.
+                row.put("battery_percent",level<0||scale<=0?-1:Math.round(1000.0*level/scale)/10.0).put("battery_temperature_c",battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE,0)/10.0)
                     .put("plugged",battery.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)!=0);}
             if(samples.length()>=720)samples.remove(0);samples.put(row);
             JSONObject report=new JSONObject().put("simulation",s.simulation)
