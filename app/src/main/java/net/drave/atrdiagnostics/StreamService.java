@@ -80,11 +80,11 @@ public final class StreamService extends Service {
             boolean mirror="mirror".equals(mode);
             boolean navigation="navigation".equals(mode);navigationActive=navigation;mirroring=mirror;
             NotificationManager notifications=getSystemService(NotificationManager.class);
-            notifications.createNotificationChannel(new NotificationChannel("atr-stream","Dashboard stream test",NotificationManager.IMPORTANCE_LOW));
+            NotifyChannels.create(this);
             PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,StreamService.class).setAction("stop"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             PendingIntent open=PendingIntent.getActivity(this,2,new Intent(this,HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             // Buttons that work from the lock screen: Reconnect and Exit (RideActions), and Stop for the display alone.
-            Notification.Builder nb=new Notification.Builder(this,"atr-stream").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(navigation?"Daanvia is on your bike display":mirror?"Your screen is on your bike display":"Dashboard test pattern")
+            Notification.Builder nb=new Notification.Builder(this,NotifyChannels.DISPLAY).setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(navigation?"Daanvia is on your bike display":mirror?"Your screen is on your bike display":"Dashboard test pattern")
                 .setContentText(navigation?"Reconnect if the bike shows its own screen":"Temporary test • tap Stop to end").setContentIntent(open).setOngoing(true).setVisibility(Notification.VISIBILITY_PUBLIC);
             if(navigation)nb.addAction(new Notification.Action.Builder(null,"Reconnect",RideActions.intent(this,RideActions.RECONNECT,3)).build());
             nb.addAction(new Notification.Action.Builder(null,"Stop",stop).build());
