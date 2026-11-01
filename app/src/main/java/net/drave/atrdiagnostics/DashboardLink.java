@@ -90,6 +90,12 @@ public final class DashboardLink {
         Runnable go = () -> { stoppedByUser = false; quiet = false; keepMirror = true; pendingStream = MODE_MIRROR; captureConsent = consent; permissions(true); };
         replaceStream(go);
     }
+    /** The notification's Reconnect (works from the lock screen): drop the link and find the bike again, the quiet way. */
+    public void reconnect() {
+        log("Reconnect tapped on the notification.");
+        stoppedByUser = false; quickDrops = 0;
+        replaceStream(() -> { if (running) cleanup(); autoNavigation(); });
+    }
     /** Back to Daanvia's directions on the bike display. */
     public void stopMirror() { replaceStream(this::sendNavigation); }
     private void replaceStream(Runnable next) {
@@ -273,13 +279,19 @@ public final class DashboardLink {
         if (!before.isEmpty()) synchronized(report) { report.append("---- Earlier, before the app last started ----\n").append(before).append("---- This start ----\n"); }
         if (Build.VERSION.SDK_INT >= 30) try {
             android.app.ActivityManager am = context.getSystemService(android.app.ActivityManager.class);
-            for (android.app.ApplicationExitInfo e : am.getHistoricalProcessExitReasons(null, 0, 1))
-                synchronized(report) { report.append(new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date(e.getTimestamp()))).append("  App last ended: ").append(exitReason(e.getReason())).append(" (").append(e.getDescription() == null ? "" : clean(e.getDescription())).append(", importance ").append(e.getImportance()).append(")\n"); }
+            for (android.app.ApplicationExitInfo e : am.getHistoricalProcessExitReasons(null, 0, 1)) {
+                String line = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date(e.getTimestamp())) + "  App last ended: " + exitReason(e.getReason())
+                    + " (" + (e.getDescription() == null ? "" : clean(e.getDescription())) + ", importance " + e.getImportance() + ")\n";
+                synchronized(report) { report.append(line); }
+                LogUpload.add(context, new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + line);
+            }
         } catch (Exception ignored) {}
         Thread.UncaughtExceptionHandler prior = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, x) -> {
             StringWriter w = new StringWriter(); x.printStackTrace(new PrintWriter(w));
-            keep(new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  CRASH on " + t.getName() + ": " + w + "\n");
+            String crash = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  CRASH on " + t.getName() + ": " + w + "\n";
+            try (FileOutputStream f = new FileOutputStream(logFile, true)) { f.write(crash.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
+            LogUpload.addNow(context, crash);
             if (prior != null) prior.uncaughtException(t, x);
         });
     }
@@ -465,8 +477,8 @@ public final class DashboardLink {
                 WifiP2pDevice owner = grp.getOwner();
                 boolean match = matches(grp.getNetworkName()) || (owner != null && (matches(owner.deviceName) || matches(owner.deviceAddress)));
                 if (!match) for (WifiP2pDevice d : grp.getClientList()) if (matches(d.deviceName) || matches(d.deviceAddress)) match = true;
-                log("Wi-Fi Direct group found; interface=" + grp.getInterface() + ", phoneIsOwner=" + grp.isGroupOwner() + ", matchesQR=" + match);
-                if (!match) { log("Group identity unconfirmed; no probe sent to it."); return; }
+                String found = "Wi-Fi Direct group found; interface=" + grp.getInterface() + ", phoneIsOwner=" + grp.isGroupOwner() + ", matchesQR=" + match; if (match) log(found); else detail(found);
+                if (!match) { detail("Group identity unconfirmed; no probe sent to it."); return; }
                 connecting = false;
                 trustedInterface = grp.getInterface();
                 p2p.requestConnectionInfo(channel, info -> {
@@ -656,7 +668,7 @@ public final class DashboardLink {
     }
 
     private void joinAp() {
-        log("Optional fallback: requesting the exact QR SSID. This will only work if the dashboard exposes a normal Wi-Fi access point.");
+        detail("Optional fallback: requesting the exact QR SSID. This will only work if the dashboard exposes a normal Wi-Fi access point.");
         int g = generation;
         if (apCallback != null) { try { cm.unregisterNetworkCallback(apCallback); } catch (Exception ignored) {} apCallback = null; }
         try {
@@ -670,7 +682,7 @@ public final class DashboardLink {
                     LinkProperties lp = cm.getLinkProperties(n); if (lp != null) apTarget(n, lp, g);
                 }
                 public void onLinkPropertiesChanged(Network n, LinkProperties lp) { if (running && g == generation) apTarget(n, lp, g); }
-                public void onUnavailable() { if (running && g == generation) log("QR Wi-Fi request unavailable or declined. The dashboard may require Wi-Fi Direct instead."); }
+                public void onUnavailable() { if (running && g == generation) detail("QR Wi-Fi request unavailable or declined. The dashboard may require Wi-Fi Direct instead."); }
             };
             cm.requestNetwork(request, apCallback, 25000);
         } catch (Exception e) { log("QR Wi-Fi request: " + e.getClass().getSimpleName() + " " + e.getMessage()); }

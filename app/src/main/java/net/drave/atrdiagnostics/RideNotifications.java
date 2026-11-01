@@ -6,7 +6,6 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.Parcelable;
 import android.os.SystemClock;
-import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
@@ -20,11 +19,15 @@ public final class RideNotifications extends NotificationListenerService {
     static final long SHOW_MS = 8000, CALL_MS = 30000;
 
     static boolean enabled(Context c) { return c.getSharedPreferences("ui", 0).getBoolean("tft_notifications", false); }
-    static void setEnabled(Context c, boolean on) { c.getSharedPreferences("ui", 0).edit().putBoolean("tft_notifications", on).apply(); }
+    static void setEnabled(Context c, boolean on) {
+        c.getSharedPreferences("ui", 0).edit().putBoolean("tft_notifications", on).apply();
+        if (on) try { requestRebind(new ComponentName(c, RideNotifications.class)); } catch (Exception ignored) {}
+    }
+    /** Switched off in Daanvia but access still granted: let go, so Android doesn't keep Daanvia running for nothing. */
+    @Override public void onListenerConnected() { if (!enabled(this)) try { requestUnbind(); } catch (Exception ignored) {} }
     /** Whether the rider has given Daanvia Notification access in Android's settings. */
     static boolean allowed(Context c) {
-        String list = Settings.Secure.getString(c.getContentResolver(), "enabled_notification_listeners");
-        return list != null && list.contains(new ComponentName(c, RideNotifications.class).flattenToString());
+        return androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(c).contains(c.getPackageName());
     }
 
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
@@ -32,21 +35,31 @@ public final class RideNotifications extends NotificationListenerService {
         Notification n = sbn.getNotification();
         if ((n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
         boolean call = Notification.CATEGORY_CALL.equals(n.category);
+        Bundle x = n.extras;
+        NavSession s = NavSession.get(this);
+        // An answered call updates the same notification into an ongoing one (a running timer): that ends the card.
+        if (call && (x.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER)
+                || android.os.Build.VERSION.SDK_INT >= 31 && x.getInt(Notification.EXTRA_CALL_TYPE) == Notification.CallStyle.CALL_TYPE_ONGOING)) {
+            if (sbn.getKey().equals(s.popupKey)) s.popupUntil = 0;
+            return;
+        }
         if (!call && !(Notification.CATEGORY_MESSAGE.equals(n.category) || chat(sbn.getPackageName()))) return;
         // An ongoing notification that isn't a call (music, navigation, a download) is never a message.
         if (!call && (n.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
-        Bundle x = n.extras;
         String title = text(x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE));
         if (title.isEmpty()) title = text(x.getCharSequence(Notification.EXTRA_TITLE));
         String body = call ? "Incoming call" : lastMessage(x);
         if (body.isEmpty()) body = text(x.getCharSequence(Notification.EXTRA_TEXT));
         if (title.isEmpty() && body.isEmpty()) return;
-        NavSession s = NavSession.get(this);
+        // Apps post the same notification again without anything new (read on another device, a sync): shown once.
+        if (sbn.getKey().equals(s.popupKey) && body.equals(s.popupText) && title.equals(s.popupTitle)) return;
         s.popup(app(sbn.getPackageName()), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
     }
 
     /** A call that is answered or ends takes its card away at once. */
     @Override public void onNotificationRemoved(StatusBarNotification sbn) {
+        // Only a card shown during a ride can need clearing; otherwise touching NavSession would load the whole map.
+        if (!StreamService.navigationActive) return;
         NavSession s = NavSession.get(this);
         if (sbn.getKey().equals(s.popupKey) && s.popupCall) s.popupUntil = 0;
     }

@@ -160,7 +160,7 @@ final class BleClock {
         @SuppressLint("MissingPermission")
         void open() {
             try { gatt = device.connectGatt(context, false, this, BluetoothDevice.TRANSPORT_LE); }
-            catch (Exception e) { log(label + ": couldn't connect: " + e.getClass().getSimpleName()); return; }
+            catch (Exception e) { log(label + ": couldn't connect: " + e.getClass().getSimpleName()); close(); return; }
             main.postDelayed(quiet, QUIET_MS);
         }
 
@@ -185,6 +185,7 @@ final class BleClock {
                 // Room for the longer time answer in one write; services are looked up once the size is agreed.
                 try { if (!g.requestMtu(185)) g.discoverServices(); } catch (Exception e) { log(label + ": " + e.getClass().getSimpleName()); }
             } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                if (!spoke && status != BluetoothGatt.GATT_SUCCESS) synchronized (BleClock.this) { seen.remove(device.getAddress()); }
                 log(label + " disconnected (status " + status + ")" + (answers > 0 ? " after " + answers + " clock answer" + (answers == 1 ? "" : "s") + "." : "."));
                 close();
             }

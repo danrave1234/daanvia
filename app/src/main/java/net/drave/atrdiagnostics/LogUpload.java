@@ -31,10 +31,10 @@ final class LogUpload {
 
     private static final String ENDPOINT = "https://daanvia-logs.danravekeh123.workers.dev/v1/logs";
     private static final String KEY = "dv-logs-7f3c9a2e5b814d06";
-    private static final int MAX_OUTBOX = 1024 * 1024, KEEP_OUTBOX = 800 * 1024, MAX_SEND = 240 * 1024;
+    private static final int MAX_OUTBOX = 1024 * 1024, KEEP_OUTBOX = 800 * 1024, MAX_SEND = 200 * 1024;  // under the server's 256 KB after JSON escaping
     private static final long GAP_MS = 120_000;
     private static final ExecutorService io = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "log-upload"); t.setDaemon(true); return t; });
-    private static long lastTry;
+    private static volatile long lastTry;
 
     static boolean enabled(Context c) { return c.getSharedPreferences("ui", 0).getBoolean("send_logs", true); }
     static void setEnabled(Context c, boolean on) {
@@ -42,9 +42,22 @@ final class LogUpload {
         if (!on) synchronized (LogUpload.class) { outbox(c).delete(); sending(c).delete(); }
     }
 
-    /** Queue one log line (it should end with a newline), and send the outbox if the last try was a while ago. */
+    /**
+     * Last scrub before anything leaves the phone: whatever reached the log (a crash message, a share link) loses
+     * coordinates and device addresses here, even if the line was never cleaned where it was written.
+     */
+    static String scrub(String line) {
+        return line.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}", "[coordinate]").replaceAll("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}", "[device address]");
+    }
+    /** Queue one log line (it should end with a newline), and send the outbox if the last try was a while ago. Never blocks the caller. */
     static void add(Context c, String line) {
         if (!enabled(c)) return;
+        Context app = c.getApplicationContext();
+        io.execute(() -> append(app, scrub(line)));
+    }
+    /** For the crash handler, which can't wait for the queue: written straight away. */
+    static void addNow(Context c, String line) { if (enabled(c)) append(c.getApplicationContext(), scrub(line)); }
+    private static void append(Context c, String line) {
         synchronized (LogUpload.class) {
             File f = outbox(c);
             try (FileOutputStream o = new FileOutputStream(f, true)) { o.write(line.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
@@ -78,6 +91,7 @@ final class LogUpload {
                 int to = Math.min(all.length, from + MAX_SEND);
                 // Cut at a line break so no line is split between uploads.
                 if (to < all.length) for (int i = to - 1; i > from; i--) if (all[i] == '\n') { to = i + 1; break; }
+                if (!enabled(c)) { out.delete(); return; }  // turned off while sending: nothing more goes out
                 post(c, new String(all, from, to - from, StandardCharsets.UTF_8));
                 from = to;
                 if (from < all.length) { try (FileOutputStream o = new FileOutputStream(out, false)) { o.write(all, from, all.length - from); } }
@@ -99,7 +113,8 @@ final class LogUpload {
             h.setFixedLengthStreamingMode(bytes.length);
             try (OutputStream o = h.getOutputStream()) { o.write(bytes); }
             int code = h.getResponseCode();
-            if (code / 100 != 2) throw new IOException("Upload refused: " + code);
+            // Refused for good (too big, bad key): dropped, or that piece would block every later log. Busy: tried again later.
+            if (code == 408 || code == 429 || code >= 500) throw new IOException("Upload not taken now: " + code);
         } finally { h.disconnect(); }
     }
 

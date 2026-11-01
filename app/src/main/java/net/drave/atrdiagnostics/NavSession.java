@@ -119,7 +119,7 @@ public final class NavSession {
     });}
     public void signal(){context.sendBroadcast(new Intent(EVENT).setPackage(context.getPackageName()));}
     private final ArrayDeque<String> logs=new ArrayDeque<>();
-    public void message(String text){status=text;String clean=destination.isEmpty()?text:text.replace(destination,"[destination]");clean=clean.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}","[coordinate]");String line=new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+clean;synchronized(logs){if(logs.size()>=150)logs.removeFirst();logs.addLast(line);}LogUpload.add(context,line.replaceFirst(" ","  Ride: ")+"\n");signal();}
+    public void message(String text){status=text;String clean=destination.isEmpty()?text:text.replace(destination,"[destination]");clean=clean.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}","[coordinate]");String line=new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+clean;synchronized(logs){if(logs.size()>=150)logs.removeFirst();logs.addLast(line);}LogUpload.add(context,(regionName==null||regionName.isEmpty()?line:line.replace(regionName,"[area]")).replaceFirst(" ","  Ride: ")+"\n");signal();}
     public String report(){try{JSONObject j=new JSONObject().put("app","Daanvia "+BuildInfo.VERSION).put("region_ready",ready).put("navigation_active",active).put("simulation",simulation).put("route_points",shape.size()).put("gps_age_seconds",fixAt==0?-1:(SystemClock.elapsedRealtime()-fixAt)/1000).put("offline_region",regionId).put("installed_regions",regions.size()).put("layout",layout).put("location_and_identifiers","omitted").put("ride_metrics",RideMetrics.forReport(context));synchronized(logs){j.put("log",new JSONArray(logs));}return j.toString(2);}catch(Exception e){return "Report unavailable";}}
     private String asset(String p)throws Exception{return read(context.getAssets().open(p));}
     private static String read(InputStream stream)throws IOException{try(InputStream in=stream){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}}
@@ -306,6 +306,8 @@ public final class NavSession {
      */
     private void structures(Region region,RoutePlan plan){
         if(plan.shape.size()<2||plan.shape.size()>30000)return;
+        boolean anyFork=false;for(int i=0;i<plan.maneuvers.length()&&!anyFork;i++)anyFork=Maneuvers.fork(plan.maneuvers.optJSONObject(i)==null?0:plan.maneuvers.optJSONObject(i).optInt("type"));
+        if(!anyFork)return;  // nothing to label: skip the lookup, which costs time on every reroute
         try{
             JSONArray points=new JSONArray();for(double[] p:plan.shape)points.put(new JSONObject().put("lat",p[0]).put("lon",p[1]));
             JSONObject req=new JSONObject().put("shape",points).put("costing","motor_scooter").put("shape_match","edge_walk")
@@ -393,6 +395,8 @@ public final class NavSession {
                 if(cum.length==shape.size()){double want=cum[i]+25;while(i<shape.size()-1&&cum[i]<want)i++;}
                 la=shape.get(i)[0];lo=shape.get(i)[1];}
             lastReroute=SystemClock.elapsedRealtime();offRoute=0;
+            // A reroute already running was asked without this block: drop it, so the new one goes around the block.
+            requestId++;routing=false;
         }
         RoadBlocks.add(context,la,lo);
         message("Road marked as blocked · finding another way");

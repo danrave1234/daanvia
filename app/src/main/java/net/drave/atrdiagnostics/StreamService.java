@@ -43,7 +43,10 @@ public final class StreamService extends Service {
     private final java.util.concurrent.atomic.AtomicInteger channelIds=new java.util.concurrent.atomic.AtomicInteger();
     private Runnable deadline;
     private PowerManager.WakeLock navigationWake;
-    private volatile long lastFrameAt; private volatile boolean controlOpen; private boolean waitingNoted;
+    private volatile long lastFrameAt, lastControlAt; private boolean waitingNoted;
+    /** Control channels open now: the dashboard opens two (CAR_CTRL and CAR_DATA); the link is up while either is. */
+    private final java.util.concurrent.atomic.AtomicInteger controlChannels=new java.util.concurrent.atomic.AtomicInteger();
+    private boolean controlOpen(){return controlChannels.get()>0;}
     /** When the video frame now being sent started sending; 0 when none is. A send stuck this long means a stalled link. */
     private volatile long writingSince;
     /** The display stream has no time limit, so end it (and let the app reconnect) when the bike stops talking to it. */
@@ -52,12 +55,13 @@ public final class StreamService extends Service {
         // projection, or it came back after the phone closed Daanvia). Starting over every 45 s didn't bring the video back
         // (logs of 1 Nov: four restarts, no video) and gave the dashboard a new session each time, so wait for it instead.
         if(frames==0&&now-startedAt>45000){
-            if(!controlOpen){log("The display never asked for video within 45 s.");stopSelf();return;}
+            if(!controlOpen()){log("The display never asked for video within 45 s.");stopSelf();return;}
             if(!waitingNoted){waitingNoted=true;log("The bike is connected but showing its own screen; waiting for it to ask for directions.");}
+            if(now-lastControlAt>20000){log("The bike went quiet for 20 s; reconnecting.");stopSelf();return;}
         }
         // The bike can go back to its speedometer and stop asking for video while still holding the control connection open,
         // so a quiet video link alone ends the session; auto-connect then brings the directions back.
-        if(frames>0&&now-lastFrameAt>12000){log("The bike stopped asking for video ("+(controlOpen?"its control link was still open":"its control link had closed")+"). Reconnecting.");stopSelf();return;}
+        if(frames>0&&now-lastFrameAt>12000){log("The bike stopped asking for video ("+(controlOpen()?"its control link was still open":"its control link had closed")+"). Reconnecting.");stopSelf();return;}
         // A video send that never finishes (the Wi-Fi link stalled) can leave the control channel looking healthy, so it is
         // caught on its own; ending the session lets auto-connect start a fresh one.
         long w=writingSince;if(w>0&&now-w>15000){log("Sending video to the display has been stuck for 15 s; restarting the connection.");stopSelf();return;}
@@ -79,8 +83,13 @@ public final class StreamService extends Service {
             notifications.createNotificationChannel(new NotificationChannel("atr-stream","Dashboard stream test",NotificationManager.IMPORTANCE_LOW));
             PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,StreamService.class).setAction("stop"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             PendingIntent open=PendingIntent.getActivity(this,2,new Intent(this,HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            Notification n=new Notification.Builder(this,"atr-stream").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(navigation?"Daanvia is on your bike display":mirror?"Your screen is on your bike display":"Dashboard test pattern")
-                .setContentText(navigation?"Tap Stop to disconnect":"Temporary test • tap Stop to end").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).build();
+            // Buttons that work from the lock screen: Reconnect and Exit (RideActions), and Stop for the display alone.
+            Notification.Builder nb=new Notification.Builder(this,"atr-stream").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(navigation?"Daanvia is on your bike display":mirror?"Your screen is on your bike display":"Dashboard test pattern")
+                .setContentText(navigation?"Reconnect if the bike shows its own screen":"Temporary test • tap Stop to end").setContentIntent(open).setOngoing(true).setVisibility(Notification.VISIBILITY_PUBLIC);
+            if(navigation)nb.addAction(new Notification.Action.Builder(null,"Reconnect",RideActions.intent(this,RideActions.RECONNECT,3)).build());
+            nb.addAction(new Notification.Action.Builder(null,"Stop",stop).build());
+            if(navigation)nb.addAction(new Notification.Action.Builder(null,"Exit",RideActions.intent(this,RideActions.EXIT,4)).build());
+            Notification n=nb.build();
             int type=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
             if(mirror)type|=ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
             // Without a ride the bike display still follows the rider (a free ride), so this service keeps location going
@@ -142,14 +151,14 @@ public final class StreamService extends Service {
     private void control(Socket s)throws Exception {
         InputStream in=s.getInputStream();PxcWriter out=new PxcWriter(s.getOutputStream());
         int heartbeatCount=0,acknowledged=0;
-        ControlKeepalive keepalive=null;controlOpen=true;
+        ControlKeepalive keepalive=null;controlChannels.incrementAndGet();lastControlAt=System.currentTimeMillis();
         // The first time the dashboard sends each kind of request its contents go in the log (identity fields redacted),
         // with the phone's clock, so a shared report shows what the dashboard asks for, e.g. if it expects the time.
         Set<Integer> shown=new HashSet<>();
         log("Control channel open. Phone time "+clock()+".");
         try {
         while(running) {
-            Pxc f=Pxc.read(in);
+            Pxc f=Pxc.read(in);lastControlAt=System.currentTimeMillis();
             if(f.command!=0x70000000&&f.command!=0x70000001&&f.command!=Pxc.CLIENT_INFO&&shown.add(f.command)){
                 log("Dashboard sent 0x"+Integer.toHexString(f.command)+": "+preview(f.payload));remember(f.command,f.payload);}
             if(f.command==0x70000000){heartbeatCount++;if(heartbeatCount==1)log("Received and replying to control heartbeat #"+heartbeatCount);}
@@ -178,7 +187,7 @@ public final class StreamService extends Service {
                     .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",0).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
                 long huTime=bike.optLong("currentHUTime",0),seenAt=SystemClock.elapsedRealtime();log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
-                final PxcWriter clockOut=out;main.postDelayed(()->workers.execute(()->pushClock(clockOut,huTime,seenAt)),DashClock.ASK_GRACE_MS);
+                final PxcWriter clockOut=out;main.postDelayed(()->{if(running)workers.execute(()->pushClock(clockOut,huTime,seenAt));},DashClock.ASK_GRACE_MS);
                 // The Wi-Fi time answer alone leaves the QJ clock at 00:00; Carbit sets it over Bluetooth (see BleClock).
                 synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,m->event("log",m));main.post(bleClock::start);}}
             } else if(f.command==0x103e0) {
@@ -204,7 +213,7 @@ public final class StreamService extends Service {
             } else log("Unimplemented control command 0x"+Integer.toHexString(f.command)+"; payload length="+f.payload.length+"; no guessed reply sent.");
             out.flush();
         }
-        } finally {controlOpen=false;if(keepalive!=null)keepalive.close();log("Control channel closed. Phone time "+clock()+".");}
+        } finally {controlChannels.decrementAndGet();if(keepalive!=null)keepalive.close();log("Control channel closed. Phone time "+clock()+".");}
     }
     /** From the dashboard's CLIENT_INFO: its model number, and whether it wants a formatted date with the time. */
     private volatile String clockChannel="";private volatile boolean clockWithDate;
@@ -286,7 +295,7 @@ public final class StreamService extends Service {
     public void onDestroy() {
         navigationActive=false;mirroring=false;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
-        running=false;if(deadline!=null)main.removeCallbacks(deadline);main.removeCallbacks(watchdog);
+        running=false;main.removeCallbacksAndMessages(null);
         synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
         if(freeRide!=null){freeRide.stop();freeRide=null;}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}

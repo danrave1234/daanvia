@@ -53,6 +53,9 @@ final class MapStyle {
     static final String[] TERTIARY = {"tertiary", "tertiary_link"};
     static final String[] SECONDARY = {"secondary", "secondary_link"};
     static final String[] PRIMARY = {"primary", "primary_link", "trunk", "trunk_link", "motorway", "motorway_link"};
+    /** Every road kind drawn at ground level; overpasses and underpasses are drawn for exactly these. */
+    static final String[] DRAWN = concat(MINOR, TERTIARY, SECONDARY, PRIMARY);
+    private static String[] concat(String[]... parts) { ArrayList<String> all = new ArrayList<>(); for (String[] p : parts) all.addAll(Arrays.asList(p)); return all.toArray(new String[0]); }
 
     static void install(Context c, Style st, String roadsUri) {
         // Country overview (bundled): land and main roads, so riders can find their area before any map is downloaded.
@@ -75,8 +78,8 @@ final class MapStyle {
         LineLayer path = new LineLayer("road-path", ROADS_NEAR).withFilter(kinds(PATHS)).withProperties(lineWidth(width(15, 0.8f, 18, 2.4f)), lineDasharray(new Float[]{1.2f, 1.6f}));
         path.setMinZoom(15);
         st.addLayer(path);
-        Expression motorable = not(kinds(PATHS));
-        addTunnels(st, "road-tunnel", ROADS, all(has("tunnel"), motorable), null, 9);
+        Expression motorable = kinds(DRAWN);
+        addTunnels(st, "road-tunnel", ROADS, all(has("tunnel"), motorable), null, 7);
         addTunnels(st, "road-tunnel-near", ROADS_NEAR, all(has("tunnel"), motorable), null, 13);
         addRoad(st, "minor", MINOR, width(11, 0.3f, 14, 2.2f, 16, 6, 18, 15), width(13, 0.6f, 14, 3.4f, 16, 8, 18, 18), 13, ROADS_NEAR);
         addRoad(st, "tertiary", TERTIARY, width(10, 0.5f, 14, 3.4f, 16, 8, 18, 19), width(10, 0.9f, 14, 5, 16, 10.5f, 18, 23), 0);
@@ -87,7 +90,9 @@ final class MapStyle {
         // newer online geometry produces dark seams and capped fragments inside a continuous road.
         Expression onlineLevel = not(match(get("brunnel"), literal(false), stop("bridge", true), stop("tunnel", true)));
         Expression onlineRoad = match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true));
-        addTunnels(st, "online-road-tunnel", ONLINE, all(eq(get("brunnel"), "tunnel"), onlineRoad), "transportation", 12);
+        Expression onlineMajorClass = match(get("class"), literal(false), stop("motorway", true), stop("trunk", true), stop("primary", true), stop("secondary", true), stop("tertiary", true));
+        Expression onlineShown = any(onlineMajorClass, gte(zoom(), literal(12)));  // minor roads only from 12, as at ground level
+        addTunnels(st, "online-road-tunnel", ONLINE, all(eq(get("brunnel"), "tunnel"), onlineRoad, onlineShown), "transportation", 6);
         LineLayer onlineMinor = new LineLayer("online-road-minor", ONLINE).withFilter(all(onlineLevel, match(get("class"), literal(false), stop("minor", true), stop("service", true), stop("track", true))))
             .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(12, 0.4f, 14, 2.2f, 16, 6, 18, 15)));
         online(st, onlineMinor, "transportation", 12);
@@ -95,9 +100,9 @@ final class MapStyle {
             .withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(8, 0.7f, 14, 4.2f, 16, 9.5f, 18, 23)));
         online(st, onlineMajor, "transportation", 6);
         // Overpasses on top of every other road, offline and online.
-        addBridges(st, "road-bridge", ROADS, all(has("bridge"), motorable), null, 9);
+        addBridges(st, "road-bridge", ROADS, all(has("bridge"), motorable), null, 7);
         addBridges(st, "road-bridge-near", ROADS_NEAR, all(has("bridge"), motorable), null, 13);
-        addBridges(st, "online-road-bridge", ONLINE, all(eq(get("brunnel"), "bridge"), onlineRoad), "transportation", 12);
+        addBridges(st, "online-road-bridge", ONLINE, all(eq(get("brunnel"), "bridge"), onlineRoad, onlineShown), "transportation", 6);
 
         online(st, new SymbolLayer("online-street-names", ONLINE).withFilter(has("name")).withProperties(symbolPlacement(Property.SYMBOL_PLACEMENT_LINE), textField(get("name")), textFont(FONT),
             textSize(interpolate(linear(), zoom(), stop(13, 10f), stop(17, 13f))), textMaxAngle(30f), textPadding(4f)), "transportation_name", 14.5f);
@@ -175,7 +180,7 @@ final class MapStyle {
         if (sourceLayer != null) online(st, t, sourceLayer, minZoom); else { t.setMinZoom(minZoom); st.addLayer(t); }
     }
     private static void addBridges(Style st, String id, String source, Expression filter, String sourceLayer, float minZoom) {
-        Expression sort = coalesce(toNumber(get("layer")), literal(1));
+        Expression sort = toNumber(coalesce(get("layer"), literal(1)));
         LineLayer cs = new LineLayer(id + "-case", source).withFilter(filter).withProperties(lineCap(Property.LINE_CAP_BUTT), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(BRIDGE_CASE), lineSortKey(sort));
         LineLayer fill = new LineLayer(id, source).withFilter(filter).withProperties(lineCap(Property.LINE_CAP_BUTT), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(BRIDGE_FILL), lineSortKey(sort));
         if (sourceLayer != null) { online(st, cs, sourceLayer, minZoom); online(st, fill, sourceLayer, minZoom); }
@@ -215,11 +220,14 @@ final class MapStyle {
         Layer park = st.getLayer("online-park"); if (park != null) park.setProperties(fillColor(n ? 0xFF13261D : 0xFFD3E8C8));
         Layer bld = st.getLayer("online-building"); if (bld != null) bld.setProperties(fillColor(n ? 0xFF1A2430 : 0xFFE6E0D4), fillOutlineColor(n ? 0xFF222E3B : 0xFFD9D1C2));
         line(st, "online-road-minor", n ? 0xFF1C2733 : 0xFFFFFFFF, 1f);
-        Expression offlineFill = match(get("kind"), color((n ? 0xFF27323F : 0xFFFFFFFF)), stop("primary", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("trunk", color(n ? 0xFF3E4C5C : 0xFFFFDE93)),
-            stop("motorway", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("primary_link", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("trunk_link", color(n ? 0xFF3E4C5C : 0xFFFFDE93)),
-            stop("secondary", color(n ? 0xFF313E4C : 0xFFFFF1CC)), stop("secondary_link", color(n ? 0xFF313E4C : 0xFFFFF1CC)));
-        Expression onlineFill = match(get("class"), color((n ? 0xFF27323F : 0xFFFFFFFF)), stop("primary", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("trunk", color(n ? 0xFF3E4C5C : 0xFFFFDE93)),
-            stop("motorway", color(n ? 0xFF3E4C5C : 0xFFFFDE93)), stop("secondary", color(n ? 0xFF313E4C : 0xFFFFF1CC)));
+        int primary = n ? 0xFF3E4C5C : 0xFFFFDE93, secondary = n ? 0xFF313E4C : 0xFFFFF1CC, tertiary = n ? 0xFF27323F : 0xFFFFFFFF, minor = n ? 0xFF1C2733 : 0xFFFFFFFF;
+        ArrayList<Expression.Stop> byKind = new ArrayList<>();
+        for (String k : PRIMARY) byKind.add(stop(k, color(primary)));
+        for (String k : SECONDARY) byKind.add(stop(k, color(secondary)));
+        for (String k : TERTIARY) byKind.add(stop(k, color(tertiary)));
+        Expression offlineFill = match(get("kind"), color(minor), byKind.toArray(new Expression.Stop[0]));
+        Expression onlineFill = match(get("class"), color(minor), stop("motorway", color(primary)), stop("trunk", color(primary)), stop("primary", color(primary)),
+            stop("secondary", color(secondary)), stop("tertiary", color(tertiary)));
         int edge = n ? 0xFF020509 : 0xFF8F7F5A, under = n ? 0xFF2A3644 : 0xFFC9C2B0;
         for (String id : new String[]{"road-bridge", "road-bridge-near", "online-road-bridge"}) {
             line(st, id + "-case", edge, 1f);

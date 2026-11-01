@@ -11,7 +11,7 @@ public final class NavService extends Service {
         // Restarted by Android after the phone closed Daanvia mid-ride (this service is sticky during real rides).
         if(i==null)return resumeAfterRestart()?START_STICKY:START_NOT_STICKY;
         if("stop".equals(i.getAction())){if(s!=null)s.stop();stopService(new Intent(this,StreamService.class));stopSelf();return START_NOT_STICKY;}
-        s=NavSession.get(this);boolean demo=i.getBooleanExtra("demo",false);
+        s=NavSession.get(this);boolean demo=i.getBooleanExtra("demo",false);demoRide=demo;
         if("repeat".equals(i.getAction())||"audio_stop".equals(i.getAction())){
             if(!s.active){stopSelf();return START_NOT_STICKY;}
             ensureVoice();if("repeat".equals(i.getAction()))speakCurrent();else voice.stop();return s.simulation?START_NOT_STICKY:START_STICKY;
@@ -19,6 +19,7 @@ public final class NavService extends Service {
         try{
             foreground(demo);
             ensureVoice();
+            if(!demo)logStatus();
             s.active=true;s.simulation=demo;prompts.reset();filter.reset();
             metrics=new RideMetrics(this);handler.removeCallbacks(measure);handler.post(measure);
             if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();}
@@ -30,10 +31,10 @@ public final class NavService extends Service {
     private void foreground(boolean demo){
             getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("daanvia-nav","Navigation",NotificationManager.IMPORTANCE_LOW));
             PendingIntent open=PendingIntent.getActivity(this,20,new Intent(this,HomeActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            PendingIntent stop=PendingIntent.getService(this,21,new Intent(this,NavService.class).setAction("stop"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            PendingIntent repeat=PendingIntent.getService(this,23,new Intent(this,NavService.class).setAction("repeat"),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             PendingIntent commands=PendingIntent.getActivity(this,24,new Intent(this,VoiceCommandsActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            Notification n=new Notification.Builder(this,"daanvia-nav").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText("Tap to return to directions").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"Repeat",repeat).build()).addAction(new Notification.Action.Builder(null,"Commands",commands).build()).addAction(new Notification.Action.Builder(null,"Stop",stop).build()).build();
+            Notification n=new Notification.Builder(this,"daanvia-nav").setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText("Tap to return to directions").setContentIntent(open).setOngoing(true).setVisibility(Notification.VISIBILITY_PUBLIC)
+                // Work from the lock screen: Reconnect bike and Exit run in the background; Commands opens over the lock screen.
+                .addAction(new Notification.Action.Builder(null,"Reconnect bike",RideActions.intent(this,RideActions.RECONNECT,25)).build()).addAction(new Notification.Action.Builder(null,"Commands",commands).build()).addAction(new Notification.Action.Builder(null,"Exit",RideActions.intent(this,RideActions.EXIT,26)).build()).build();
             startForeground(22,n,demo?android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE:android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
     }
     /**
@@ -58,7 +59,7 @@ public final class NavService extends Service {
                 boolean fix=s.fixAt>0&&SystemClock.elapsedRealtime()-s.fixAt<15000;
                 if(s.ready&&fix&&!s.routing){
                     if(s.shape.isEmpty()||Math.abs(s.destLat-la)>1e-6||Math.abs(s.destLon-lo)>1e-6){try{org.json.JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");if(via!=null&&via.length()==2)s.resumeVia(new double[]{via.getDouble(0),via.getDouble(1)});if(stops!=null&&stops.length()>0)s.planTrip(TripStop.parse(stops.toString()),name);else s.plan(la,lo,name,false);}catch(Exception badTrip){s.message("Saved trip could not be restored");stopSelf();return;}}
-                    else{s.active=true;s.simulation=false;prompts.reset();filter.reset();handler.post(measure);s.message("Picked up your ride to "+name);s.signal();
+                    else{logStatus();s.active=true;s.simulation=false;prompts.reset();filter.reset();handler.post(measure);s.message("Picked up your ride to "+name);s.signal();
                         DashboardLink.headless(NavService.this).allowAuto();searches=0;handler.removeCallbacks(bikeSearch);handler.post(bikeSearch);return;}
                 }
                 handler.postDelayed(this,2000);}};
@@ -133,10 +134,14 @@ public final class NavService extends Service {
         if(voice.speak(text))prompts.spoken(stage,now);
     }
     private void startSimulation(){if(simulator!=null)handler.removeCallbacks(simulator);demoIndex=0;simulator=new Runnable(){public void run(){if(!s.active||!s.simulation)return;if(!s.shape.isEmpty()){double[] p=s.shape.get(Math.min(demoIndex,s.shape.size()-1));double[] next=s.shape.get(Math.min(demoIndex+1,s.shape.size()-1));s.speedMetersPerSecond=8;s.update(p[0],p[1],3,GeoMath.bearing(p,next),true);speak();demoIndex=Math.min(demoIndex+1,s.shape.size()-1);}handler.postDelayed(this,900);}};handler.post(simulator);}
+    /** Into the uploaded log only (not the ride status on screen): whether the phone may close Daanvia mid-ride. */
+    /** This ride is a demo: its numbers are not uploaded (s.simulation is already cleared when the service ends). */
+    private boolean demoRide;
+    private void logStatus(){LogUpload.add(this,new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  "+KeepAlive.status(this)+"\n");}
     @android.annotation.SuppressLint("MissingPermission")
     public void onDestroy(){
         // The ride's battery, heat and display numbers go with the log, sent now that the ride is over.
-        if(metrics!=null&&s!=null&&!s.simulation)LogUpload.add(this,new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  Ride diagnostics: "+RideMetrics.forReport(this)+"\n");
+        if(metrics!=null&&!demoRide)LogUpload.add(this,new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  Ride diagnostics: "+RideMetrics.forReport(this).optJSONObject("latest")+"\n");
         LogUpload.now(this);
         handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }

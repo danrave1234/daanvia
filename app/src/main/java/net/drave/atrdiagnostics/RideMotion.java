@@ -22,7 +22,9 @@ final class RideMotion {
         if (s.fixAt != lastFix) {
             boolean first = lastFix == -1 || lat == 0;
             double moved = first ? 0 : GeoMath.distance(toLat, toLon, s.viewLat, s.viewLon); long dt = Math.max(1, now - poseAt);
-            if (!first && dt < 5000) speed = speed * 0.6 + Math.min(40, moved / (dt / 1000.0)) * 0.4;
+            // Fixes of a rider standing still come 15 s apart (Here drops repeats), so after a long gap the speed is the
+            // average over it (about 0), not the last one from braking, or the bike display stayed in ride view while parked.
+            if (!first) { double v = Math.min(40, moved / (dt / 1000.0)); speed = dt < 5000 ? speed * 0.6 + v * 0.4 : v; }
             fromLat = first ? s.viewLat : lat; fromLon = first ? s.viewLon : lon; fromBearing = first ? s.viewBearing : bearing;
             toLat = s.viewLat; toLon = s.viewLon; toBearing = s.viewBearing; poseAt = now; lastFix = s.fixAt;
         }

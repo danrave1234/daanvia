@@ -132,6 +132,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         mapView.getMapAsync(this::onMap);
         worker.execute(() -> { if (!s.active && (AreaStore.state() == null || !AreaStore.state().running)) Housekeeping.run(this, false); });
         link = DashboardLink.attach(this, this); linkedQr = savedQr();
+        // Exit on a notification (RideActions) closes the map too.
+        androidx.core.content.ContextCompat.registerReceiver(this, closeScreens, new IntentFilter(RideActions.CLOSE_SCREENS), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         handleIntent(getIntent());
     }
     protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); handleIntent(i); }
@@ -179,7 +181,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     protected void onStop() { rideFrames = false; placeRideArrow(false); ui.removeCallbacks(autoBikeMode); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     /** This launch only opened the move screen: nothing was set up, so there is nothing to tear down. */
     private boolean moving, offerUninstallOld;
-    protected void onDestroy() { if (moving) { super.onDestroy(); return; } ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (debugReceiver != null) unregisterReceiver(debugReceiver); style = null; layersReady = false; worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
+    private final BroadcastReceiver closeScreens = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { finishAndRemoveTask(); } };
+    protected void onDestroy() { if (moving) { super.onDestroy(); return; } try { unregisterReceiver(closeScreens); } catch (Exception ignored) {} ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (debugReceiver != null) unregisterReceiver(debugReceiver); style = null; layersReady = false; worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); if (mapView != null) mapView.onLowMemory(); }
     /*
      * The phone hidden in a pocket, or Android short of memory: let the map drop the tiles it keeps in memory. A smaller
@@ -722,7 +725,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             if (!dup) { fresh.add(pl); shownNames.add(pl.name); shownSpots.add(new double[]{pl.lat, pl.lon}); }
         }
         if (fresh.isEmpty()) {
-            if (results.getChildCount() == 0) results.addView(k.listRow(IconDrawable.SEARCH, "Can\u2019t find \u201c" + q.trim() + "\u201d", found == null ? "No signal for online search. Try another spelling, or share the place from Google Maps" : "Try another spelling, or share the place to Daanvia from Google Maps", null, null));
+            if (results.getChildCount() == 0) results.addView(k.listRow(IconDrawable.SEARCH, "Can\u2019t find \u201c" + q.trim() + "\u201d", found == null ? "No signal for online search. Try another spelling, or find it in Google Maps" : "Try another spelling, or find it in Google Maps", null, null));
+            if (q.trim().length() >= 3) results.addView(googleRow(q));
             return;
         }
         int start = results.getChildCount();
@@ -733,10 +737,68 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             boolean chain = seen.get(SearchIndex.fold(pl.name)) > 1 || index != null && index.copies(pl.name) > 1; String name = chain ? pl.branch : pl.name;
             results.addView(k.listRow(IconDrawable.PIN, highlight(name, q), pl.address.isEmpty() ? null : pl.address, Gabi.distance(GeoMath.distance(fromLat, fromLon, pl.lat, pl.lon)), () -> choose(pl.lat, pl.lon, name)));
         }
+        results.addView(googleRow(q));
         for (int i = start; i < results.getChildCount(); i++) {
             View v = results.getChildAt(i); v.setAlpha(0f); v.setTranslationY(k.dp(12));
             v.animate().alpha(1f).translationY(0).setStartDelay(Math.min(i - start, 10) * 22L).setDuration(360).setInterpolator(Gabi.EASE_OUT).start();
         }
+    }
+    /*
+     * Google Maps knows new places (and new roads) before OpenStreetMap does. Without a paid key Daanvia can't search it
+     * itself, so it hands the search to Google Maps and takes the place back: from Share › Daanvia there, or from a link
+     * the rider copied, noticed when they come back. Either way the route preview opens straight away.
+     */
+    private long googleAt, googleWall; private String lastClip;
+    private static final long GOOGLE_WINDOW_MS = 15 * 60_000L;
+    private View googleRow(String q) {
+        return k.listRow(IconDrawable.SEARCH, "Find \u201c" + q.trim() + "\u201d in Google Maps", "Newer places. Tap Share › Daanvia there, or copy the link and come back", null, () -> openGoogle(q));
+    }
+    private void openGoogle(String q) {
+        hideKeyboard(); googleAt = SystemClock.elapsedRealtime(); googleWall = System.currentTimeMillis();
+        try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=" + android.net.Uri.encode(q.trim())))); }
+        catch (Exception e) { googleAt = 0; notice("Google Maps isn\u2019t available on this phone"); }
+    }
+    /** A Google Maps link or a geo: link: anything else on the clipboard (a video, a message) is not a place. */
+    static boolean googleMapsLink(String text) {
+        String t = text.toLowerCase(java.util.Locale.ROOT);
+        return t.contains("maps.app.goo.gl") || t.contains("goo.gl/maps") || t.contains("google.com/maps") || t.contains("maps.google.") || t.startsWith("geo:");
+    }
+    private boolean fromGoogle() { return googleAt > 0 && SystemClock.elapsedRealtime() - googleAt < GOOGLE_WINDOW_MS; }
+    /** Back from Google Maps with a copied link: offer to ride there. Only right after the handoff, so the clipboard is left alone otherwise. */
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (!focused || !fromGoogle() || s.active) return;
+        String text = null;
+        try { android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+            // The description says what's there and when, without reading it (reading shows Android's "pasted" notice):
+            // only text copied after Google Maps was opened is looked at.
+            android.content.ClipDescription d = cm == null ? null : cm.getPrimaryClipDescription();
+            if (d == null || !d.hasMimeType("text/*") || Build.VERSION.SDK_INT >= 26 && d.getTimestamp() < googleWall) return;
+            android.content.ClipData clip = cm.getPrimaryClip();
+            if (clip != null && clip.getItemCount() > 0 && clip.getItemAt(0).getText() != null) text = clip.getItemAt(0).getText().toString(); } catch (Exception ignored) {}
+        if (text == null || text.equals(lastClip) || !googleMapsLink(text) || ShareLinks.parse(text) == null) return;
+        lastClip = text; googleAt = 0; String shared = text;
+        notice("Use the place you copied from Google Maps?", "Ride there", () -> openShared(shared, true), 12000);
+    }
+    /** A place from Google Maps (shared or copied): straight to the route preview when it came from a search, else saved as a place. */
+    private void openShared(String text, boolean ride) {
+        ShareLinks.Place place = ShareLinks.parse(text);
+        if (place == null) { notice("That share has no place in it. In Google Maps, open the place and tap Share."); return; }
+        if (place.located()) { useShared(place, ride); return; }
+        notice("Opening the shared place\u2026");
+        net.execute(() -> {
+            ShareLinks.Place found;
+            try { found = ShareLinks.resolve(place); } catch (Exception e) { found = place; }
+            ShareLinks.Place r = found;
+            ui.post(() -> {
+                if (r.located()) useShared(r, ride);
+                else notice("Couldn\u2019t open that link. Try again with signal, or press and hold the map to pin it.");
+            });
+        });
+    }
+    private void useShared(ShareLinks.Place p, boolean ride) {
+        String name = p.name.equals("Shared place") ? "" : p.name;
+        if (ride) choose(p.lat, p.lon, name.isEmpty() ? "Place from Google Maps" : name); else openSave(name, p.lat, p.lon);
     }
     private void showResults(String q, Object[] r) {
         results.removeAllViews(); shownNames.clear(); shownSpots.clear();
@@ -1197,7 +1259,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             org.json.JSONObject r = new org.json.JSONObject(raw);
             if (System.currentTimeMillis() - Math.max(r.getLong("at"), u.getLong("ride_alive", 0)) > 30 * 60_000L) { u.edit().remove("ride").apply(); return; }
             double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
-            boolean killed = KeepAlive.killedBySystem(this);
+            boolean killed = KeepAlive.killedBySystem(this); KeepAlive.recheckColorOs(this);
             JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");
             // Back on the route the rider chose, not the quickest one (see NavSession.chosenVia).
             if(via!=null&&via.length()==2)s.resumeVia(new double[]{via.getDouble(0),via.getDouble(1)});
@@ -1390,7 +1452,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         // During a ride the ride service follows GPS; the map's own listener would only duplicate it.
         // During a ride the arrow follows the road; standing around, the dot's beam follows the phone's compass.
         if (riding) here.stop(); else if (started) here.start();
-        if (riding && !bikeMode) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (riding && (!bikeMode || KeepAlive.keepScreenOn())) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (riding) armBikeMode();
         if (prev == Mode.RIDE && !riding && map != null) map.animateCamera(CameraUpdateFactory.newCameraPosition(new CameraPosition.Builder(map.getCameraPosition()).tilt(0).bearing(0).zoom(14.5).padding(0, 0, 0, 0).build()), 900);
         layoutInsets(); paintLocateFab(); paintMap();
@@ -1660,7 +1722,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         paintBikeMode();
         bikeView.setAlpha(0f); bikeView.setVisibility(View.VISIBLE); bikeView.animate().alpha(1f).setDuration(400).withEndAction(() -> { if (bikeMode) mapView.setVisibility(View.INVISIBLE); }).start();
         WindowManager.LayoutParams lp = getWindow().getAttributes(); savedBrightness = lp.screenBrightness; lp.screenBrightness = 0.05f; getWindow().setAttributes(lp);
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // OPPO, OnePlus and realme close apps soon after the screen turns off (logs of 1 Nov: the screen was on 9% of the
+        // ride when the phone closed Daanvia), so there the dark resting screen stays on. Elsewhere it may turn off.
+        if (KeepAlive.keepScreenOn()) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
     private void leaveBikeMode() {
         if (!bikeMode) return;
@@ -1796,19 +1861,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         } else if (Intent.ACTION_VIEW.equals(i.getAction()) && i.getData() != null) text = i.getData().toString();
         if (text == null) return;
         setIntent(new Intent(this, HomeActivity.class));
-        ShareLinks.Place place = ShareLinks.parse(text);
-        if (place == null) { notice("That share has no place in it. In Google Maps, open the place and tap Share."); return; }
-        if (place.located()) { openSave(place.name.equals("Shared place") ? "" : place.name, place.lat, place.lon); return; }
-        notice("Opening the shared place…");
-        net.execute(() -> {
-            ShareLinks.Place found;
-            try { found = ShareLinks.resolve(place); } catch (Exception e) { found = place; }
-            ShareLinks.Place r = found;
-            ui.post(() -> {
-                if (r.located()) openSave(r.name.equals("Shared place") ? "" : r.name, r.lat, r.lon);
-                else notice("Couldn’t open that link. Try again with signal, or press and hold the map to pin it.");
-            });
-        });
+        boolean ride = fromGoogle() && !s.active; googleAt = 0;
+        openShared(text, ride);
     }
 
     // ================================================================ bike display

@@ -60,6 +60,28 @@ final class KeepAlive {
         String m = (android.os.Build.MANUFACTURER + " " + android.os.Build.BRAND).toLowerCase(java.util.Locale.ROOT);
         return m.contains("oneplus") ? "OnePlus" : m.contains("realme") ? "realme" : m.contains("oppo") ? "OPPO" : null;
     }
+    /** For the log at the start of each ride: everything that decides whether the phone may close Daanvia mid-ride. */
+    static String status(Context c) {
+        StringBuilder b = new StringBuilder("Staying alive: battery limits ").append(allowed(c) ? "off (good)" : "ON, the phone may close Daanvia");
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            android.app.ActivityManager am = c.getSystemService(android.app.ActivityManager.class);
+            if (am != null && am.isBackgroundRestricted()) b.append("; background use RESTRICTED");
+            android.app.usage.UsageStatsManager u = c.getSystemService(android.app.usage.UsageStatsManager.class);
+            if (u != null) b.append("; standby bucket ").append(u.getAppStandbyBucket());
+        }
+        String brand = colorOs();
+        if (brand != null) b.append("; ").append(brand).append(" steps ").append(colorOsDone(c) ? "marked done" : "not done");
+        return b.append('.').toString();
+    }
+    /**
+     * Closed by the phone although the rider marked the ColorOS steps done: they didn't hold (an update can undo them),
+     * so the steps are offered again.
+     */
+    static void recheckColorOs(Context c) {
+        if (colorOs() != null && colorOsDone(c) && killedBySystem(c)) c.getSharedPreferences("ui", 0).edit().putBoolean("coloros_done", false).remove("coloros_reminded").apply();
+    }
+    /** ColorOS closes apps soon after the screen goes off: on those phones the resting screen stays on, dark and dim. */
+    static boolean keepScreenOn() { return colorOs() != null; }
     /** The rider said they've set up ColorOS's own settings for Daanvia. */
     static boolean colorOsDone(Context c) { return c.getSharedPreferences("ui", 0).getBoolean("coloros_done", false); }
     /** On a ColorOS phone not yet set up: a reminder at most once every three days. */
