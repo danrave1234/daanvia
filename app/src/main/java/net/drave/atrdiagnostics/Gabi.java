@@ -95,6 +95,8 @@ public final class Gabi {
         public void add(Paint p) { list.add(p); p.apply(palette); }
         /** Forget every listener: for a part of the screen that is rebuilt from scratch (see RouteChoicesView). */
         public void clear() { list.clear(); }
+        /** A themer following this one, for a part of the screen rebuilt from scratch: cleared at each rebuild, so this list doesn't grow with it. */
+        public Themer child() { Themer t = new Themer(palette); add(t::set); return t; }
         public boolean set(Palette p) { if (p == palette) return false; palette = p; for (Paint x : list) x.apply(p); return true; }
     }
 
@@ -181,7 +183,8 @@ public final class Gabi {
             ViewGroup root = (ViewGroup)anchor.getRootView();
             FrameLayout scrim = new FrameLayout(c); scrim.setClickable(true); scrim.setElevation(dp(40));
             TextView bubble = text(text, 14, 550, Role.INK); bubble.setLineSpacing(0, 1.25f); bubble.setPadding(dp(16), dp(14), dp(16), dp(14));
-            t.add(p -> bubble.setBackground(round(p.night ? 0xFF1E2935 : 0xFFFFFFFF, dp(18), p.stroke, dp(1)))); bubble.setElevation(dp(16));
+            // Painted once for the palette of the moment: a bubble lives seconds, and a theme listener would keep it for the screen's lifetime.
+            bubble.setBackground(round(t.palette.night ? 0xFF1E2935 : 0xFFFFFFFF, dp(18), t.palette.stroke, dp(1))); bubble.setElevation(dp(16));
             int width = Math.min(root.getWidth() - dp(32), dp(320));
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(width, -2);
             int[] at = new int[2]; anchor.getLocationInWindow(at);
@@ -339,6 +342,8 @@ public final class Gabi {
         return m < 60 ? m + " min" : (m / 60) + " h " + (m % 60) + " min";
     }
     public static String clock(double secondsFromNow) {
-        return new java.text.SimpleDateFormat("h:mm a", Locale.US).format(new Date(System.currentTimeMillis() + Math.round(secondsFromNow * 1000)));
+        return CLOCK.get().format(new Date(System.currentTimeMillis() + Math.round(secondsFromNow * 1000)));
     }
+    // One formatter per thread (they aren't thread-safe): building one parses the pattern and loads locale data each time.
+    private static final ThreadLocal<java.text.SimpleDateFormat> CLOCK = ThreadLocal.withInitial(() -> new java.text.SimpleDateFormat("h:mm a", Locale.US));
 }

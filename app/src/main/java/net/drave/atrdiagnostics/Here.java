@@ -45,6 +45,8 @@ final class Here {
         feed.start();
     }
     void stop() { feed.stop(); }
+    /** Follows the ride state: paused while a ride runs (NavService has its own feed; two at once cost battery), back on after it. */
+    void sync() { if (s.active || s.simulation) feed.stop(); else start(); }
 
     private void feed(Location l) { feed(l, l.getAccuracy()); }
     private void feed(Location l, float acc) {

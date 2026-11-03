@@ -87,7 +87,8 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
     // ---- GPS check
     private TextView gpsText, gpsBtn; private android.location.LocationManager lm; private android.location.Location fix; private int used, seen; private boolean gpsOn;
     private final android.os.Handler tick = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final android.location.LocationListener gpsListener = l -> { fix = l; paintGps(); };
+    // Compat: on Android 10 a plain LocationListener lambda lacks onProviderDisabled, which the system calls when GPS is switched off.
+    private final androidx.core.location.LocationListenerCompat gpsListener = l -> { fix = l; paintGps(); };
     private final android.location.GnssStatus.Callback gnss = new android.location.GnssStatus.Callback() {
         public void onSatelliteStatusChanged(android.location.GnssStatus st) { int u = 0; for (int i = 0; i < st.getSatelliteCount(); i++) if (st.usedInFix(i)) u++; used = u; seen = st.getSatelliteCount(); paintGps(); }
     };
@@ -129,12 +130,19 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         Gabi.show(choices, true, k.dp(8));
     }
     private void shareReport() {
-        try {
-            Uri uri = link.writeReport();
-            // The log also goes as plain text, so pasting it into a chat keeps every line readable.
-            Intent send = new Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_TEXT, tail(link.reportText())).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            send.setClipData(ClipData.newRawUri("Daanvia diagnostic report", uri)); startActivity(Intent.createChooser(send, "Share diagnostic report"));
-        } catch (Exception e) { link.note("Could not share report: " + e.getMessage()); }
+        // The report (up to 150 KB of log) is written off the main thread, then the chooser opens.
+        new Thread(() -> {
+            try {
+                Uri uri = link.writeReport(); String text = tail(link.reportText());
+                runOnUiThread(() -> {
+                    if (isDestroyed()) return;
+                    // The log also goes as plain text, so pasting it into a chat keeps every line readable.
+                    Intent send = new Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_TEXT, text).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    send.setClipData(ClipData.newRawUri("Daanvia diagnostic report", uri));
+                    try { startActivity(Intent.createChooser(send, "Share diagnostic report")); } catch (Exception e) { link.note("Could not share report: " + e.getMessage()); }
+                });
+            } catch (Exception e) { runOnUiThread(() -> link.note("Could not share report: " + e.getMessage())); }
+        }, "daanvia-report").start();
     }
 
     /**
@@ -185,7 +193,8 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
     }
 
     public void onStatus(String s) { status.setText(s); }
-    public void onLog() { log.setText(link == null ? "" : link.reportText()); logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN)); }
+    // Scrolled without moving focus: fullScroll would focus the (selectable) log text, and the page would jump down to the Log card on every line.
+    public void onLog() { log.setText(link == null ? "" : link.reportText()); logScroll.post(() -> logScroll.scrollTo(0, Math.max(0, log.getHeight() - logScroll.getHeight()))); }
     public void onChanged() {
         if (link == null) return;
         boolean id = link.identificationAccepted();

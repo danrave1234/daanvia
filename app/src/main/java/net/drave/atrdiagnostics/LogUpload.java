@@ -32,7 +32,9 @@ final class LogUpload {
     private static final String ENDPOINT = "https://daanvia-logs.danravekeh123.workers.dev/v1/logs";
     private static final String KEY = "dv-logs-7f3c9a2e5b814d06";
     private static final int MAX_OUTBOX = 1024 * 1024, KEEP_OUTBOX = 800 * 1024, MAX_SEND = 200 * 1024;  // under the server's 256 KB after JSON escaping
-    private static final long GAP_MS = 120_000;
+    // Routine lines wait up to five minutes (each send wakes the radio; the queue is a file, so a closed app loses nothing);
+    // a drop or a ride's end sends at once (now).
+    private static final long GAP_MS = 300_000;
     private static final ExecutorService io = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "log-upload"); t.setDaemon(true); return t; });
     private static volatile long lastTry;
 

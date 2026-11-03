@@ -42,11 +42,18 @@ final class RideMetrics {
                 row.put("battery_percent",level<0||scale<=0?-1:Math.round(1000.0*level/scale)/10.0).put("battery_temperature_c",battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE,0)/10.0)
                     .put("plugged",battery.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)!=0);}
             if(samples.length()>=720)samples.remove(0);samples.put(row);
-            JSONObject report=new JSONObject().put("simulation",s.simulation)
-                .put("emulator",Build.FINGERPRINT.contains("generic")||Build.MODEL.contains("Emulator")||Build.HARDWARE.contains("ranchu"))
-                .put("sample_interval_s",30).put("samples",samples).put("location_and_identifiers","omitted");
-            context.getSharedPreferences("ride-metrics",0).edit().putString("latest",report.toString()).apply();
+            // Saved every 5 minutes and at the ride's end (flush): saving rewrites the whole settings file, up to 200 KB.
+            if(++count%10==0)persist(s);
         }catch(Exception e){android.util.Log.w("Daanvia","Ride diagnostics unavailable",e);}
+    }
+    private int count;
+    /** Writes the samples so far; called when the ride ends. */
+    void flush(NavSession s){try{persist(s);}catch(Exception e){android.util.Log.w("Daanvia","Ride diagnostics unavailable",e);}}
+    private void persist(NavSession s)throws org.json.JSONException{
+        JSONObject report=new JSONObject().put("simulation",s.simulation)
+            .put("emulator",Build.FINGERPRINT.contains("generic")||Build.MODEL.contains("Emulator")||Build.HARDWARE.contains("ranchu"))
+            .put("sample_interval_s",30).put("samples",samples).put("location_and_identifiers","omitted");
+        context.getSharedPreferences("ride-metrics",0).edit().putString("latest",report.toString()).apply();
     }
     private static JSONObject read(Context c,String key){try{return new JSONObject(c.getSharedPreferences("ride-metrics",0).getString(key,"{}"));}catch(Exception e){return new JSONObject();}}
     /**

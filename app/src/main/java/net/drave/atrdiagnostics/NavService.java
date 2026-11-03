@@ -10,7 +10,8 @@ public final class NavService extends Service {
         if(finishing!=null){handler.removeCallbacks(finishing);finishing=null;}
         // Restarted by Android after the phone closed Daanvia mid-ride (this service is sticky during real rides).
         if(i==null)return resumeAfterRestart()?START_STICKY:START_NOT_STICKY;
-        if("stop".equals(i.getAction())){if(s!=null)s.stop();stopService(new Intent(this,StreamService.class));stopSelf();return START_NOT_STICKY;}
+        // The display is stopped through its link, which then knows the rider meant it (not a drop to reconnect from).
+        if("stop".equals(i.getAction())){if(s!=null)s.stop();DashboardLink link=DashboardLink.existing();if(link!=null)link.stop();else stopService(new Intent(this,StreamService.class));stopSelf();return START_NOT_STICKY;}
         s=NavSession.get(this);boolean demo=i.getBooleanExtra("demo",false);demoRide=demo;
         if("repeat".equals(i.getAction())||"audio_stop".equals(i.getAction())){
             if(!s.active){stopSelf();return START_NOT_STICKY;}
@@ -36,7 +37,12 @@ public final class NavService extends Service {
                 // Work from the lock screen: Reconnect bike and Exit run in the background; Commands opens over the lock screen.
                 .addAction(new Notification.Action.Builder(null,"Reconnect bike",RideActions.intent(this,RideActions.RECONNECT,25)).build()).addAction(new Notification.Action.Builder(null,"Commands",commands).build()).addAction(new Notification.Action.Builder(null,"Exit",RideActions.intent(this,RideActions.EXIT,26)).build()).build();
             startForeground(22,n,demo?android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE:android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            // OPPO/OnePlus/realme close apps ~5 min after the screen goes off unless they play audio (see QuietAudio): for
+            // the whole ride, not only while the bike display is connected.
+            if(!demo&&KeepAlive.colorOs()!=null){if(quiet==null)quiet=new QuietAudio(m->LogUpload.add(this,stamp()+m+"\n"));quiet.start(this);}
     }
+    private QuietAudio quiet;
+    private static String stamp(){return new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  ";}
     /**
      * After the phone closed Daanvia mid-ride and Android restarted this service: pick the ride up on its own, with the
      * phone still in the pocket. Wait for the map and a GPS fix, route again to the same place, carry on guiding, and
@@ -141,7 +147,8 @@ public final class NavService extends Service {
     @android.annotation.SuppressLint("MissingPermission")
     public void onDestroy(){
         // The ride's battery, heat and display numbers go with the log, sent now that the ride is over.
+        if(metrics!=null&&s!=null)metrics.flush(s);
         if(metrics!=null&&!demoRide)LogUpload.add(this,new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  Ride diagnostics: "+RideMetrics.forReport(this).optJSONObject("latest")+"\n");
         LogUpload.now(this);
-        handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+        handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(quiet!=null){quiet.stop();quiet=null;}if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }

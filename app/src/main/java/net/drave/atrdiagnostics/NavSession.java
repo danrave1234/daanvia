@@ -13,6 +13,8 @@ public final class NavSession {
     public static synchronized NavSession get(Context c){if(instance==null)instance=new NavSession(c.getApplicationContext());return instance;}
     public final Context context;
     public final ExecutorService worker=Executors.newSingleThreadExecutor();
+    /** Reading an area's roads (a 60 MB file) runs here, so a route asked for meanwhile isn't queued behind it. */
+    private final ExecutorService roads=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"daanvia-roads");t.setPriority(Thread.MIN_PRIORITY);return t;});
     public volatile boolean ready,active,simulation,calibration,routing,noMap;
     public volatile String status="Preparing offline maps…",instruction="Choose a destination",destination="";
     public volatile double lat=10.3157,lon=123.8854,destLat,destLon,remaining,seconds,distanceToTurn;
@@ -153,7 +155,7 @@ public final class NavSession {
         Places placeList=places(r);JSONArray parkingList=new JSONArray(text(r,"parking.json"));
         minLon=r.bounds[0];minLat=r.bounds[1];maxLon=r.bounds[2];maxLat=r.bounds[3];regionName=r.name;
         JSONObject demo=region.optJSONObject("demo");if(demo!=null){JSONArray f=demo.getJSONArray("from"),t=demo.getJSONArray("to");demoFrom=new double[]{f.getDouble(0),f.getDouble(1)};demoTo=new double[]{t.getDouble(0),t.getDouble(1)};demoName=demo.optString("name",demoName);}JSONArray hc=region.optJSONArray("home");home=hc!=null?new double[]{hc.getDouble(0),hc.getDouble(1)}:null;
-        if(r.dir!=null&&RoadTiles.ready(r.dir)){roadsUri=Uri.fromFile(new File(new File(r.dir,RoadTiles.DIR),RoadTiles.MAJOR)).toString();roadTiles=new File(r.dir,RoadTiles.DIR);}else if(r.dir!=null){roadsUri=null;roadTiles=null;}else{roadsUri=uri(r,"roads.geojson");roadTiles=null;}roadsVersion++;roadIndex=new RoadTiles.Index();places=placeList;parking=parkingList;mergeSavedParking();
+        if(r.dir!=null&&RoadTiles.ready(r.dir)){roadsUri=Uri.fromFile(new File(new File(r.dir,RoadTiles.DIR),RoadTiles.MAJOR)).toString();roadTiles=new File(r.dir,RoadTiles.DIR);}else if(r.dir!=null){roadsUri=null;roadTiles=null;}else{roadsUri=uri(r,"roads.geojson");roadTiles=null;}roadsVersion++;if(!active)roadIndex=new RoadTiles.Index();/* mid-ride the old roads stay until the next area's are loaded (see followArea) */places=placeList;parking=parkingList;mergeSavedParking();
         shown=r;regionId=r.id;regionVersion++;context.getSharedPreferences("offline-region",0).edit().putString("shown",r.id).apply();
     }
     /** Place names and positions, streamed from places.json. */
@@ -178,7 +180,7 @@ public final class NavSession {
             try(android.util.JsonReader reader=json(r,"roads.geojson")){
                 reader.beginObject();while(reader.hasNext()){String key=reader.nextName();if(!"features".equals(key)){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){
                     String name="",kind="";boolean bridge=false,tunnel=false;int layer=0;float[] pts=new float[64];int np=0;reader.beginObject();while(reader.hasNext()){String field=reader.nextName();
-                        if("properties".equals(field)){reader.beginObject();while(reader.hasNext()){String property=reader.nextName();if("name".equals(property))name=reader.nextString();else if("kind".equals(property))kind=reader.nextString();else if("bridge".equals(property))bridge=flag(reader);else if("tunnel".equals(property))tunnel=flag(reader);else if("layer".equals(property))layer=flag(reader)?lastNumber:0;else reader.skipValue();}reader.endObject();}
+                        if("properties".equals(field)){reader.beginObject();while(reader.hasNext()){String property=reader.nextName();if("name".equals(property))name=reader.nextString();else if("kind".equals(property))kind=reader.nextString().intern();/* a dozen distinct kinds, not one String per road */else if("bridge".equals(property))bridge=flag(reader);else if("tunnel".equals(property))tunnel=flag(reader);else if("layer".equals(property))layer=flag(reader)?lastNumber:0;else reader.skipValue();}reader.endObject();}
                         else if("geometry".equals(field)){reader.beginObject();while(reader.hasNext()){if(!"coordinates".equals(reader.nextName())){reader.skipValue();continue;}reader.beginArray();while(reader.hasNext()){reader.beginArray();double longitude=reader.nextDouble(),latitude=reader.nextDouble();while(reader.hasNext())reader.skipValue();reader.endArray();if(np+2>pts.length)pts=Arrays.copyOf(pts,pts.length*2);pts[np++]=(float)latitude;pts[np++]=(float)longitude;}reader.endArray();}reader.endObject();}
                         else reader.skipValue();
                     }reader.endObject();index.add(new Road(Arrays.copyOf(pts,np),name,kind,bridge,tunnel,layer));if(tiles!=null)tiles.add(name,kind,bridge,tunnel,layer,pts,np);
@@ -204,7 +206,7 @@ public final class NavSession {
         cfg.getJSONObject("mjolnir").remove("tile_url");
         File config=new File(dir,"valhalla.json");try(FileOutputStream out=new FileOutputStream(config)){out.write(cfg.toString().getBytes("UTF-8"));}
         // Only one merged engine at a time: a new one replaces the last instead of piling up.
-        if(r.id.startsWith("combined-"))engines.keySet().removeIf(id->id.startsWith("combined-")&&!id.equals(r.id));
+        if(r.id.startsWith("combined-"))for(Iterator<Map.Entry<String,Valhalla>> it=engines.entrySet().iterator();it.hasNext();){Map.Entry<String,Valhalla> en=it.next();if(en.getKey().startsWith("combined-")&&!en.getKey().equals(r.id)){close(en.getValue());it.remove();}}
         e=new Valhalla(config.getAbsolutePath());engines.put(r.id,e);return e;}
     /** Look for installed packs again, after a download or removal. A ride in progress keeps its pack. */
     public void reload(){reload(null);}
@@ -215,14 +217,17 @@ public final class NavSession {
     private volatile String preferred;
     /** Show the downloaded area at a map position the rider is looking at, so panning into another area swaps its roads, search and parking in. One area is held in memory at a time. */
     public void showAt(double lat,double lon){if(!ready||active||routing)return;Region r=Region.at(regions,lat,lon);if(r==null||r==shown)return;
-        worker.execute(()->{if(active||r==shown)return;try{display(r);routeRegion=r;message(regionName+" offline · choose a destination");loadRoads(r);}catch(Throwable e){android.util.Log.e("Daanvia","Area switch failed",e);}});}
+        worker.execute(()->{if(active||r==shown)return;try{display(r);routeRegion=r;message(regionName+" offline · choose a destination");roads.execute(()->loadRoads(r));}catch(Throwable e){android.util.Log.e("Daanvia","Area switch failed",e);}});}
     /** Drop a removed pack's routing engine so its files are no longer held. Worker thread. */
-    public void forget(String id){worker.execute(()->engines.remove(id));}
+    /** Drops an area's router, done once this returns: the caller may then move or delete the area's files. */
+    public java.util.concurrent.Future<?> forget(String id){return worker.submit(()->close(engines.remove(id)));}
+    /** A dropped router holds its graph in native memory, which only closing frees. */
+    private static void close(Valhalla e){if(e!=null)try{e.close();}catch(Exception ignored){}}
     private void load(){try{
         List<Region> found=discover();regions=Collections.unmodifiableList(found);
         if(found.isEmpty()){ready=false;noMap=true;shown=null;regionId="";regionVersion++;roadIndex=new RoadTiles.Index();roadTiles=null;roadsVersion++;places=Places.EMPTY;parking=new JSONArray();roadsUri=null;message("No map installed");return;}
         noMap=false;
-        Region first=null;if(preferred!=null)for(Region r:found)if(r.id.equals(preferred))first=r;if(first==null){android.content.SharedPreferences cam=context.getSharedPreferences("ui",0);if(cam.contains("cam_lat"))first=Region.at(found,cam.getFloat("cam_lat",0),cam.getFloat("cam_lon",0));}if(first==null)first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");loadRoads(first);
+        Region first=null;if(preferred!=null)for(Region r:found)if(r.id.equals(preferred))first=r;if(first==null){android.content.SharedPreferences cam=context.getSharedPreferences("ui",0);if(cam.contains("cam_lat"))first=Region.at(found,cam.getFloat("cam_lat",0),cam.getFloat("cam_lon",0));}if(first==null)first=choose(found);display(first);routeRegion=first;engine(first);ready=true;message(regionName+" offline · choose a destination");Region load=first;roads.execute(()->loadRoads(load));
     }catch(Throwable e){message("Offline region could not load: "+e.getClass().getSimpleName()+". Open Support.");android.util.Log.e("Daanvia","Offline load failed",e);}}
     public boolean inRegion(double a,double b){for(Region r:regions)if(r.contains(a,b))return true;return false;}
     volatile List<TripStop> tripStops=Collections.emptyList();
@@ -266,7 +271,7 @@ public final class NavSession {
         simulation=demo;destLat=a;destLon=b;destination=name;routeRegion=r;followVia=nextVia;  // a new destination drops an old resume point
         tripStops=Collections.unmodifiableList(stops);passedStops=0;
         final Region visible=r.parts.isEmpty()?r:Region.at(regions,a,b);
-        if(visible!=null&&visible!=shown)worker.execute(()->{try{display(visible);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();loadRoads(visible);});else refreshParking();
+        if(visible!=null&&visible!=shown)worker.execute(()->{try{display(visible);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();roads.execute(()->loadRoads(visible));});else refreshParking();
         shape=Collections.emptyList();routeChoices=Collections.emptyList();route();
     }
     private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;final Region region=routeRegion;final List<TripStop> stops=remainingStops();
@@ -454,7 +459,7 @@ public final class NavSession {
             if(la<minLat-pad||la>maxLat+pad||lo<minLon-pad||lo>maxLon+pad)continue;
             boolean crossing=false;
             for(int j=1;j+1<route.size()&&!crossing;j++){
-                double[] at=route.get(j);if(GeoMath.distance(la,lo,at[0],at[1])>2)continue;
+                double[] at=route.get(j);if(Math.abs(at[0]-la)>3e-5||Math.abs(at[1]-lo)>3e-5||GeoMath.distance(la,lo,at[0],at[1])>2)continue;  // a cheap box (about 3 m) before the trigonometry
                 int before=j-1,after=j+1;
                 while(before>=0&&GeoMath.distance(la,lo,route.get(before)[0],route.get(before)[1])<6)before--;
                 while(after<route.size()&&GeoMath.distance(la,lo,route.get(after)[0],route.get(after)[1])<6)after++;
@@ -479,7 +484,7 @@ public final class NavSession {
     private volatile boolean displayLoading;
     private void followArea(double lat,double lon){
         if(displayLoading)return;Region next=Region.at(regions,lat,lon);if(next==null||next==shown)return;
-        displayLoading=true;worker.execute(()->{try{if(active){display(next);loadRoads(next);signal();}}catch(Exception e){android.util.Log.w("Daanvia","Could not show next area",e);}finally{displayLoading=false;}});
+        displayLoading=true;worker.execute(()->{try{if(active){display(next);refreshParking();signal();roads.execute(()->{loadRoads(next);signal();});}}catch(Exception e){android.util.Log.w("Daanvia","Could not show next area",e);}finally{displayLoading=false;}});
     }
     /** The closest point on each of the nearest public-looking streets within {@code radius} m, nearest first, a named street counting 40 m closer. */
     private List<double[]> nearestRoads(double lat,double lon,int max,double radius){
@@ -526,10 +531,13 @@ public final class NavSession {
         remaining=rem;seconds=remSecs*OFFLINE_TIME_ALLOWANCE;
         try{
             int next=0;for(int i=0;i<maneuvers.length();i++)if(maneuvers.getJSONObject(i).optInt("begin_shape_index")>progress){next=i;break;}
-            if(next==0)next=Math.max(0,maneuvers.length()-1);maneuver=next;JSONObject m=maneuvers.getJSONObject(next);int at=Math.min(route.size()-1,m.optInt("begin_shape_index"));double[] prefix=cumulative;int ahead=Math.min(progress+1,route.size()-1);distanceToTurn=at>=ahead&&prefix.length==route.size()?GeoMath.distance(a,b,route.get(ahead)[0],route.get(ahead)[1])+prefix[at]-prefix[ahead]:0;instruction=m.optString("instruction","Continue");
+            if(next==0)next=Math.max(0,maneuvers.length()-1);maneuver=next;JSONObject m=maneuvers.optJSONObject(next);/* null for a route without maneuvers: arrival below still counts */int at=m==null?route.size()-1:Math.min(route.size()-1,m.optInt("begin_shape_index"));double[] prefix=cumulative;int ahead=Math.min(progress+1,route.size()-1);distanceToTurn=at>=ahead&&prefix.length==route.size()?GeoMath.distance(a,b,route.get(ahead)[0],route.get(ahead)[1])+prefix[at]-prefix[ahead]:0;instruction=m==null?"Continue":m.optString("instruction","Continue");
             // Near the picked point, or at the route's end where the road stops short of a pin inside a campus or mall.
             double[] end=route.get(route.size()-1);
-            if(arrived||rem<35&&(GeoMath.distance(a,b,destLat,destLon)<45||GeoMath.distance(a,b,end[0],end[1])<30)){instruction="Destination nearby";
+            // Also when the route's last stretch is being ridden past its end at the matcher's own tolerance: on a divided
+            // road the end can sit in the far carriageway, 40 m away, where "35 m left" never came and no reroute is asked for.
+            boolean atEnd=progress>=route.size()-2&&best<Math.max(45,acc)&&(GeoMath.distance(a,b,end[0],end[1])<Math.max(50,acc)||GeoMath.distance(a,b,destLat,destLon)<60);
+            if(arrived||atEnd||rem<35&&(GeoMath.distance(a,b,destLat,destLon)<45||GeoMath.distance(a,b,end[0],end[1])<30)){instruction="Destination nearby";
                 if(!arrived){arrived=true;context.getSharedPreferences("ui",0).edit().remove("ride").apply();message((demo?"SIMULATION · ":"")+"Destination nearby");}}
         }catch(JSONException ignored){}signal();
     }
@@ -548,8 +556,11 @@ public final class NavSession {
     public volatile int panelW,panelH,videoW,videoH,bikeFps;public volatile String screenType="";
     /** The panel's width÷height when it differs from the video's and correcting it is on; 0 to draw the video as it is. */
     /** The bike display shows only the turn and trip cards, no moving map (Settings › Bike display), to save battery. */
-    public boolean directionsOnly(){return context.getSharedPreferences("ui",0).getBoolean("directionsonly",false);}
-    public float panelAspect(){return panelW>0&&panelH>0&&context.getSharedPreferences("ui",0).getBoolean("matchshape",true)?(float)panelW/panelH:0;}
+    public boolean directionsOnly(){refreshPrefs();return directionsOnlyPref;}
+    public float panelAspect(){refreshPrefs();return panelW>0&&panelH>0&&matchShapePref?(float)panelW/panelH:0;}
+    // Both are asked for on every frame drawn for the bike display: read from the settings at most twice a second.
+    private volatile long prefsAt=-1000;private volatile boolean directionsOnlyPref,matchShapePref=true;
+    private void refreshPrefs(){long now=SystemClock.elapsedRealtime();if(now-prefsAt<500)return;prefsAt=now;android.content.SharedPreferences p=context.getSharedPreferences("ui",0);directionsOnlyPref=p.getBoolean("directionsonly",false);matchShapePref=p.getBoolean("matchshape",true);}
     /** Record what the bike reported (values ≤ 0 or null leave what is known). */
     public void screenReport(int pw,int ph,int vw,int vh,int fps,String type){
         if(pw>0&&ph>0){panelW=pw;panelH=ph;}if(vw>0&&vh>0){videoW=vw;videoH=vh;}if(fps>0)bikeFps=fps;if(type!=null&&!type.isEmpty())screenType=type;

@@ -75,7 +75,8 @@ public final class DashboardLink {
     private final Runnable reconnect = this::reconnectNow;
     private void reconnectNow() {
         if (StreamService.navigationActive || stoppedByUser || !profileReady || !hasPermissions()) return;
-        if (SystemClock.elapsedRealtime() > reconnectUntil) return;
+        // Five minutes without the bike: give up, and say so (during a ride NavService keeps looking, see bikeSearch).
+        if (SystemClock.elapsedRealtime() > reconnectUntil) { if (!NavSession.get(context).active) { label("Bike display not found • tap Connect"); ui.onChanged(); } return; }
         if (!running) { log("Reconnecting to the bike display."); autoNavigation(); }
         main.postDelayed(reconnect, 8000);
     }
@@ -148,16 +149,19 @@ public final class DashboardLink {
                 if (!sawFrames) { sawFrames = true; ui.onChanged(); if (!visualEvidence.containsKey(mode)) label("Video sent • check the motorcycle screen"); }
             } else if ("negotiated".equals(kind)) label("Video format negotiated • sending…");
             else if ("stopped".equals(kind)) {
-                frameEvidence.put(event.getStringExtra("mode"), event.getLongExtra("frames", 0));
-                boolean user = event.getBooleanExtra("user", false); if (user) stoppedByUser = true;
-                boolean dropped = "navigation".equals(event.getStringExtra("mode")) && !expectStop && !stoppedByUser;
+                // No mode: the service was started only to be stopped (the notification's Stop with nothing streaming).
+                String mode = event.getStringExtra("mode");
+                if (mode != null) frameEvidence.put(mode, event.getLongExtra("frames", 0));
+                boolean user = event.getBooleanExtra("user", false); if (user && mode != null) stoppedByUser = true;
+                boolean dropped = "navigation".equals(mode) && !expectStop && !stoppedByUser;
                 expectStop = false;
                 serviceActive = false; cleanup();
                 Runnable next = afterStop; afterStop = null;
                 if (next != null) main.post(next);
                 else if (dropped) dropped();
-                else if ("mirror".equals(event.getStringExtra("mode")) && keepMirror && !user) { keepMirror = false; label("Screen sharing ended • back to directions"); main.postDelayed(DashboardLink.this::autoNavigation, 1500); }
-                else label(visualEvidence.containsKey(lastStreamMode) ? "User reported: " + visualEvidence.get(lastStreamMode) : sawFrames ? "Test ended • confirm what appeared" : "No video confirmed • share report");
+                else if ("mirror".equals(mode) && keepMirror && !user) { keepMirror = false; label("Screen sharing ended • back to directions"); main.postDelayed(DashboardLink.this::autoNavigation, 1500); }
+                else if (user && "navigation".equals(mode)) label("Stopped");
+                else if (mode != null) label(visualEvidence.containsKey(lastStreamMode) ? "User reported: " + visualEvidence.get(lastStreamMode) : sawFrames ? "Test ended • confirm what appeared" : "No video confirmed • share report");
                 ui.onChanged();
             }
         }
@@ -260,22 +264,30 @@ public final class DashboardLink {
 
     private void log(String s) {
         String line = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  " + clean(s) + "\n";
-        synchronized(report) { if (report.length() > 150000) report.delete(0, report.length() - 120000); report.append(line); keep(line); }
+        synchronized(report) { if (report.length() > 150000) report.delete(0, report.length() - 120000); report.append(line); }
+        logIo.execute(() -> keep(line));  // the file write, off whichever thread logged (mostly the main one)
         main.post(ui::onLog);
     }
+    private final ExecutorService logIo = Executors.newSingleThreadExecutor();
     /*
      * The log is also kept in a file, so a report shared after the app closed (or the bike display cut off) still holds
      * what happened just before, and why Android ended the app last time: a crash, low memory, the user, and so on.
      */
     private final File logFile;
     private void keep(String line) {
+        if (logFile.length() > 400000) trimLog();  // a day-long session would otherwise grow the file without end
         try (FileOutputStream f = new FileOutputStream(logFile, true)) { f.write(line.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
         LogUpload.add(context, line);
     }
-    private void earlier() {
+    /** Cuts the file down to its last 30 KB and returns them. */
+    private String trimLog() {
         String before = "";
         try { byte[] b = java.nio.file.Files.readAllBytes(logFile.toPath()); int from = Math.max(0, b.length - 30000); before = new String(b, from, b.length - from, StandardCharsets.UTF_8); } catch (Exception ignored) {}
         try (FileOutputStream f = new FileOutputStream(logFile, false)) { f.write(before.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
+        return before;
+    }
+    private void earlier() {
+        String before = trimLog();
         if (!before.isEmpty()) synchronized(report) { report.append("---- Earlier, before the app last started ----\n").append(before).append("---- This start ----\n"); }
         if (Build.VERSION.SDK_INT >= 30) try {
             android.app.ActivityManager am = context.getSystemService(android.app.ActivityManager.class);
@@ -520,9 +532,9 @@ public final class DashboardLink {
                 public void onStartDiscoveryFailed(String t, int e) { if (running && g == generation) log("Service discovery unavailable: " + e); }
                 public void onStopDiscoveryFailed(String t, int e) {}
                 public void onServiceLost(NsdServiceInfo s) {}
+                // NsdManager calls back on a thread of its own: everything here runs on the main thread, like the rest of the link.
                 public void onServiceFound(NsdServiceInfo s) {
-                    if (!running || g != generation) return;
-                    if (services.size() < 12) { services.add(s); resolveNext(g); }
+                    main.post(() -> { if (running && g == generation && services.size() < 12) { services.add(s); resolveNext(g); } });
                 }
             };
             nsd.discoverServices("_EasyConn._tcp.", NsdManager.PROTOCOL_DNS_SD, discovery);
@@ -532,8 +544,11 @@ public final class DashboardLink {
         if (resolving || services.isEmpty() || !running || g != generation) return;
         resolving = true; NsdServiceInfo s = services.remove(0);
         nsd.resolveService(s, new NsdManager.ResolveListener() {
-            public void onResolveFailed(NsdServiceInfo x, int e) { if (g != generation) return; resolving = false; log("Service resolution failed: " + e); resolveNext(g); }
-            public void onServiceResolved(NsdServiceInfo x) {
+            public void onResolveFailed(NsdServiceInfo x, int e) { main.post(() -> { if (g != generation) return; resolving = false; log("Service resolution failed: " + e); resolveNext(g); }); }
+            public void onServiceResolved(NsdServiceInfo x) { main.post(() -> resolved(x, g)); }
+        });
+    }
+    private void resolved(NsdServiceInfo x, int g) {
                 if (!running || g != generation) return;
                 resolving = false;
                 InetAddress host = x.getHost();
@@ -549,8 +564,6 @@ public final class DashboardLink {
                     if (iface != null) target(host, iface, null, "matched EasyConn service", x.getPort());
                 } else log("Service identity does not match the target yet; discovery recorded, no probe sent.");
                 resolveNext(g);
-            }
-        });
     }
     private String interfaceFor(InetAddress host) {
         try {
@@ -594,7 +607,7 @@ public final class DashboardLink {
                         Intent service = new Intent(context, StreamService.class).putExtra("host", host.getHostAddress()).putExtra("local", local).putExtra("port", port)
                             .putExtra("mode", lastStreamMode).putExtra("network", network == null ? 0 : network.getNetworkHandle()).putExtra("keep", selected == MODE_MIRROR && keepMirror);
                         if (consent != null) service.putExtra("consent", consent);
-                        expectStop = false; streamStartedAt = SystemClock.elapsedRealtime();
+                        expectStop = false; streamStartedAt = SystemClock.elapsedRealtime(); testing.set(false);
                         try { context.startForegroundService(service); quietMisses = 0; if (selected == MODE_NAVIGATION) { main.removeCallbacks(reconnect); settle(); ui.onNavigationStarted(); } else if (selected == MODE_MIRROR && keepMirror) { settle(); label("Your screen is on the bike display"); } }
                         catch (Exception e) {
                             // Android 12+ refuses to start it from the background; the next search after Daanvia is opened connects.
@@ -684,7 +697,7 @@ public final class DashboardLink {
                 public void onLinkPropertiesChanged(Network n, LinkProperties lp) { if (running && g == generation) apTarget(n, lp, g); }
                 public void onUnavailable() { if (running && g == generation) detail("QR Wi-Fi request unavailable or declined. The dashboard may require Wi-Fi Direct instead."); }
             };
-            cm.requestNetwork(request, apCallback, 25000);
+            cm.requestNetwork(request, apCallback, main, 25000);  // callbacks on the main thread, like the rest of the link
         } catch (Exception e) { log("QR Wi-Fi request: " + e.getClass().getSimpleName() + " " + e.getMessage()); }
     }
     private void apTarget(Network n, LinkProperties lp, int g) {

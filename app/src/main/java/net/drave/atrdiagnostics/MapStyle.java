@@ -277,10 +277,13 @@ final class MapStyle {
     // ridden only change how the line is painted, a gradient along it, the way car navigation apps do it: no
     // re-processing of the line's data on every frame, which is what made both stutter.
     private static int routeLine = 0xFFFFB020, routeCase = 0xFF3B2804, routeGlow = 0xFFFFB020;
-    private static float progressFrom = 0, progressTo = 1;
+    private static float progressFrom = 0, progressTo = 1; private static Style progressStyle;
     /** Paint the route from {@code from} to {@code to} (fractions of its length); before {@code from} it shows as ridden, after {@code to} not at all. */
     static void routeProgress(Style st, float from, float to) {
-        from = Math.max(0, Math.min(1, from)); to = Math.max(from, Math.min(1, to)); progressFrom = from; progressTo = to;
+        from = Math.max(0, Math.min(1, from)); to = Math.max(from, Math.min(1, to));
+        // Asked for on every frame: nothing to do while the rider waits at a light and the fractions haven't moved.
+        if (from == progressFrom && to == progressTo && st == progressStyle) return;
+        progressFrom = from; progressTo = to; progressStyle = st;
         // The ridden part disappears, like on the bike display; greyed out, it still read as the whole route from start to end.
         gradient(st, "route-line", 0, routeLine, from, to);
         gradient(st, "route-case", 0, routeCase, from, to);

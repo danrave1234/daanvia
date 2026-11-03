@@ -19,6 +19,8 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
 /** Settings: the bike connection, TFT fit, map theme, testing tools and app information. */
 public final class SettingsActivity extends Activity implements DashboardLink.Host {
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k; private DashboardLink link;
+    /** The update row and the map list are rebuilt often (twice a second during a download): their rows get themes of their own, cleared each time. */
+    private Gabi.Themer updateTheme, mapsTheme; private Gabi.Kit uk, mk;
     private TftPreview preview; private TextView modelText, statusText, primary, liveChip, fitNote, licenseText; private LinearLayout permissionBanner, fitControls, scanRow; private View progress; private ValueAnimator progressAnim;
     private LinearLayout updateBox; private final AppUpdate.Listener updateListener = st -> paintUpdate();
     private TextView storageText;
@@ -32,6 +34,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     public void onCreate(Bundle state) {
         super.onCreate(state);
         s = NavSession.get(this); theme = new Gabi.Themer(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)); k = new Gabi.Kit(this, theme);
+        uk = new Gabi.Kit(this, updateTheme = theme.child()); mk = new Gabi.Kit(this, mapsTheme = theme.child());
         GabiPage page = new GabiPage(this, k, "Settings");
         LinearLayout c = page.content;
 
@@ -58,7 +61,9 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         bike.addView(k.text("Rest the phone while riding", 14, 650, INK));
         boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
         bike.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
-        bike.addView(k.text("When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn and may turn off, to save battery. Tap it to bring the map back. The moon button on the ride screen does it right away.", 12.5f, 500, MUTED));
+        bike.addView(k.text("When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn"
+            + (KeepAlive.keepScreenOn() ? ", kept on but dim: your " + KeepAlive.colorOs() + " phone would close Daanvia soon after the screen went off." : " and may turn off, to save battery.")
+            + " Tap it to bring the map back. The moon button on the ride screen does it right away.", 12.5f, 500, MUTED));
         String brand = KeepAlive.colorOs();
         if (brand != null) {
             // OPPO, OnePlus and realme phones (ColorOS) close apps mid-ride even when Android allows them to run, so their
@@ -262,7 +267,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     /** App version, with check, download progress and install. */
     private void paintUpdate() {
         if (updateBox == null) return;
-        updateBox.removeAllViews();
+        updateBox.removeAllViews(); updateTheme.clear();
         AppUpdate.State st = AppUpdate.state();
         String sub; String action = null; Runnable run = null;
         if (st == null) { sub = "Tap to check for updates"; action = "Check"; run = () -> AppUpdate.check(this, false); }
@@ -271,18 +276,18 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         else if (st.error != null) { sub = st.error; action = st.available() ? "Update" : "Check"; run = st.available() ? () -> AppUpdate.install(this) : () -> AppUpdate.check(this, false); }
         else if (st.available()) { sub = "Version " + st.release.version + " is available · " + st.release.sizeLabel(); action = st.ready ? "Install" : "Update"; run = () -> AppUpdate.install(this); }
         else { sub = "You have the latest version"; action = "Check"; run = () -> AppUpdate.check(this, false); }
-        LinearLayout r = k.listRow(IconDrawable.DOWNLOAD, "Daanvia " + BuildInfo.VERSION, sub, null, null);
-        if (action != null) { TextView a = k.text(action, 13.5f, 700, ACCENT); a.setPadding(k.dp(12), k.dp(8), 0, k.dp(8)); Runnable go = run; Gabi.press(a, () -> { if (s.active) { Gabi.shake(a); return; } go.run(); }); r.addView(a); }
+        LinearLayout r = uk.listRow(IconDrawable.DOWNLOAD, "Daanvia " + BuildInfo.VERSION, sub, null, null);
+        if (action != null) { TextView a = uk.text(action, 13.5f, 700, ACCENT); a.setPadding(uk.dp(12), uk.dp(8), 0, uk.dp(8)); Runnable go = run; Gabi.press(a, () -> { if (s.active) { Gabi.shake(a); return; } go.run(); }); r.addView(a); }
         updateBox.addView(r);
     }
     /** Downloaded areas with size, km and update/remove, plus the download in progress. */
     private void paintMaps() {
         if (mapList == null) return;
-        mapList.removeAllViews();
+        mapList.removeAllViews(); mapsTheme.clear();
         AreaStore.State st = AreaStore.state();
         if (st != null && st.running) {
-            LinearLayout r = k.listRow(IconDrawable.DOWNLOAD, "Downloading " + st.name, st.progressLabel(), null, null);
-            TextView cancel = k.text("Cancel", 13.5f, 700, ACCENT); cancel.setPadding(k.dp(12), k.dp(8), 0, k.dp(8)); Gabi.press(cancel, AreaStore::cancel); r.addView(cancel);
+            LinearLayout r = mk.listRow(IconDrawable.DOWNLOAD, "Downloading " + st.name, st.progressLabel(), null, null);
+            TextView cancel = mk.text("Cancel", 13.5f, 700, ACCENT); cancel.setPadding(mk.dp(12), mk.dp(8), 0, mk.dp(8)); Gabi.press(cancel, AreaStore::cancel); r.addView(cancel);
             mapList.addView(r);
         }
         List<AreaStore.Area> list = AreaStore.installed(this);
@@ -290,9 +295,9 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             boolean update = a.outdated(catalog), confirming = a.id.equals(confirmRemove);
             Long bytes = sizes.get(a.dir.getPath()); if (bytes == null) measureSizes(list);
             String sub = a.kmLabel() + (bytes == null ? "" : " · " + Math.max(1, Math.round(bytes / 1048576.0)) + " MB") + (update ? " · update available" : "");
-            LinearLayout r = k.listRow(IconDrawable.MAP, a.name, sub, null, null);
-            if (update) { TextView u = k.text("Update", 13.5f, 700, ACCENT); u.setPadding(k.dp(12), k.dp(8), k.dp(6), k.dp(8)); Gabi.press(u, () -> updateArea(a)); r.addView(u); }
-            TextView del = k.text(confirming ? "Remove?" : "Remove", 13.5f, 700, confirming ? DANGER : MUTED); del.setPadding(k.dp(12), k.dp(8), 0, k.dp(8));
+            LinearLayout r = mk.listRow(IconDrawable.MAP, a.name, sub, null, null);
+            if (update) { TextView u = mk.text("Update", 13.5f, 700, ACCENT); u.setPadding(mk.dp(12), mk.dp(8), mk.dp(6), mk.dp(8)); Gabi.press(u, () -> updateArea(a)); r.addView(u); }
+            TextView del = mk.text(confirming ? "Remove?" : "Remove", 13.5f, 700, confirming ? DANGER : MUTED); del.setPadding(mk.dp(12), mk.dp(8), 0, mk.dp(8));
             Gabi.press(del, () -> {
                 if (s.active) { Gabi.shake(del); return; }
                 if (!confirming) { confirmRemove = a.id; paintMaps(); return; }
@@ -301,7 +306,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             r.addView(del); mapList.addView(r);
         }
         if (st == null || !st.running) paintStorage();
-        if (list.isEmpty() && (st == null || !st.running)) mapList.addView(k.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
+        if (list.isEmpty() && (st == null || !st.running)) mapList.addView(mk.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
     }
     /** An area's size means walking thousands of tile files: done off the main thread, then the list is painted again. */
     private boolean measuring;
@@ -312,9 +317,13 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             runOnUiThread(() -> { measuring = false; if (isDestroyed()) return; sizes.putAll(found); paintMaps(); });
         }, "area-sizes").start();
     }
+    /** Measuring walks every tile file: once per visit (and after a change), not at each repaint of the map list. */
+    private boolean measuringStorage; private long storageAt;
     private void paintStorage() {
-        new Thread(() -> { long[] u = Housekeeping.usage(this); runOnUiThread(() -> storageText.setText("Daanvia uses " + mb(u[0] + u[1] + u[2]) + " on this phone: " + mb(u[0]) + " of downloaded maps"
-            + (u[2] >= 1048576 ? ", " + mb(u[2]) + " saved from online maps and searches" : "") + (u[1] >= 1048576 ? ", " + mb(u[1]) + " for everything else" : "") + ".")); }).start();
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (measuringStorage || now - storageAt < 30000) return; measuringStorage = true; storageAt = now;
+        new Thread(() -> { long[] u = Housekeeping.usage(this); runOnUiThread(() -> { measuringStorage = false; if (!isDestroyed()) storageText.setText("Daanvia uses " + mb(u[0] + u[1] + u[2]) + " on this phone: " + mb(u[0]) + " of downloaded maps"
+            + (u[2] >= 1048576 ? ", " + mb(u[2]) + " saved from online maps and searches" : "") + (u[1] >= 1048576 ? ", " + mb(u[1]) + " for everything else" : "") + "."); }); }).start();
     }
     private static String mb(long b) { return Math.max(0, Math.round(b / 1048576.0)) + " MB"; }
     private void recalibrateGps() {
@@ -334,7 +343,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
                 org.maplibre.android.MapLibre.getInstance(this);
                 org.maplibre.android.offline.OfflineManager.getInstance(this).clearAmbientCache(new org.maplibre.android.offline.OfflineManager.FileSourceCallback() {
                     public void onSuccess() { done(); } public void onError(String message) { done(); }
-                    private void done() { paintStorage(); android.widget.Toast.makeText(SettingsActivity.this, freed < 1048576 ? "Already tidy" : "Freed " + mb(freed), android.widget.Toast.LENGTH_SHORT).show(); }
+                    private void done() { storageAt = 0; paintStorage(); android.widget.Toast.makeText(SettingsActivity.this, freed < 1048576 ? "Already tidy" : "Freed " + mb(freed), android.widget.Toast.LENGTH_SHORT).show(); }
                 });
             });
         }).start();

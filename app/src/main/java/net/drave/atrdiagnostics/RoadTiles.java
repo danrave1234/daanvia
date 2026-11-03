@@ -46,7 +46,7 @@ final class RoadTiles {
             double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
             for (int i = 0; i + 1 < n; i += 2) {
                 if (i > 0) b.append(',');
-                b.append('[').append(String.format(Locale.US, "%.5f", xy[i + 1])).append(',').append(String.format(Locale.US, "%.5f", xy[i])).append(']');
+                b.append('['); fixed5(b, xy[i + 1]); b.append(','); fixed5(b, xy[i]); b.append(']');
                 minLat = Math.min(minLat, xy[i]); maxLat = Math.max(maxLat, xy[i]); minLon = Math.min(minLon, xy[i + 1]); maxLon = Math.max(maxLon, xy[i + 1]);
             }
             b.append("]}}");
@@ -54,6 +54,12 @@ final class RoadTiles {
             ByteArrayOutputStream out = major(kind) ? majors : cells.computeIfAbsent(key(cell((minLon + maxLon) / 2), cell((minLat + maxLat) / 2)), k -> new ByteArrayOutputStream(16 << 10));
             if (out.size() > 0) out.write(',');
             out.write(bytes, 0, bytes.length);
+        }
+        /** {@code v} with five decimals, like {@code String.format("%.5f")} but without a Formatter per coordinate (millions per area). */
+        static void fixed5(StringBuilder b, double v) {
+            long n = Math.round(v * 100000); if (n < 0) { b.append('-'); n = -n; }
+            b.append(n / 100000).append('.'); long f = n % 100000;
+            for (long d = 10000; d > 1 && f < d; d /= 10) b.append('0'); b.append(f);
         }
         void finish() throws IOException {
             File dir = new File(area, DIR), tmp = new File(area, DIR + ".building");
@@ -81,8 +87,8 @@ final class RoadTiles {
         for (int x = x0; x <= x1; x++) for (int y = y0; y <= y1; y++) {
             File f = new File(tiles, x + "_" + y); if (!f.isFile()) continue;
             try (InputStream in = new FileInputStream(f)) {
-                ByteArrayOutputStream o = new ByteArrayOutputStream((int)f.length()); int n; while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
-                if (o.size() == 0) continue; if (any) b.append(','); b.append(o.toString("UTF-8")); any = true;
+                byte[] all = new byte[(int)f.length()]; int at = 0, n; while (at < all.length && (n = in.read(all, at, all.length - at)) > 0) at += n;
+                if (at == 0) continue; if (any) b.append(','); b.append(new String(all, 0, at, StandardCharsets.UTF_8)); any = true;
             } catch (IOException ignored) {}
         }
         return b.append("]}").toString();

@@ -17,7 +17,9 @@ import java.util.TimeZone;
  *
  *  - Command 0x01: the dashboard asks for the time as a number. Answer: 8 bytes, little-endian, epoch milliseconds
  *    plus the zone's standard (raw) offset, as Carbit does.
- *  - Command 0x55: the dashboard asks for the time as text. Answer: "dd.MM.yyyy HH:mm:ss:zzz".
+ *  - Command 0x55: the dashboard asks for the time as text. Answer: "dd.MM.yyyy HH:mm:ss:SSS", the same shape as the
+ *    Wi-Fi answer's dateTime (see DashClock), ending in milliseconds. (The notes write the tail as "zzz"; in Java that
+ *    would be a zone name like "PST", which no clock parser expects.)
  *
  * Daanvia only ever answers one of those two questions, and only after the device sent a well-formed message:
  * the Bluetooth service ids involved are shared with intercoms and other gadgets, so nothing is sent unasked.
@@ -64,7 +66,7 @@ final class EcBtp {
 
     /** Answer to command 0x55. */
     static byte[] queryTimeReply(long nowMs, TimeZone zone) {
-        SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss:zzz", Locale.US); f.setTimeZone(zone);
+        SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss:SSS", Locale.US); f.setTimeZone(zone);
         byte[] p = f.format(new Date(nowMs)).getBytes(StandardCharsets.UTF_8);
         if (p.length > MAX_TEXT) { byte[] cut = new byte[MAX_TEXT]; System.arraycopy(p, 0, cut, 0, MAX_TEXT); p = cut; }
         return build(QUERY_TIME, p);

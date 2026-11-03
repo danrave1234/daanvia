@@ -43,7 +43,7 @@ public class EcBtpTest {
     @Test public void queryTimeIsFormattedLocalTime() {
         EcBtp.Frame f = EcBtp.parse(EcBtp.queryTimeReply(NOW, MANILA));
         assertEquals(EcBtp.QUERY_TIME, f.command);
-        assertTrue(new String(f.payload, StandardCharsets.UTF_8).startsWith("22.10.2026 10:42:07:"));
+        assertEquals("22.10.2026 10:42:07:123", new String(f.payload, StandardCharsets.UTF_8));  // ends in milliseconds, like the Wi-Fi answer
     }
 
     @Test public void onlyTimeQuestionsGetAnswers() {

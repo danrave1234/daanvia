@@ -165,7 +165,9 @@ public final class VideoEncoder implements Closeable {
     private final Object queueLock=new Object();private boolean waitKey;
     private void queue(byte[] bytes,boolean key){synchronized(queueLock){
         if(waitKey&&!key)return;if(key)waitKey=false;
-        if(!frames.offer(bytes))restart();}}
+        // Full (the bike isn't pulling): a key frame replaces everything waiting; anything else asks for one. Asking at
+        // every full frame made the encoder send nothing but key frames until the bike caught up.
+        if(!frames.offer(bytes)){if(key){frames.clear();frames.offer(bytes);}else restart();}}}
     private void restart(){frames.clear();waitKey=true;try{android.os.Bundle b=new android.os.Bundle();b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME,0);codec.setParameters(b);}catch(Exception ignored){}}
     public byte[] next()throws Exception {
         synchronized(queueLock){if(frames.size()>3)restart();}

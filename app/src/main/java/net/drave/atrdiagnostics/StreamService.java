@@ -25,7 +25,8 @@ public final class StreamService extends Service {
     public static final String EVENT="net.drave.atrdiagnostics.STREAM_EVENT";
     private static final String PACKAGE="net.drave.atrdiagnostics";
     private final Handler main=new Handler(Looper.getMainLooper());
-    private final ExecutorService workers=Executors.newFixedThreadPool(10);
+    private final ExecutorService workers=Executors.newCachedThreadPool();  // threads only while there is work; idle ones end after a minute
+    private static java.security.KeyPair sharedIdentity;
     private final List<Closeable> sockets=Collections.synchronizedList(new ArrayList<>());
     private final Semaphore connections=new Semaphore(6);
     private volatile boolean running;
@@ -51,6 +52,8 @@ public final class StreamService extends Service {
     private volatile long writingSince;
     /** The display stream has no time limit, so end it (and let the app reconnect) when the bike stops talking to it. */
     private final Runnable watchdog=new Runnable(){public void run(){if(!running)return;long now=System.currentTimeMillis();
+        if(navigationWake!=null)navigationWake.acquire(30000);  // a timed lock, renewed here: never left held if this service ends without onDestroy
+        if(freeRide!=null)freeRide.sync();  // the display's own location feed pauses during a ride (NavService has one) and resumes after
         // Holding the control link open without asking for video means the bike is showing its own screen (the rider left
         // projection, or it came back after the phone closed Daanvia). Starting over every 45 s didn't bring the video back
         // (logs of 1 Nov: four restarts, no video) and gave the dashboard a new session each time, so wait for it instead.
@@ -94,11 +97,11 @@ public final class StreamService extends Service {
             if(mirror)type|=ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
             // Without a ride the bike display still follows the rider (a free ride), so this service keeps location going
             // itself; NavService takes over during a ride (see Here.feed).
-            boolean follow=navigation&&Here.precise(this);
+            boolean follow=navigation&&Here.precise(this)&&!NavSession.get(this).active;
             try{startForeground(17,n,follow?type|ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION:type);}
             catch(SecurityException noLocation){follow=false;startForeground(17,n,type);}
             if(follow){freeRide=new Here(this,NavSession.get(this));freeRide.start();}
-            if(navigation){navigationWake=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Daanvia:display");navigationWake.acquire();
+            if(navigation){navigationWake=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Daanvia:display");navigationWake.setReferenceCounted(false);navigationWake.acquire(30000);
                 // OPPO/OnePlus/realme close apps ~5 min after the screen goes off unless they play audio (see QuietAudio).
                 if(KeepAlive.colorOs()!=null){quiet=new QuietAudio(m->event("log",m));quiet.start(this);}}
             if(mirror) {
@@ -123,9 +126,13 @@ public final class StreamService extends Service {
     private void setup(int port) {
         try {
             if(!running)return;
-            KeyPairGenerator generator=KeyPairGenerator.getInstance("RSA");generator.initialize(1024);identity=generator.generateKeyPair();
+            // One session identity per app run: generating a key pair took noticeable CPU at every reconnect.
+            synchronized(StreamService.class){if(sharedIdentity==null){KeyPairGenerator generator=KeyPairGenerator.getInstance("RSA");generator.initialize(1024);sharedIdentity=generator.generateKeyPair();}identity=sharedIdentity;}
             List<ServerSocket> listeners=CallbackPorts.open(local,10922,10921,10920);
             for(ServerSocket s:listeners)if(!track(s)){for(ServerSocket pending:listeners)try{pending.close();}catch(IOException ignored){}return;}
+            // The 1 s accept timeout suits Support's short identification probe; for a ride-long session it woke three threads
+            // every second for nothing. Closing the sockets (onDestroy) ends a blocking accept just the same.
+            for(ServerSocket s:listeners)s.setSoTimeout(0);
             log("Callback ports ready with TCP session reuse enabled.");
             for(int i=0;i<listeners.size();i++){ServerSocket listener=listeners.get(i);boolean control=i==0;workers.execute(()->accept(listener,control));}
             try(Socket probe=new Socket()) {
@@ -303,9 +310,13 @@ public final class StreamService extends Service {
         if(quiet!=null){quiet.stop();quiet=null;}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}
         workers.shutdownNow();
-        synchronized(encoderLock){if(encoder!=null){encoder.close();encoder=null;}}
-        if(projection!=null){if(projectionCallback!=null)projection.unregisterCallback(projectionCallback);projection.stop();projection=null;}
-        sendBroadcast(new Intent(EVENT).setPackage(getPackageName()).putExtra("kind","stopped").putExtra("message","Stream stopped. Frames sent="+frames+", bytes="+bytes+".").putExtra("mode",mode).putExtra("frames",frames).putExtra("bytes",bytes).putExtra("user",userStop));
+        // Closing the encoder waits for its threads (up to 1.6 s) and ending screen sharing can take as long: done off the
+        // main thread, so the ride's guidance doesn't freeze every time the display link restarts.
+        final VideoEncoder enc;synchronized(encoderLock){enc=encoder;encoder=null;}
+        final MediaProjection proj=projection;final MediaProjection.Callback cb=projectionCallback;projection=null;projectionCallback=null;
+        if(enc!=null||proj!=null)new Thread(()->{if(enc!=null)enc.close();if(proj!=null){if(cb!=null)proj.unregisterCallback(cb);proj.stop();}},"stream-teardown").start();
+        // Started only to be stopped (the notification's Stop with nothing streaming): nothing happened to report.
+        if(mode!=null)sendBroadcast(new Intent(EVENT).setPackage(getPackageName()).putExtra("kind","stopped").putExtra("message","Stream stopped. Frames sent="+frames+", bytes="+bytes+".").putExtra("mode",mode).putExtra("frames",frames).putExtra("bytes",bytes).putExtra("user",userStop));
         stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();
     }
 }

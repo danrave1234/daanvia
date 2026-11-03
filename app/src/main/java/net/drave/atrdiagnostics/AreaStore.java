@@ -157,9 +157,15 @@ public final class AreaStore {
      * files (thousands of tiles) are deleted in the background instead of freezing the screen.
      */
     public static void remove(Context c, Area a) {
-        File trash = trash(c, a.id); boolean moved = a.dir.renameTo(trash);
-        NavSession.get(c).forget(a.id); NavSession.get(c).reload();
-        File gone = moved ? trash : a.dir; new Thread(() -> delete(gone), "daanvia-remove").start();
+        new Thread(() -> {
+            // The router reads the folder's tiles: closed first, so the rename never happens under a route being calculated.
+            // Off the main thread: the router's worker may be busy with a route or an area's roads at that moment.
+            try { NavSession.get(c).forget(a.id).get(10, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
+            File trash = trash(c, a.id); boolean moved = a.dir.renameTo(trash);
+            NavSession.get(c).reload();
+            post(new State(a.name, 0, 0, false, false, null));  // the map lists repaint without the area
+            delete(moved ? trash : a.dir);
+        }, "daanvia-remove").start();
     }
     /** Folders on their way out; Housekeeping clears any left behind. */
     static final String TRASH = "trash-";
@@ -227,7 +233,7 @@ public final class AreaStore {
                 // A ride reads the installed area's routing tiles and road squares as it goes: an update waits for the ride to end.
                 NavSession nav = NavSession.get(c);
                 if (target.exists() && nav.active) { post(new State(name, all, all, true, false, null, true)); awaitRideEnd(() -> nav.active, cancel, 3000); }
-                nav.forget(id);
+                try { nav.forget(id).get(10, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}  // closed before the folder is swapped under it
                 File old = trash(c, id); boolean hadOld = target.exists();
                 swap(tmp, target, old);
                 if (hadOld) new Thread(() -> delete(old), "daanvia-remove").start();
@@ -338,6 +344,8 @@ public final class AreaStore {
                     done += n; if (progress != null && done - last > 256 * 1024) { last = done; progress.update(done, total); }
                 }
             } finally { c.disconnect(); }
+            // A connection closed early by a proxy or a dropped signal ends the stream without an error: never a complete file.
+            if (total > 0 && done != total) throw new IOException("The download was cut short. Try again.");
             if (progress != null) progress.update(done, total);
             return mem == null ? null : mem.toByteArray();
         }

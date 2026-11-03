@@ -42,6 +42,12 @@ public final class AppUpdate {
     private static final AtomicBoolean busy = new AtomicBoolean();
     /** When the last install was handed to Android (elapsedRealtime), 0 once Android reports it failed or was cancelled. */
     private static volatile long committedAt;
+    /**
+     * Android's own "install?" screen, kept in case it couldn't be shown: Android ignores an activity started from the
+     * background, which is where Daanvia is when a slow download ends after the rider has moved on. The next Install tap
+     * shows it (see install).
+     */
+    private static volatile Intent pendingConfirm;
     /** Downloading or installing right now: its APK must stay. */
     static boolean busy() { return busy.get() || android.os.SystemClock.elapsedRealtime() - committedAt < 60000; }
     public static State state() { return state; }
@@ -89,7 +95,8 @@ public final class AppUpdate {
         SharedPreferences prefs = c.getSharedPreferences("update", 0);
         // A newer version found by an earlier check is looked up again, so the update banner is back after a restart.
         String latest = prefs.getString("latest", ""); boolean knownNewer = !latest.isEmpty() && compare(latest, BuildInfo.VERSION) > 0;
-        if (quiet && !knownNewer && System.currentTimeMillis() - prefs.getLong("checked", 0) < 12 * 3600_000L) { if (state == null) restore(c); return; }
+        // (hourly once a newer version is known, so the banner is back after a restart without a request at every open)
+        if (quiet && System.currentTimeMillis() - prefs.getLong("checked", 0) < (knownNewer ? 3600_000L : 12 * 3600_000L)) { if (state == null) restore(c); return; }
         if (NavSession.get(c).active || !busy.compareAndSet(false, true)) return;
         post(new State(null, 0, true, false, false, false, null));
         new Thread(() -> {
@@ -112,9 +119,18 @@ public final class AppUpdate {
     /** Download the APK (verified) and open Android's install prompt. */
     public static void install(Context context) {
         State s = state; if (s == null || s.release == null || s.release.apkUrl == null) return;
+        // Android's "install?" screen is already prepared (the download finished while Daanvia was in the background, where
+        // it couldn't be shown): show it now, from the screen the rider is on.
+        Intent confirm = pendingConfirm;
+        if (confirm != null) { pendingConfirm = null; try { context.startActivity(confirm); } catch (Exception e) { committedAt = 0; } return; }
         // Android's prompt is up (or about to be): a second tap would open a second install.
         if (android.os.SystemClock.elapsedRealtime() - committedAt < 60000 || !busy.compareAndSet(false, true)) return;
         Context c = context.getApplicationContext(); Release r = s.release;
+        if (r.sha256.isEmpty()) {
+            busy.set(false);
+            post(new State(r, 0, false, false, false, false, "This update can’t be verified. Download it from the website instead."));
+            return;
+        }
         if (!c.getPackageManager().canRequestPackageInstalls()) {
             busy.set(false);
             post(new State(r, 0, false, false, false, false, "Allow Daanvia to install updates, then tap Update again."));
@@ -124,7 +140,7 @@ public final class AppUpdate {
         new Thread(() -> {
             File apk = file(c, r); PackageInstaller pi = null; int id = -1; boolean committed = false;
             try {
-                if (!(apk.isFile() && apk.length() == r.bytes && sha(apk).equalsIgnoreCase(r.sha256.isEmpty() ? sha(apk) : r.sha256))) download(r, apk);
+                if (!(apk.isFile() && apk.length() == r.bytes && sha(apk).equalsIgnoreCase(r.sha256))) download(r, apk);
                 post(new State(r, r.bytes, false, false, true, false, null));
                 pi = c.getPackageManager().getPackageInstaller();
                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -181,10 +197,13 @@ public final class AppUpdate {
             int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
             if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                 Intent confirm = Build.VERSION.SDK_INT >= 33 ? i.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class) : legacy(i);
-                if (confirm != null) c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                if (confirm == null) return;
+                confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (!i.getBooleanExtra("old", false)) { pendingConfirm = confirm; committedAt = 0; State s = state; if (s != null && s.release != null) post(new State(s.release, s.release.bytes, false, false, true, false, null)); }
+                c.startActivity(confirm);
             } else if (status != PackageInstaller.STATUS_SUCCESS) {
                 if (i.getBooleanExtra("old", false)) return;  // the old app's handover install (MoveActivity), not Daanvia's own update
-                committedAt = 0; State s = state;
+                pendingConfirm = null; committedAt = 0; State s = state;
                 post(new State(s == null ? null : s.release, 0, false, false, false, false, status == PackageInstaller.STATUS_FAILURE_ABORTED ? "Update cancelled" : "The update couldn’t be installed"));
             }
         }

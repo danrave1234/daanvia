@@ -12,14 +12,20 @@ final class RideMotion {
     double lat, lon, speed; float bearing; int routeFrom;
     private long lastFix = -1, poseAt; private double fromLat, fromLon, toLat, toLon; private float fromBearing, toBearing;
     private double along = -1, alongShown = -1; private long alongAt; private List<double[]> alongRoute;
+    private boolean following;
 
     RideMotion(NavSession s) { this.s = s; }
 
     /** Advance to {@code now} (elapsedRealtime); {@code dtMs} is the time since the previous frame. */
     void update(long now, float dtMs) {
-        if (followRoute(now, dtMs)) return;
+        if (followRoute(now, dtMs)) { following = true; return; }
         routeFrom = Math.max(0, Math.min(s.progress, Math.max(0, s.shape.size() - 1)));
-        if (s.fixAt != lastFix) {
+        if (following) {
+            // Just left the route (GPS wandered off it, or a detour): glide from where the arrow is to the fix, instead of
+            // jumping to wherever the last off-route glide ended, which could be the ride's start or kilometres back.
+            following = false;
+            fromLat = lat; fromLon = lon; fromBearing = bearing; toLat = s.viewLat; toLon = s.viewLon; toBearing = s.viewBearing; poseAt = now; lastFix = s.fixAt;
+        } else if (s.fixAt != lastFix) {
             boolean first = lastFix == -1 || lat == 0;
             double moved = first ? 0 : GeoMath.distance(toLat, toLon, s.viewLat, s.viewLon); long dt = Math.max(1, now - poseAt);
             // Fixes of a rider standing still come 15 s apart (Here drops repeats), so after a long gap the speed is the
@@ -35,9 +41,10 @@ final class RideMotion {
 
     private boolean followRoute(long now, float dtMs) {
         List<double[]> route = s.shape; double[] cum = s.cumulative;
-        if (!s.active || !s.snapped || route.size() < 2 || cum.length != route.size()) { alongShown = -1; return false; }
+        if (!s.active || !s.snapped || route.size() < 2 || cum.length != route.size()) { along = -1; alongShown = -1; return false; }
         if (route != alongRoute) { alongRoute = route; along = -1; alongShown = -1; }
-        if (s.fixAt != lastFix) {
+        // Back on the route: measure from the current fix even when the glide already used it, not from where the route was left.
+        if (s.fixAt != lastFix || along < 0) {
             double a = alongOf(route, cum, s.viewLat, s.viewLon); long dt = Math.max(1, now - alongAt);
             if (along >= 0 && dt < 5000) speed = speed * 0.5 + Math.max(0, Math.min(45, (a - along) / (dt / 1000.0))) * 0.5;
             along = a; alongAt = now; lastFix = s.fixAt;

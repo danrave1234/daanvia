@@ -13,5 +13,7 @@ public final class TftPreview extends View {
     protected void onMeasure(int w, int h) { int width = MeasureSpec.getSize(w); float a = s.panelW > 0 && s.panelH > 0 ? (float)s.panelW / s.panelH : 5f / 3f; setMeasuredDimension(width, Math.round(width / Math.max(0.5f, Math.min(4f, a)))); }
     protected void onSizeChanged(int w, int h, int ow, int oh) { clip.reset(); clip.addRoundRect(0, 0, w, h, radius, radius, Path.Direction.CW); }
     /** During a ride it keeps drawing at the bike display's rate (up to 30 frames a second), so it moves like the TFT. */
+    /** Shown again (the sheet or page came back): the ride-time redraw loop above restarts; hidden, it stops on its own. */
+    protected void onVisibilityChanged(View v, int visibility) { super.onVisibilityChanged(v, visibility); if (visibility == VISIBLE) invalidate(); }
     protected void onDraw(Canvas c) { c.save(); c.clipPath(clip); renderer.draw(c, getWidth(), getHeight()); c.restore(); if (s.active && isShown()) postInvalidateDelayed(1000 / Math.max(15, Math.min(30, s.bikeFps > 0 ? s.bikeFps : 30))); }
 }

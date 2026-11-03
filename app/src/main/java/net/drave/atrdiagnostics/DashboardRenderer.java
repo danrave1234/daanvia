@@ -142,12 +142,15 @@ public final class DashboardRenderer {
     private String turnKey(RectF r, boolean sample) {
         boolean arriving = !sample && "Destination nearby".equals(s.instruction);
         boolean stale = !sample && !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
-        return look(r) + sample + arriving + stale + '|' + s.maneuver + '|' + System.identityHashCode(s.maneuvers) + '|' + distance(s.distanceToTurn) + '|' + s.instruction + '|' + s.destination;
+        // The distance at the steps its text changes (10 m under a kilometre, 100 m above): no text formatting per frame.
+        double d = s.distanceToTurn; long step = d < 1000 ? Math.round(d / 10) : 1000 + Math.round(d / 100);
+        return look(r) + sample + arriving + stale + '|' + s.maneuver + '|' + System.identityHashCode(s.maneuvers) + '|' + step + '|' + s.instruction + '|' + s.destination;
     }
     /** Everything the trip card's picture depends on (see tripCard). */
     private String tripKey(RectF r, boolean sample) {
         double secs = sample ? 12 * 60 : s.seconds, metres = sample ? 4500 : s.remaining;
-        return look(r) + sample + '|' + Math.max(1, Math.round(secs / 60)) + '|' + Math.round(metres / 100) + '|' + Gabi.clock(secs);
+        // The arrival clock as its minute number: formatting the time every frame was the costliest thing in the frame.
+        return look(r) + sample + '|' + Math.max(1, Math.round(secs / 60)) + '|' + Math.round(metres / 100) + '|' + (System.currentTimeMillis() + Math.round(secs * 1000)) / 60000L;
     }
     private String look(RectF r) { return r.left + "," + r.top + "," + r.right + "," + r.bottom + '|' + pal.night + pal.accent + '|' + s.textScale + s.layout + '|' + System.identityHashCode(black) + System.identityHashCode(bold) + '|'; }
     /** The landscape default cards don't suit a tall display: the turn across the top, the trip across the bottom. */
@@ -438,7 +441,7 @@ public final class DashboardRenderer {
             Path l = road.tunnel ? tunnels : road.bridge ? bridges[layer(road.kind)] : layers[layer(road.kind)];
             for (int j = 0; j < road.size(); j++) { project(road.lat(j), road.lon(j), pt); point(l, pt[0], pt[1], j == 0); }
         }
-        String[] kinds = {"residential", "tertiary", "secondary", "primary"};
+        String[] kinds = KINDS;
         // Underpasses first, faded and dashed; then the roads at ground level; then overpasses on a dark edge, so a flyover
         // and the road beneath it no longer read as one line at a split.
         p.setColor(road("residential")); p.setAlpha(pal.night ? 150 : 170); p.setStrokeWidth(5 * roadScale); p.setPathEffect(tunnelDash); c.drawPath(tunnels, p); p.setPathEffect(null); p.setAlpha(255);
@@ -483,9 +486,11 @@ public final class DashboardRenderer {
             RectF b = new RectF(w - tw - 40, 16, w - 16, 46); p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(b, 15, 15, p);
             text(c, "DEMO", b.left + 12, b.bottom - 9, 15, 0xFF1A1203, black); p.setLetterSpacing(0);
         }
-        p.setTextSize(11); p.setTypeface(semi); float aw = p.measureText("© OpenStreetMap contributors");
-        text(c, "© OpenStreetMap contributors", w - aw - 10, h - 8, 11, muted(), semi);
+        if (attributionWidth == 0) { p.setTextSize(11); p.setTypeface(semi); attributionWidth = p.measureText(ATTRIBUTION); }
+        text(c, ATTRIBUTION, w - attributionWidth - 10, h - 8, 11, muted(), semi);
     }
+    private static final String ATTRIBUTION = "© OpenStreetMap contributors"; private float attributionWidth;
+    private static final String[] KINDS = {"residential", "tertiary", "secondary", "primary"};
 
     private void parking(Canvas c, float left, float top, float w, float h, float[] pt) {
         ArrayList<RectF> occupied = new ArrayList<>(); int shown = 0;
