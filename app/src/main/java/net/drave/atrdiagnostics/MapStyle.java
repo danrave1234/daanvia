@@ -214,6 +214,7 @@ final class MapStyle {
         line(st, "route-case", n ? 0xFF3B2804 : 0xFF8A5600, 1f);
         line(st, "route-line", n ? 0xFFFFB020 : 0xFFFFAA0F, 1f);
         routeLine = n ? 0xFFFFB020 : 0xFFFFAA0F; routeCase = n ? 0xFF3B2804 : 0xFF8A5600; routeGlow = p.accent;
+        progressStyle = null;  // the new palette's gradient, even though the progress hasn't moved
         routeProgress(st, progressFrom, progressTo);
         // Online detail, toned to sit under the Gabi roads and route.
         Layer ow = st.getLayer("online-water"); if (ow != null) ow.setProperties(fillColor(sea), fillOutlineColor(sea));
@@ -279,6 +280,8 @@ final class MapStyle {
     private static int routeLine = 0xFFFFB020, routeCase = 0xFF3B2804, routeGlow = 0xFFFFB020;
     private static float progressFrom = 0, progressTo = 1; private static Style progressStyle;
     /** Paint the route from {@code from} to {@code to} (fractions of its length); before {@code from} it shows as ridden, after {@code to} not at all. */
+    /** The map is gone: let go of its style (it holds the map view, and with it the activity). */
+    static void forget() { progressStyle = null; }
     static void routeProgress(Style st, float from, float to) {
         from = Math.max(0, Math.min(1, from)); to = Math.max(from, Math.min(1, to));
         // Asked for on every frame: nothing to do while the rider waits at a light and the fractions haven't moved.

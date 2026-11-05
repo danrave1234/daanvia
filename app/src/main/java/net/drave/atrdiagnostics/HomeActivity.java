@@ -5,12 +5,10 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.*;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.os.*;
 import android.text.*;
 import android.text.style.ForegroundColorSpan;
 import android.view.*;
-import android.view.animation.LinearInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
@@ -92,7 +90,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     static final long MAP_CACHE_BYTES = 200L * 1024 * 1024;
     static final int SEARCH_PARKING_METERS = 150;
     private String drawnDest = null, drawnDrop = null;
-    private boolean routeCleared; private List<double[]> drawnShape; private List<JSONObject> drawnParking; private Gabi.Palette drawnParkingPalette; private ValueAnimator routeAnim;
+    private boolean routeCleared; private List<double[]> drawnShape; private List<JSONObject> drawnParking; private Gabi.Palette drawnParkingPalette;
     private boolean follow = true; private double shownLat, shownLon; private float shownBearing; private long lastFix = -1;
     private long themeCheckedAt; private boolean centeredOnRegion, coastline; private int shownRegion = -1;
 
@@ -187,7 +185,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** This launch only opened the move screen: nothing was set up, so there is nothing to tear down. */
     private boolean moving, offerUninstallOld;
     private final BroadcastReceiver closeScreens = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { finishAndRemoveTask(); } };
-    protected void onDestroy() { if (moving) { super.onDestroy(); return; } try { unregisterReceiver(closeScreens); } catch (Exception ignored) {} ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (debugReceiver != null) unregisterReceiver(debugReceiver); style = null; layersReady = false; worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
+    protected void onDestroy() { if (moving) { super.onDestroy(); return; } try { unregisterReceiver(closeScreens); } catch (Exception ignored) {} ui.removeCallbacksAndMessages(null); if (shimmerAnim != null) shimmerAnim.cancel(); link.detach(this); if (debugReceiver != null) unregisterReceiver(debugReceiver); style = null; MapStyle.forget(); layersReady = false; worker.shutdownNow(); net.shutdownNow(); mapView.onDestroy(); super.onDestroy(); }
     public void onLowMemory() { super.onLowMemory(); if (mapView != null) mapView.onLowMemory(); }
     /*
      * The phone hidden in a pocket, or Android short of memory: let the map drop the tiles it keeps in memory. A smaller
@@ -1237,14 +1235,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!demo && (s.simulation || s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 40)) {
             Gabi.shake(startBtn); notice(s.fixAt > 0 && s.accuracy > 40 ? "Your location is still rough (±" + Math.round(s.accuracy) + " m). Step outside or wait a moment." : "Waiting for a clear GPS signal. Try again in a moment."); locate(); return;
         }
-        // The ride's notification carries the lock-screen buttons (Reconnect, Commands, Exit). Asked once; after a refusal,
-        // a reminder with the way to Android's settings instead, since Android stops showing the question.
-        boolean askingNotifications = false;
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            android.content.SharedPreferences p = getSharedPreferences("ui", 0);
-            if (!p.getBoolean("asked_notifications", false)) { p.edit().putBoolean("asked_notifications", true).apply(); askingNotifications = true; requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 72); }
-            else if (!demo && System.currentTimeMillis() - p.getLong("notifications_reminded", 0) > 3L * 24 * 3600 * 1000) { p.edit().putLong("notifications_reminded", System.currentTimeMillis()).apply(); notificationsNotice(); }
-        }
+        boolean askingNotifications = askNotifications(demo);
         if (!demo) {
             rememberRide(destLat, destLon, destName);
             // Kept until the ride ends, so a ride Android cut short (the app killed in the background) can be picked up again.
@@ -1257,17 +1248,29 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!demo && !resuming && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
+    /**
+     * The ride's notification carries the lock-screen buttons (Reconnect, Commands, Exit). Asked once; after a refusal,
+     * a reminder with the way to Android's settings instead, since Android stops showing the question. True while asking.
+     */
+    private boolean askNotifications(boolean demo) {
+        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return false;
+        android.content.SharedPreferences p = getSharedPreferences("ui", 0);
+        if (!p.getBoolean("asked_notifications", false)) { p.edit().putBoolean("asked_notifications", true).apply(); requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 72); return true; }
+        if (!demo && System.currentTimeMillis() - p.getLong("notifications_reminded", 0) > 3L * 24 * 3600 * 1000) { p.edit().putLong("notifications_reminded", System.currentTimeMillis()).apply(); notificationsNotice(); }
+        return false;
+    }
     /** Just ride: a free ride with no destination (NavSession.cruise). The bike display connects and shows the roads ahead. */
     private void startCruise() {
         if (s.active) { go(Mode.RIDE); return; }
         if (!s.ready) { notice("The map is still getting ready"); return; }
-        if (!Here.precise(this)) { notice("Riding needs precise location"); requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 73); return; }
+        if (!Here.precise(this)) { notice("Riding needs precise location"); requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 74); return; }
         if (s.simulation) { s.simulation = false; s.fixAt = 0; }
         pendingPlan = false; destName = null; demoTrip = false; plannedTrip = Collections.emptyList();
         // Kept until the ride ends, so a free ride Android cut short starts again on its own (see NavService.resumeAfterRestart).
         try { getSharedPreferences("ui", 0).edit().putString("ride", new org.json.JSONObject().put("cruise", true).put("at", System.currentTimeMillis()).toString()).apply(); } catch (org.json.JSONException ignored) {}
         link.allowAuto(); autoDelay = 15000; ui.removeCallbacks(retryConnect); autoConnect();
-        if (!resuming) KeepAlive.askForRide(this);
+        boolean askingNotifications = !resuming && askNotifications(false);
+        if (!resuming && !askingNotifications) KeepAlive.askForRide(this);
         if (!resuming && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
         s.beginCruise();
         startForegroundService(new Intent(this, NavService.class).putExtra("cruise", true));
@@ -1294,9 +1297,12 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         try {
             org.json.JSONObject r = new org.json.JSONObject(raw);
             if (System.currentTimeMillis() - Math.max(r.getLong("at"), u.getLong("ride_alive", 0)) > 30 * 60_000L) { u.edit().remove("ride").apply(); return; }
-            if (r.optBoolean("cruise")) { resuming = true; try { startCruise(); } finally { resuming = false; } notice("Continuing your free ride", null, null, 6000); return; }
-            double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
             boolean killed = KeepAlive.killedBySystem(this); KeepAlive.recheckColorOs(this);
+            if (r.optBoolean("cruise")) { resuming = true; try { startCruise(); } finally { resuming = false; }
+                if (killed) notice("Your phone closed Daanvia, so your free ride is starting again. Tap to stop your phone closing it", "Fix", () -> { if (KeepAlive.colorOs() != null) openSettings("coloros"); else KeepAlive.fix(this); }, 15000);
+                else notice("Continuing your free ride", null, null, 6000);
+                return; }
+            double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
             JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");
             // Back on the route the rider chose, not the quickest one (see NavSession.chosenVia).
             if(via!=null&&via.length()==2)s.resumeVia(new double[]{via.getDouble(0),via.getDouble(1)});
@@ -1427,7 +1433,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         JSONArray ms = s.maneuvers; int idx = s.maneuver;
         JSONObject m = ms.optJSONObject(idx);
         boolean arriving = "Destination nearby".equals(s.instruction);
-        boolean stale = !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
+        boolean stale = s.gpsStale();
         int type = arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
         String street = arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : Maneuvers.label(m, streetOf(m, s.instruction));
         if (idx != shownManeuver) {
@@ -1451,7 +1457,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     /** The ride screen on a free ride: the road the rider is on and their speed, with End; no turns, no arrival time. */
     private void paintCruise() {
-        boolean stale = !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
+        boolean stale = s.gpsStale();
         maneuverIcon.setImageDrawable(iconFor(IconDrawable.STRAIGHT, theme.palette.onAccent, 2.6f));
         maneuverDist.setText(stale ? "GPS weak" : s.street.isEmpty() ? "Free ride" : s.street);
         maneuverDist.setTextColor(stale ? theme.palette.danger : theme.palette.ink);
@@ -1539,7 +1545,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             if (MoveActivity.oldVersion(this) >= 0) notice("Your maps and settings moved over. Uninstall the old Daanvia to free its space", "Uninstall",
                 () -> { try { startActivity(new Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:" + MoveActivity.OLD_APP))); } catch (Exception ignored) {} }, 30000);
         }
-        if (!resumeOffered && s.ready && !s.active && mode == Mode.EXPLORE) { resumeOffered = true; offerResume(); }
+        if (!resumeOffered && started && s.ready && !s.active && mode == Mode.EXPLORE) { resumeOffered = true; offerResume(); }
         exploreStatus.setText(!s.ready ? "Getting the map ready…" : s.status.startsWith("Offline region could not load") ? "The map couldn't load. Open Settings › Support." : "");
         exploreStatus.setVisibility(exploreStatus.length() == 0 ? View.GONE : View.VISIBLE);
         if (pendingPlan && s.ready && !s.routing && freshFix()) { pendingPlan = false; if(plannedTrip.isEmpty())s.plan(destLat, destLon, destName, false);else s.planTrip(plannedTrip,destName); }
@@ -1578,7 +1584,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         }
         GeoJsonSource route = src(MapStyle.ROUTE), done = src(MapStyle.DONE);
         if (!showRoute) {
-            if (!routeCleared) { if (routeAnim != null) routeAnim.cancel(); route.setGeoJson(MapStyle.empty()); done.setGeoJson(MapStyle.empty()); MapStyle.routeProgress(style, 0, 1); routeCleared = true; }
+            if (!routeCleared) { route.setGeoJson(MapStyle.empty()); done.setGeoJson(MapStyle.empty()); MapStyle.routeProgress(style, 0, 1); routeCleared = true; }
             drawnShape = null;
         } else if (mode == Mode.ROUTE && shape != drawnShape) { routeCleared = false; drawnShape = shape; done.setGeoJson(MapStyle.empty()); drawRouteIn(shape); ui.postDelayed(() -> { if (drawnShape == shape) fitRoute(shape); }, 120); }
         else if (mode == Mode.RIDE && !rideFrames) paintRideRoute(shape, Math.min(s.progress, shape.size() - 1), s.viewLat, s.viewLon);
@@ -1602,7 +1608,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     /** A new route goes to the map once and fades in (see MapStyle.routeFadeIn). */
     private void drawRouteIn(List<double[]> shape) {
-        if (routeAnim != null) routeAnim.cancel();
         GeoJsonSource route = src(MapStyle.ROUTE); if (route == null) return;
         MapStyle.routeProgress(style, 0, 1); MapStyle.routeFadeIn(style, ui);
         route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, 0, shape.size(), null)));
@@ -1616,7 +1621,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** Ride: the route goes to the map when it changes (a reroute); otherwise only how much of it is greyed out. */
     private void paintRideRoute(List<double[]> shape, int from, double lat, double lon) {
         GeoJsonSource route = src(MapStyle.ROUTE), done = src(MapStyle.DONE); if (route == null || style == null) return;
-        if (shape != drawnShape) { if (routeAnim != null) routeAnim.cancel(); drawnShape = shape; route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, 0, shape.size(), null))); if (done != null) done.setGeoJson(MapStyle.empty()); }
+        if (shape != drawnShape) { drawnShape = shape; route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, 0, shape.size(), null))); if (done != null) done.setGeoJson(MapStyle.empty()); }
         routeCleared = false; MapStyle.routeProgress(style, routeFraction(shape, from, lat, lon), 1);
     }
     private void fitRoute(List<double[]> shape) {
@@ -1688,6 +1693,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         l.setTime(System.currentTimeMillis()); l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos()); l.setBearing(s.viewBearing);
         return l;
     }
+    private final Runnable puckCheck = this::paintPuck;
     private void paintPuck() {
         if (style == null) return;
         boolean visible = s.fixAt > 0 || s.active;
@@ -1697,6 +1703,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         boolean was = locPuckOn; showLocationPuck(true);
         // Moving: an arrow pointing the way the rider goes. Standing: the dot, its beam turning with the phone's compass.
         boolean arrow = s.speedMetersPerSecond > 2 && SystemClock.elapsedRealtime() - s.fixAt < 6000;
+        // Fixes stopping (a tunnel, indoors) bring no refresh, so the arrow checks again once it would be out of date.
+        if (arrow) { ui.removeCallbacks(puckCheck); ui.postDelayed(puckCheck, 6500); }
         if (locPuckOn && arrow != puckArrow) { puckArrow = arrow; try { locPuck.setRenderMode(arrow ? org.maplibre.android.location.modes.RenderMode.GPS : org.maplibre.android.location.modes.RenderMode.COMPASS); } catch (Exception ignored) {} }
         if (s.fixAt == lastFix && was) return;
         lastFix = s.fixAt;
@@ -1741,7 +1749,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         rideArrow.setX(x - rideArrow.getWidth() / 2f); rideArrow.setY(y - rideArrow.getHeight() / 2f);
         if (rideArrow.getVisibility() != View.VISIBLE) rideArrow.setVisibility(View.VISIBLE);
     }
-    private void startRideFrames() { if (rideFrames || bikeMode) return; rideFrames = true; rideFrameAt = 0; android.view.Choreographer.getInstance().postFrameCallback(rideFrame); }
+    private void startRideFrames() { if (rideFrames || bikeMode) return; rideFrames = true; rideFrameAt = 0; android.view.Choreographer.getInstance().removeFrameCallback(rideFrame); android.view.Choreographer.getInstance().postFrameCallback(rideFrame); }
 
     // ================================================================ bike mode
     // While the bike display shows the directions, the phone can rest: a plain dark screen with the next turn, the
@@ -1752,6 +1760,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void armBikeMode() { ui.removeCallbacks(autoBikeMode); if (!bikeMode) ui.postDelayed(autoBikeMode, 15000); }
     public void onUserInteraction() { super.onUserInteraction(); if (mode == Mode.RIDE && !bikeMode) armBikeMode(); }
     private void buildBikeMode() {
+        // Its own kit on the night palette: the app's kit recolours its views on every theme change (sunrise mid-ride).
+        Gabi.Kit k = new Gabi.Kit(this, new Gabi.Themer(Gabi.NIGHT));
         // Always light text on black, whatever the map theme: this screen is meant to be dark.
         bikeView = new FrameLayout(this); bikeView.setBackgroundColor(0xFF000000); bikeView.setVisibility(View.GONE); bikeView.setElevation(k.dp(60));
         LinearLayout col = k.column(8); col.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1796,7 +1806,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void paintBikeMode() {
         if (s.cruise) {
             bikeIcon.setImageDrawable(iconFor(IconDrawable.STRAIGHT, theme.palette.onAccent, 2.6f));
-            bikeDist.setText(Math.round(s.speedMetersPerSecond * 3.6f) + " km/h"); bikeStreet.setText(s.street.isEmpty() ? "Free ride" : s.street); bikeEta.setText("Free ride · no destination");
+            bikeDist.setText(s.gpsStale() ? "GPS weak" : Math.round(s.speedMetersPerSecond * 3.6f) + " km/h"); bikeStreet.setText(s.street.isEmpty() ? "Free ride" : s.street); bikeEta.setText("Free ride · no destination");
             if (!endArmed) bikeEnd.setText("End"); return;
         }
         JSONObject m = s.maneuvers.optJSONObject(s.maneuver);
@@ -1830,7 +1840,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     private double followedLat, followedLon, followedZoom; private float followedBearing; private int followedH;
     private void follow() {
-        int h = mapView.getHeight(); double zoom = s.remaining < 600 ? 17.4 : 16.8;
+        int h = mapView.getHeight(); double zoom = !s.cruise && s.remaining < 600 ? 17.4 : 16.8;
         // Called every frame: while the rider is stopped the camera is already there, and moving it again would still cost a camera pass.
         if (shownLat == followedLat && shownLon == followedLon && shownBearing == followedBearing && zoom == followedZoom && h == followedH) return;
         followedLat = shownLat; followedLon = shownLon; followedBearing = shownBearing; followedZoom = zoom; followedH = h;
@@ -1906,6 +1916,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (code == 72) { if (r.length > 0 && r[0] != PackageManager.PERMISSION_GRANTED) notificationsNotice(); else if (s.active && !s.simulation) KeepAlive.askForRide(this); }
         if (code == 73 && Here.precise(this)) { here.stop(); here.start(); notice("Precise location on. Tap Start ride when the dot settles."); }
         else if (code == 73) notice("Directions need precise location. Turn it on in Android’s app settings for Daanvia.");
+        if (code == 74 && Here.precise(this)) { here.stop(); here.start(); notice("Precise location on. Tap Just ride again when the dot settles."); }
+        else if (code == 74) notice("Riding needs precise location. Turn it on in Android’s app settings for Daanvia.");
         if (code == DashboardLink.PERMISSIONS) link.onPermissionsResult();
     }
     private void notificationsNotice() {

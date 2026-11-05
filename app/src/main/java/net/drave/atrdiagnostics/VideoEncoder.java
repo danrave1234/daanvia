@@ -177,7 +177,7 @@ public final class VideoEncoder implements Closeable {
     }
 
     // The bike pulls frames as fast as it shows them, and says nothing about its refresh rate. When it keeps waiting on us
-    // for a frame, it could show more, so frames are drawn faster (up to 30 a second); when finished frames pile up
+    // for a frame, it could show more, so frames are drawn faster (up to 24 a second); when finished frames pile up
     // unwanted, slower (down to 10). Checked every 30 pulls; the rate the bike settles on is remembered for next time.
     private volatile int fps=15;private int pulls;private long waited;private int backlog;private java.util.function.IntConsumer onRate;
     /** Start at the rate this bike settled on last time; {@code onRate} hears each change. */

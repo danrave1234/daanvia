@@ -142,7 +142,7 @@ public final class DashboardRenderer {
     /** Everything the turn card's picture depends on (see turnCard). */
     private String turnKey(RectF r, boolean sample) {
         boolean arriving = !sample && "Destination nearby".equals(s.instruction);
-        boolean stale = !sample && !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
+        boolean stale = !sample && s.gpsStale();
         // The distance at the steps its text changes (10 m under a kilometre, 100 m above): no text formatting per frame.
         double d = s.distanceToTurn; long step = d < 1000 ? Math.round(d / 10) : 1000 + Math.round(d / 100);
         return look(r) + sample + arriving + stale + '|' + s.maneuver + '|' + System.identityHashCode(s.maneuvers) + '|' + step + '|' + s.instruction + '|' + s.destination;
@@ -171,7 +171,7 @@ public final class DashboardRenderer {
         cardBackground(c, r);
         JSONObject m = s.maneuvers.optJSONObject(s.maneuver);
         boolean arriving = !sample && "Destination nearby".equals(s.instruction);
-        boolean stale = !sample && !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
+        boolean stale = !sample && s.gpsStale();
         int type = sample ? 10 : arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
         String dist = sample ? "200 m" : stale ? "GPS weak" : arriving ? "Arriving" : distance(s.distanceToTurn);
         String street = sample ? "Sample Street" : arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : Maneuvers.label(m, streetOf(m, s.instruction));

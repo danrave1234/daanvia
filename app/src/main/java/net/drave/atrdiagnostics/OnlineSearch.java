@@ -28,7 +28,7 @@ final class OnlineSearch {
 
     static List<Place> search(String query, double nearLat, double nearLon, int limit) throws IOException {
         String url = URL + "?q=" + URLEncoder.encode(query.trim(), "UTF-8") + "&limit=" + limit + "&lang=en&bbox=" + BBOX
-            + String.format(Locale.US, "&lat=%.5f&lon=%.5f", nearLat, nearLon);
+            + String.format(Locale.US, "&lat=%.3f&lon=%.3f", nearLat, nearLon);  // about 100 m: enough to rank nearby results, without the rider's exact spot
         HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
         c.setConnectTimeout(5000); c.setReadTimeout(7000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION + " (github.com/danrave1234/daanvia)");
         try {

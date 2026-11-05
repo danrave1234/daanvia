@@ -197,8 +197,6 @@ public final class StreamService extends Service {
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
                 long huTime=bike.optLong("currentHUTime",0),seenAt=SystemClock.elapsedRealtime();log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
                 final PxcWriter clockOut=out;main.postDelayed(()->{if(running)workers.execute(()->pushClock(clockOut,huTime,seenAt));},DashClock.ASK_GRACE_MS);
-                // The Wi-Fi time answer alone leaves the QJ clock at 00:00; Carbit sets it over Bluetooth (see BleClock).
-                synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,m->event("log",m));main.post(bleClock::start);}}
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
@@ -206,13 +204,12 @@ public final class StreamService extends Service {
             } else if(f.command==0x201c1)log("Dashboard acknowledged the client session check.");
             // The dashboard asks the phone for the time; an empty answer left its clock counting up from 00:00 (see DashClock).
             else if(f.command==DashClock.QUERY_TIME) {
-                timeAsked=true;
-                long now=System.currentTimeMillis();TimeZone zone=TimeZone.getDefault();
-                out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel)));
+                timeAsked=true;sendTime(out);
                 log("Told the dashboard the time: "+clock()+".");
             } else if(f.command==DashClock.TIME_SYNC) {
+                timeAsked=true;  // answered here; an unasked 0x10451 on top could overwrite a clock this left alone
                 out.write(Pxc.encode(DashClock.TIME_SYNC+1,DashClock.timeSyncReply(f.payload,System.currentTimeMillis(),TimeZone.getDefault())));
-                log(DashClock.keepsOwnTime(f.payload)?"The dashboard's clock is already set; left as it is.":"Set the dashboard's clock: "+clock()+".");
+                log(DashClock.keepsOwnTime(f.payload,System.currentTimeMillis())?"The dashboard's clock is already set; left as it is.":"Set the dashboard's clock: "+clock()+".");
             }
             else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10040||f.command==0x10750||f.command==0x10430||f.command==0x10460) {
                 out.write(Pxc.encode(f.command+1,""));
@@ -229,18 +226,21 @@ public final class StreamService extends Service {
     /** The dashboard asked for the time in this session (0x10450); then it is answered, never pushed. */
     private volatile boolean timeAsked;
     /**
-     * Reconnects never ask for the time, and the first answer doesn't always stick (logs of 30 Oct: the clock stayed a
-     * count since the bike was switched on). So a few seconds after the hello, a dashboard that didn't ask and whose clock
-     * is a count, or more than two minutes off, is sent the time anyway, as MOTO-HUB found Carbit Ride does.
+     * Some dashboards don't ask for the time on a reconnect, and a first answer doesn't always stick (logs of 30 Oct: the
+     * clock stayed a count since the bike was switched on). So a few seconds after the hello, a dashboard that didn't ask
+     * and whose clock is a count, or more than two minutes off, is sent the time anyway, as MOTO-HUB found Carbit Ride does.
+     * The bike keeps no time while switched off, so this runs on every connection.
      */
     private void pushClock(PxcWriter out,long huTime,long seenAt){
         if(!running||timeAsked)return;
         long now=System.currentTimeMillis();TimeZone zone=TimeZone.getDefault();
         if(!DashClock.needsTime(huTime,SystemClock.elapsedRealtime()-seenAt,now,zone))return;
-        try{out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(now,zone,clockWithDate,clockChannel)));log("The dashboard didn't ask for the time and its clock was wrong; sent the phone's time: "+clock()+".");}
+        try{sendTime(out);log("The dashboard didn't ask for the time and its clock was wrong; sent the phone's time: "+clock()+".");}
         catch(Exception e){log("Couldn't send the time: "+e.getClass().getSimpleName());}
     }
-    private BleClock bleClock;private Here freeRide;private QuietAudio quiet;
+    /** The phone's time, as the answer to the dashboard's 0x10450 (see DashClock). */
+    private void sendTime(PxcWriter out)throws IOException{out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(System.currentTimeMillis(),TimeZone.getDefault(),clockWithDate,clockChannel)));}
+    private Here freeRide;private QuietAudio quiet;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
     static String preview(byte[] b){return preview(b,600);}
@@ -305,7 +305,6 @@ public final class StreamService extends Service {
         navigationActive=false;mirroring=false;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;main.removeCallbacksAndMessages(null);
-        synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
         if(freeRide!=null){freeRide.stop();freeRide=null;}
         if(quiet!=null){quiet.stop();quiet=null;}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}

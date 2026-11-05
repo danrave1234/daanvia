@@ -74,12 +74,18 @@ public final class ShareLinks {
 
     private static String decode(String s) { try { return URLDecoder.decode(s, StandardCharsets.UTF_8.name()); } catch (Exception e) { return s; } }
 
+    static boolean google(String url) {
+        try { String h = new URL(url).getHost().toLowerCase(java.util.Locale.ROOT); return h.matches("(.+\\.)?(google\\.[a-z]{2,3}(\\.[a-z]{2})?|goo\\.gl|g\\.co)"); }
+        catch (Exception e) { return false; }
+    }
     /** Follow a short link's redirects (online, once) until a URL or page reveals coordinates. Call off the main thread. */
     public static Place resolve(Place p) throws Exception {
         String url = p.unresolved;
         for (int hop = 0; hop < 8 && url != null; hop++) {
             Place found = fromUrl(url, p.name.equals("Shared place") ? "" : p.name);
             if (found.located()) return found;
+            // Only Google's own map links are followed: shared text can hold any link, and opening it tells that site the phone's address.
+            if (!google(url)) break;
             HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
             c.setInstanceFollowRedirects(false); c.setConnectTimeout(8000); c.setReadTimeout(8000);
             c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) Daanvia");

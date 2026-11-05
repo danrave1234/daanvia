@@ -215,7 +215,7 @@ public final class DashboardLink {
         log("Daanvia " + BuildInfo.VERSION + " • Android " + Build.VERSION.RELEASE + " / " + Build.MANUFACTURER + " " + Build.MODEL);
         log("Scan your dashboard QR or choose its photo. QR text is decoded locally and its URL is never opened.");
         androidx.core.content.ContextCompat.registerReceiver(context, streamReceiver, new IntentFilter(StreamService.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
-        log("Tests are local. No firmware or engine access. Screen mirroring requires Android’s sharing consent and stops automatically after 90 seconds.");
+        log("Tests are local. No firmware or engine access. Screen mirroring needs Android’s sharing consent.");
         String saved = context.getSharedPreferences("saved-bike", 0).getString("qr", "");
         if (!saved.isEmpty()) acceptQr(saved);
     }
@@ -385,23 +385,12 @@ public final class DashboardLink {
 
     private void permissions(boolean mode) {
         requestedActive = mode;
-        boolean askBluetooth = askBluetooth();
-        if (!hasPermissions() || askBluetooth) {
+        if (!hasPermissions()) {
             ArrayList<String> p = new ArrayList<>();
             p.add(Manifest.permission.ACCESS_COARSE_LOCATION); p.add(Manifest.permission.ACCESS_FINE_LOCATION);
             if (Build.VERSION.SDK_INT >= 33) p.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-            if (askBluetooth) { p.addAll(java.util.Arrays.asList(BleClock.permissions())); context.getSharedPreferences("ui", 0).edit().putBoolean("bt_clock_asked", true).apply(); }
             ui.requestPermissions(p.toArray(new String[0]), PERMISSIONS);
         } else start(mode);
-    }
-    /**
-     * Bluetooth (Nearby devices) is only for the bike's clock, so it never blocks the display: asked for once, while
-     * Daanvia is on screen. A rider who says no can turn it on later in Android's app settings.
-     */
-    private boolean askBluetooth() {
-        if (BleClock.allowed(context) || BleClock.permissions().length == 0) return false;
-        if (context.getSharedPreferences("ui", 0).getBoolean("bt_clock_asked", false)) return false;
-        synchronized (hosts) { return !hosts.isEmpty(); }
     }
     /** Forward the screen's onRequestPermissionsResult for {@link #PERMISSIONS}. */
     public void onPermissionsResult() {

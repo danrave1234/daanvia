@@ -46,10 +46,12 @@ final class LogUpload {
 
     /**
      * Last scrub before anything leaves the phone: whatever reached the log (a crash message, a share link) loses
-     * coordinates and device addresses here, even if the line was never cleaned where it was written.
+     * coordinates, device addresses and the bike's Wi-Fi name (it often carries a serial or the owner's name) here, even if
+     * the line was never cleaned where it was written.
      */
     static String scrub(String line) {
-        return line.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}", "[coordinate]").replaceAll("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}", "[device address]");
+        return line.replaceAll("[-+]?[0-9]{1,3}\\.[0-9]{4,}", "[coordinate]").replaceAll("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}", "[device address]")
+            .replaceAll("(?i)(network: )[^;\\n]+", "$1[hidden]");
     }
     /** Queue one log line (it should end with a newline), and send the outbox if the last try was a while ago. Never blocks the caller. */
     static void add(Context c, String line) {

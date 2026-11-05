@@ -65,7 +65,9 @@ public final class MoveActivity extends Activity {
 
     protected void onResume() { super.onResume(); if (!working) paint(); }
 
-    private boolean ready() { return oldVersion(this) >= HANDOVER_VERSION && getPackageManager().resolveContentProvider(AUTHORITY, 0) != null; }
+    private boolean ready() { return oldVersion(this) >= HANDOVER_VERSION && fromOldApp(); }
+    /** The transfer provider is the old Daanvia's own, not another app's that took the same name. */
+    private boolean fromOldApp() { android.content.pm.ProviderInfo p = getPackageManager().resolveContentProvider(AUTHORITY, 0); return p != null && OLD_APP.equals(p.packageName); }
     private void paint() {
         if (oldVersion(this) < 0) { status.setText("The old Daanvia isn't on this phone any more."); primary.setText("Open Daanvia"); return; }
         if (ready()) { status.setText(""); primary.setText("Move my maps and settings"); }

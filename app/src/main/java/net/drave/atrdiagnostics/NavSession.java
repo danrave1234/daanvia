@@ -59,6 +59,8 @@ public final class NavSession {
         if(n>1&&ct[n-1]<=0)for(int j=1;j<n;j++)ct[j]=total*prefix[j]/Math.max(1,prefix[n-1]);
         return ct;}
     private final HashMap<String,Valhalla> engines=new HashMap<>();private volatile Region routeRegion,shown;private long lastReroute,savedFixAt=-600000;private int offRoute,requestId;
+    /** The rider has been on the current route at least once: only then does heading away from it count as turning off. */
+    private boolean matched;
     /** The rider reached the destination on this route: no more rerouting, and the arrival is announced once. */
     public volatile boolean arrived;
     /** A call or message shown on the bike display until popupUntil (elapsedRealtime), see RideNotifications. */
@@ -281,9 +283,11 @@ public final class NavSession {
         if(visible!=null&&visible!=shown)worker.execute(()->{try{display(visible);}catch(Throwable e){android.util.Log.e("Daanvia","Region switch failed",e);}refreshParking();signal();roads.execute(()->loadRoads(visible));});else refreshParking();
         shape=Collections.emptyList();routeChoices=Collections.emptyList();route();
     }
-    private synchronized void route(){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;
+    private synchronized void route(){route(true);}
+    /** {@code headed}: a reroute may start in the rider's heading; false where turning back may be the way (a blocked road). */
+    private synchronized void route(boolean headed){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;
         // Mid-ride, moving: the new route leaves the way the rider is heading, instead of turning them back to the old one.
-        headedFrom=active&&!simulation&&speedMetersPerSecond>=3&&accuracy<35?new double[]{a,b,bearing}:null;final Region region=routeRegion;final List<TripStop> stops=remainingStops();
+        headedFrom=headed&&active&&!simulation&&speedMetersPerSecond>=3&&accuracy<35?new double[]{a,b,bearing}:null;final Region region=routeRegion;final List<TripStop> stops=remainingStops();
         final double[] via=nextVia;nextVia=null;
         worker.execute(()->{boolean again=false;try{
             // A spot the router can't reach (a parking lot behind a private or customers-only road, the rider inside a gated
@@ -389,24 +393,21 @@ public final class NavSession {
     private JSONObject routeBetween(Region region,double a,double b,double c,double d)throws Exception{
         return avoiding(region,RouteRequest.between(a,b,c,d,!active),a,b);}
     /**
-     * Runs a route request keeping away from roads the rider marked blocked (RoadBlocks). If that can't work (a block
-     * right at the start or the destination), the same request runs without them.
+     * Runs a route request keeping away from roads the rider marked blocked (RoadBlocks) and, mid-ride, leaving the way the
+     * rider is heading. Whatever can't work is dropped in this order: the heading first, then the blocks (a block right at
+     * the start or the destination), so a road marked blocked only comes back when there is no other way at all.
      */
     private JSONObject avoiding(Region region,JSONObject req,double a,double b)throws Exception{
-        double[] h=headedFrom;
-        if(h!=null&&h[0]==a&&h[1]==b)try{
-            JSONObject headed=new JSONObject(req.toString());
-            headed.getJSONArray("locations").getJSONObject(0).put("heading",(int)Math.round(((h[2]%360)+360)%360)).put("heading_tolerance",50);
-            return avoidingBlocks(region,headed,a,b);
-        }catch(Throwable noRoadThatWay){android.util.Log.w("Daanvia","Route in the rider's direction failed",noRoadThatWay);}
-        return avoidingBlocks(region,req,a,b);}
+        double[] h=headedFrom;JSONObject headed=null;
+        if(h!=null&&h[0]==a&&h[1]==b){headed=new JSONObject(req.toString());headed.getJSONArray("locations").getJSONObject(0).put("heading",(int)Math.round(((h[2]%360)+360)%360)).put("heading_tolerance",50);}
+        JSONArray blocks=RoadBlocks.near(context,a,b,80);ArrayList<JSONObject> tries=new ArrayList<>();
+        if(blocks.length()>0){if(headed!=null)tries.add(new JSONObject(headed.toString()).put("exclude_locations",blocks));tries.add(new JSONObject(req.toString()).put("exclude_locations",blocks));}
+        if(headed!=null)tries.add(headed);
+        for(JSONObject t:tries)try{return run(region,t);}catch(Throwable failed){android.util.Log.w("Daanvia","Route attempt failed; trying with fewer conditions",failed);}
+        return run(region,req);}
     /** Where the rider was, and their heading, when the reroute running now was asked for; null when not moving. */
     private volatile double[] headedFrom;
-    private JSONObject avoidingBlocks(Region region,JSONObject req,double a,double b)throws Exception{
-        JSONArray blocks=RoadBlocks.near(context,a,b,80);
-        if(blocks.length()>0)try{JSONObject response=new JSONObject(engine(region).routeRaw(new JSONObject(req.toString()).put("exclude_locations",blocks).toString()));response.getJSONObject("trip");return response;}
-        catch(Throwable withBlocks){android.util.Log.w("Daanvia","Route around blocked roads failed",withBlocks);}
-        JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));response.getJSONObject("trip");return response;}
+    private JSONObject run(Region region,JSONObject req)throws Exception{JSONObject response=new JSONObject(engine(region).routeRaw(req.toString()));response.getJSONObject("trip");return response;}
     /**
      * The rider says the road ahead is blocked: the route's next stretch (about 25 m on, past the junction they're at) is
      * remembered as blocked, and a new route is found from where they are, which may mean turning back.
@@ -414,6 +415,8 @@ public final class NavSession {
     public void blockAhead(){
         double la,lo;
         synchronized(this){
+            // A free ride has no route ahead to block or change.
+            if(cruise){message("Free ride · no route to change");return;}
             if(!active||shape.size()<2){la=lat;lo=lon;}
             else{int i=Math.min(progress,shape.size()-1);double[] cum=cumulative;
                 if(cum.length==shape.size()){double want=cum[i]+25;while(i<shape.size()-1&&cum[i]<want)i++;}
@@ -424,7 +427,7 @@ public final class NavSession {
         }
         RoadBlocks.add(context,la,lo);
         message("Road marked as blocked · finding another way");
-        route();
+        route(false);
     }
     /** Preview changes update the exact geometry and maneuvers used by phone, voice and TFT. */
     public synchronized void selectRoute(int index){
@@ -434,7 +437,7 @@ public final class NavSession {
     private void applyRoute(RoutePlan plan,int gateCount){
         shape=plan.shape;maneuvers=plan.maneuvers;cumulative=plan.cumulative;
         legEnds=plan.legEnds;
-        cumTime=sectionTimes(cumulative,maneuvers,plan.seconds);maneuver=0;progress=0;arrived=false;offRoute=0;
+        cumTime=sectionTimes(cumulative,maneuvers,plan.seconds);maneuver=0;progress=0;arrived=false;offRoute=0;matched=false;
         routeMeters=plan.meters;remaining=routeMeters;routeSeconds=plan.seconds;seconds=routeSeconds*OFFLINE_TIME_ALLOWANCE;
         instruction="Route ready";gates=gateCount;privateRoad=lastPrivate;
         double[] first=shape.get(0),end=shape.get(shape.size()-1);
@@ -515,6 +518,8 @@ public final class NavSession {
         found.sort((x,y)->Double.compare(x[2],y[2]));
         return found.size()>max?new ArrayList<>(found.subList(0,max)):found;}
     private static final Set<String> MINOR=new HashSet<>(Arrays.asList("service","track","footway","path","steps","pedestrian","cycleway","corridor","bridleway","platform"));
+    /** No usable GPS fix right now (none yet, over 12 s old, or rougher than 50 m); never during a simulation. */
+    public boolean gpsStale(){return !simulation&&(fixAt==0||SystemClock.elapsedRealtime()-fixAt>12000||accuracy>50);}
     /** Starts a free ride: no destination, no route (see cruise). */
     public synchronized void beginCruise(){nextVia=null;followVia=null;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();maneuvers=new JSONArray();maneuver=0;progress=0;
         cumulative=new double[0];cumTime=new double[0];tripStops=Collections.emptyList();passedStops=0;destination="";remaining=0;seconds=0;distanceToTurn=0;arrived=false;cruise=true;instruction="Free ride";signal();}
@@ -526,8 +531,10 @@ public final class NavSession {
         viewLat=a;viewLon=b;viewBearing=direction;snapped=false;
         // Remembered so the day/night look matches the rider's sky before the next fix (see Gabi.resolve).
         if(!demo&&SystemClock.elapsedRealtime()-savedFixAt>600000){savedFixAt=SystemClock.elapsedRealtime();context.getSharedPreferences("ui",0).edit().putFloat("fix_lat",(float)a).putFloat("fix_lon",(float)b).apply();}
-        List<double[]> route=shape;if(!active||route.size()<2){nameStreet(a,b,direction,acc);signal();return;}
-        followArea(a,b);
+        List<double[]> route=shape;
+        // Also in a free ride, which has no route: the bike display's roads and the street name follow into the next area.
+        if(active)followArea(a,b);
+        if(!active||route.size()<2){nameStreet(a,b,direction,acc);signal();return;}
         // Match the rider to the route a few hundred metres ahead at most, and count a stretch running against the rider's
         // heading as farther away: on a divided road the lanes back from a U-turn slot lie metres away, and matching them
         // would jump past the U-turn.
@@ -537,8 +544,9 @@ public final class NavSession {
             double sc=distance+(Math.abs(((GeoMath.bearing(p,q)-direction+540)%360)-180)>100?25:0);if(sc<score){score=sc;best=distance;nearest=i;bestBearing=GeoMath.bearing(p,q);}}
         // Turned off the route: heading clearly away from the road the route follows, already a little off it. Found in two
         // fixes, about 25 m into the side street, where waiting to be 65 m away took half a block or more.
-        boolean turnedOff=!demo&&speedMetersPerSecond>=4&&acc<30&&best>22&&Math.abs(((bestBearing-direction+540)%360)-180)>55;
-        if(best<Math.max(45,acc)&&!turnedOff){progress=Math.max(progress,nearest);offRoute=0;}
+        // Only once the rider has been on this route: a fallback route that starts behind them would otherwise reroute every 5 s.
+        boolean turnedOff=matched&&!demo&&speedMetersPerSecond>=4&&acc<30&&best>22&&Math.abs(((bestBearing-direction+540)%360)-180)>55;
+        if(best<Math.max(45,acc)&&!turnedOff){progress=Math.max(progress,nearest);offRoute=0;matched=true;}
         // A stop is passed once the rider reaches its point on the road (the end of its leg), however far the pin sits
         // from the road (inside a mall or a big lot).
         while(passedStops<tripStops.size()-1&&passedStops<legEnds.length&&progress>=legEnds[passedStops]-1){

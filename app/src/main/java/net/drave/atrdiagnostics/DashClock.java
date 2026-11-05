@@ -75,7 +75,7 @@ final class DashClock {
         byte[] out = new byte[SYNC_REPLY_SIZE];
         if (request != null && request.length >= ECHO_BYTES) System.arraycopy(request, 0, out, 0, Math.min(request.length, SYNC_REPLY_SIZE));
         else ByteBuffer.wrap(out, 0, ECHO_BYTES).order(ByteOrder.LITTLE_ENDIAN).putInt(0xfffffffe).putInt(0).putInt(1).putInt(0);
-        if (keepsOwnTime(request)) return out;
+        if (keepsOwnTime(request, nowMs)) return out;
         SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US); f.setTimeZone(zone);
         byte[] stamp = (f.format(new Date(nowMs)) + "000000").getBytes(StandardCharsets.US_ASCII);
         System.arraycopy(stamp, 0, out, ECHO_BYTES, Math.min(stamp.length, STAMP_BYTES));
@@ -84,17 +84,17 @@ final class DashClock {
 
     /**
      * The dashboard sent a time of its own: printable text of at least 10 characters after the 16-byte header, not the
-     * 1970 of a clock that was never set. Hand that back as it came; dashboards format it in ways a strict check rejects,
+     * 1970 of a clock that was never set, nor a reset date years back (2000, 2010). Hand that back as it came; dashboards format it in ways a strict check rejects,
      * and replacing a good clock put some hours out.
      */
-    static boolean keepsOwnTime(byte[] request) {
+    static boolean keepsOwnTime(byte[] request, long nowMs) {
         if (request == null || request.length < ECHO_BYTES + 10) return false;
         int end = Math.min(request.length, ECHO_BYTES + STAMP_BYTES);
         String stamp = new String(request, ECHO_BYTES, end - ECHO_BYTES, StandardCharsets.ISO_8859_1).replaceAll("[\\x00 ]+$", "");
         if (stamp.trim().length() < 10) return false;
         for (int i = 0; i < stamp.length(); i++) { char c = stamp.charAt(i); if (c < 0x20 || c > 0x7e) return false; }
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{4})-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}").matcher(stamp);
-        if (m.find()) { int year = Integer.parseInt(m.group(1)); if (year >= 1969 && year <= 1971) return false; }
+        if (m.find()) { int year = Integer.parseInt(m.group(1)); java.util.Calendar now = java.util.Calendar.getInstance(); now.setTimeInMillis(nowMs); if (year < now.get(java.util.Calendar.YEAR) - 1) return false; }
         return true;
     }
 }

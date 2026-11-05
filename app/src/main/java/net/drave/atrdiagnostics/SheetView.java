@@ -69,7 +69,6 @@ public final class SheetView extends FrameLayout {
         if (wasHidden) { post(() -> { setTranslationY(getHeight() + kit.dp(40)); spring.animateToFinalPosition(0); }); }
         else { setTranslationY(getTranslationY() + kit.dp(26)); spring.animateToFinalPosition(0); }
     }
-    public View content() { return current; }
     public void expand() {
         collapsed = false; animate().cancel();
         if (getVisibility() != VISIBLE) { setVisibility(VISIBLE); post(() -> { setTranslationY(getHeight() + kit.dp(40)); spring.animateToFinalPosition(0); }); }
@@ -83,7 +82,6 @@ public final class SheetView extends FrameLayout {
     }
 
     // ---------------------------------------------------------------- drag
-    /** Fold the sheet down to its title row; the map gets the room. */
     /** How far down the sheet slides when folded: just the handle and the content's first row stay above the gesture bar. */
     private float collapsedOffset() {
         int row = peek;
@@ -116,8 +114,7 @@ public final class SheetView extends FrameLayout {
             float cx = x + g.getScrollX() - c.getLeft() - c.getTranslationX(), cy = y + g.getScrollY() - c.getTop() - c.getTranslationY();
             if (cx < 0 || cy < 0 || cx >= c.getWidth() || cy >= c.getHeight()) continue;
             if (c.isClickable() || c.isLongClickable()) return true;
-            if (c instanceof ViewGroup && !(c instanceof ScrollView) && clickableAt((ViewGroup)c, cx, cy)) return true;
-            if (c instanceof ScrollView && clickableAt((ViewGroup)c, cx, cy)) return true;
+            if (c instanceof ViewGroup && clickableAt((ViewGroup)c, cx, cy)) return true;
         }
         return false;
     }

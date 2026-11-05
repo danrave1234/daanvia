@@ -13,7 +13,7 @@ final class NearbyStops {
         android.content.SharedPreferences cache=context.getSharedPreferences("nearby-stops",0);
         String saved=cache.getString(key,null);long checked=cache.getLong(key+":at",0);
         if(saved!=null&&System.currentTimeMillis()-checked<86400000L)return nearest(TripStop.parse(saved),lat,lon);
-        String around=String.format(Locale.US,"(around:5000,%.6f,%.6f)",lat,lon);
+        String around=String.format(Locale.US,"(around:5000,%.3f,%.3f)",lat,lon)/* about 100 m, plenty for a 5 km search */;
         String query="[out:json][timeout:12][maxsize:16777216];("+(fuel?"nwr[amenity=fuel]"+around+";":"nwr[amenity~\"^(cafe|restaurant|fast_food)$\"]"+around+";nwr[highway=rest_area]"+around+";")+");out center 100;";
         HttpURLConnection connection=(HttpURLConnection)new URL("https://overpass-api.de/api/interpreter").openConnection();
         connection.setConnectTimeout(5000);connection.setReadTimeout(16000);connection.setRequestProperty("User-Agent","Daanvia/"+BuildInfo.VERSION+" (github.com/danrave1234/daanvia)");connection.setRequestMethod("POST");connection.setDoOutput(true);

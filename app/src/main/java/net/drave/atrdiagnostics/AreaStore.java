@@ -38,17 +38,19 @@ public final class AreaStore {
     /** Above this much raw road data the merged area would not fit comfortably in a phone's memory. */
     public static final long MAX_ROADS = 60L * 1024 * 1024;
 
+    /** A file name from the map index, used as a path in the download folder: a plain name only, never "../". */
+    static String safeName(String f) throws JSONException { if (!f.matches("[A-Za-z0-9._-]+\\.zip") || f.startsWith(".")) throw new JSONException("Bad file name in the map index: " + f); return f; }
     public static final class Cell {
         public final String id, file, sha256, label; public final double[] box; public final long bytes, roadsBytes; public final String[] needs;
         Cell(JSONObject o) throws JSONException {
-            id = o.getString("id"); file = o.getString("file"); sha256 = o.optString("sha256"); label = o.optString("label");
+            id = o.getString("id"); file = safeName(o.getString("file")); sha256 = o.optString("sha256"); label = o.optString("label");
             JSONArray b = o.getJSONArray("box"); box = new double[]{b.getDouble(0), b.getDouble(1), b.getDouble(2), b.getDouble(3)};
             bytes = o.optLong("bytes"); roadsBytes = o.optLong("roads_bytes");
             JSONArray n = o.optJSONArray("needs"); needs = new String[n == null ? 0 : n.length()]; for (int i = 0; i < needs.length; i++) needs[i] = n.getString(i);
         }
         public boolean touches(double minLat, double minLon, double maxLat, double maxLon) { return box[0] < maxLon && box[2] > minLon && box[1] < maxLat && box[3] > minLat; }
     }
-    public static final class Base { public final String file, sha256; public final long bytes; Base(JSONObject o) throws JSONException { file = o.getString("file"); sha256 = o.optString("sha256"); bytes = o.optLong("bytes"); } }
+    public static final class Base { public final String file, sha256; public final long bytes; Base(JSONObject o) throws JSONException { file = safeName(o.getString("file")); sha256 = o.optString("sha256"); bytes = o.optLong("bytes"); } }
     public static final class Catalog {
         /** {@code generation} and {@code release} (where its files are) are "" for maps built before generations. */
         public final List<Cell> cells; public final Map<String, Base> base; public final String built, generation, release;
@@ -163,7 +165,8 @@ public final class AreaStore {
             try { NavSession.get(c).forget(a.id).get(10, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) {}
             File trash = trash(c, a.id); boolean moved = a.dir.renameTo(trash);
             NavSession.get(c).reload();
-            post(new State(a.name, 0, 0, false, false, null));  // the map lists repaint without the area
+            // The map lists repaint without the area; a download running meanwhile keeps its progress (and its guard).
+            State now = state; post(now != null && now.running ? now : new State(a.name, 0, 0, false, false, null));
             delete(moved ? trash : a.dir);
         }, "daanvia-remove").start();
     }

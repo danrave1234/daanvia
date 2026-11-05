@@ -38,7 +38,7 @@ The debug CI check runs unit tests, Android lint and APK assembly with JDK 21. I
 - "Blocked" on the ride screen (or the voice command "road blocked") marks the road ahead closed and reroutes around it; marks are kept on the phone for 14 days.
 - Calls and messages can show on the bike display (Settings › Bike display, needs Android's Notification access). Nothing is stored or sent.
 - Places missing from the offline map can be found in Google Maps from search and brought back by sharing or copying the link.
-- The bike's clock is set over Wi-Fi on every connection when it's wrong, and over Bluetooth LE when the dashboard asks (needs Nearby devices).
+- The bike's clock is set over Wi-Fi on every connection: the bike keeps no time while switched off, so it shows 0:00 until the phone connects.
 - Diagnostics: during the beta the app uploads its connection and ride log (no coordinates, destinations, passwords or device addresses) to the log Worker in `site/log-worker`; on by default, off in Settings › Support and test tools. Deploy the Worker with `npx wrangler d1 execute daanvia-logs --remote --file=schema.sql`, `npx wrangler secret put ADMIN_TOKEN` and `npx wrangler deploy`.
 
 Verification details and remaining hardware checks are tracked in `docs/improvement-progress.md`.
