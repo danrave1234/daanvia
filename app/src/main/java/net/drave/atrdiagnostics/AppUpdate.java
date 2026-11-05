@@ -10,10 +10,6 @@ import android.os.Looper;
 import android.provider.Settings;
 import org.json.*;
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -138,58 +134,51 @@ public final class AppUpdate {
             return;
         }
         new Thread(() -> {
-            File apk = file(c, r); PackageInstaller pi = null; int id = -1; boolean committed = false;
+            File apk = file(c, r);
             try {
-                if (!(apk.isFile() && apk.length() == r.bytes && sha(apk).equalsIgnoreCase(r.sha256))) download(r, apk);
+                if (!(apk.isFile() && apk.length() == r.bytes && Http.sha256(apk).equalsIgnoreCase(r.sha256))) download(r, apk);
                 post(new State(r, r.bytes, false, false, true, false, null));
-                pi = c.getPackageManager().getPackageInstaller();
-                PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
                 // The APK's own package: an update of this app, or the new Daanvia (a separate app id) installed beside it.
                 android.content.pm.PackageInfo info = c.getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
-                params.setAppPackageName(info != null ? info.packageName : c.getPackageName());
-                if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
-                id = pi.createSession(params);
-                try (PackageInstaller.Session session = pi.openSession(id)) {
-                    try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("daanvia.apk", 0, apk.length())) {
-                        byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) out.write(b, 0, n); session.fsync(out);
-                    }
-                    Intent done = new Intent(c, InstallReceiver.class);
-                    int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-                    session.commit(PendingIntent.getBroadcast(c, id, done, flags).getIntentSender()); committed = true; committedAt = android.os.SystemClock.elapsedRealtime();
-                }
+                installSession(c, apk, info != null ? info.packageName : c.getPackageName(), "daanvia.apk", true, new Intent(c, InstallReceiver.class));
+                committedAt = android.os.SystemClock.elapsedRealtime();
             } catch (Exception e) {
-                // A session that wasn't committed keeps its staged copy of the APK until it is abandoned.
-                if (pi != null && id >= 0 && !committed) try { pi.abandonSession(id); } catch (Exception ignored) {}
                 apk.delete();
                 post(new State(r, 0, false, false, false, false, e instanceof IOException && e.getMessage() != null && !e.getMessage().contains("://") ? e.getMessage() : "The update didn’t download. Try again with signal."));
             } finally { busy.set(false); }
         }, "daanvia-update").start();
     }
-    private static void download(Release r, File to) throws Exception {
-        String url = r.apkUrl;
-        for (int hop = 0; hop < 6; hop++) {
-            HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
-            c.setInstanceFollowRedirects(false); c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION);
-            int code = c.getResponseCode();
-            if (code >= 300 && code < 400 && c.getHeaderField("Location") != null) { url = new URL(new URL(url), c.getHeaderField("Location")).toString(); c.disconnect(); continue; }
-            if (code != 200) { c.disconnect(); throw new IOException("The update isn’t available right now"); }
-            MessageDigest sha = MessageDigest.getInstance("SHA-256"); long done = 0, last = 0;
-            try (InputStream in = c.getInputStream(); OutputStream out = new BufferedOutputStream(new FileOutputStream(to), 1 << 16)) {
-                byte[] b = new byte[1 << 16]; int n;
-                while ((n = in.read(b)) > 0) { out.write(b, 0, n); sha.update(b, 0, n); done += n; if (done - last > 256 * 1024) { last = done; post(new State(r, done, false, true, false, false, null)); } }
-            } finally { c.disconnect(); }
-            if (!r.sha256.isEmpty() && !r.sha256.equalsIgnoreCase(hex(sha.digest()))) { to.delete(); throw new IOException("The update was damaged. Try again."); }
-            return;
-        }
-        throw new IOException("Too many redirects");
+    private static void download(Release r, File to) throws IOException {
+        try { Http.download(r.apkUrl, to, r.sha256, null, (done, total) -> post(new State(r, done, false, true, false, false, null)), 10000, 30000); }
+        catch (Http.Status e) { throw new IOException("The update isn’t available right now"); }
+        catch (Http.Damaged e) { throw new IOException("The update was damaged. Try again."); }
     }
     private static String read(String url) throws IOException {
-        HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection(); c.setConnectTimeout(10000); c.setReadTimeout(15000);
-        c.setRequestProperty("Accept", "application/vnd.github+json"); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION);
-        try { if (c.getResponseCode() != 200) throw new IOException("No release"); return AreaStore.readAll(c.getInputStream()); } finally { c.disconnect(); }
+        try { return Http.getText(url, 10000, 15000, 4L << 20, "Accept", "application/vnd.github+json"); } catch (Http.Status e) { throw new IOException("No release"); }
     }
-    private static String sha(File f) throws Exception { MessageDigest d = MessageDigest.getInstance("SHA-256"); try (InputStream in = new FileInputStream(f)) { byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) d.update(b, 0, n); } return hex(d.digest()); }
-    private static String hex(byte[] d) { StringBuilder s = new StringBuilder(); for (byte x : d) s.append(String.format(Locale.US, "%02x", x)); return s.toString(); }
+
+    /**
+     * Hands an APK to Android's installer (for this app's update, and for MoveActivity's update of the old app). Android
+     * reports to {@code result}. With {@code quiet} (Android 12+), an update of an app Daanvia installed may skip the
+     * prompt. Returns once committed; the APK may then be deleted, as the session keeps its own copy.
+     */
+    static void installSession(Context c, File apk, String packageName, String name, boolean quiet, Intent result) throws IOException {
+        PackageInstaller pi = c.getPackageManager().getPackageInstaller();
+        PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        params.setAppPackageName(packageName);
+        if (quiet && Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+        int id = pi.createSession(params); boolean committed = false;
+        try (PackageInstaller.Session session = pi.openSession(id)) {
+            try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite(name, 0, apk.length())) {
+                byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) out.write(b, 0, n); session.fsync(out);
+            }
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+            session.commit(PendingIntent.getBroadcast(c, id, result, flags).getIntentSender()); committed = true;
+        } finally {
+            // A session that wasn't committed keeps its staged copy of the APK until it is abandoned.
+            if (!committed) try { pi.abandonSession(id); } catch (Exception ignored) {}
+        }
+    }
 
     /** Android's installer reports here: show its confirmation, or surface a failure. */
     public static final class InstallReceiver extends BroadcastReceiver {

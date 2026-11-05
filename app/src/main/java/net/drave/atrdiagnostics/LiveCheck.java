@@ -1,9 +1,6 @@
 package net.drave.atrdiagnostics;
 
 import org.json.*;
-import java.io.*;
-import java.net.*;
-import java.nio.charset.StandardCharsets;
 
 /**
  * Asks Overpass, OpenStreetMap's public read-only query service (free, no key), whether a lot is still mapped, with its
@@ -37,18 +34,8 @@ public final class LiveCheck {
     private static Result ask(String server, String element) {
         try {
             String query = "[out:json][timeout:10];" + element + ";out tags meta;";
-            // A form POST is how Overpass asks to be queried; some servers refuse a GET with 406.
-            HttpURLConnection c = (HttpURLConnection)new URL(server).openConnection();
-            c.setConnectTimeout(6000); c.setReadTimeout(20000); c.setRequestMethod("POST"); c.setDoOutput(true);
-            c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION + " (Android motorcycle navigation; https://daanvia-app.vercel.app)");
-            c.setRequestProperty("Accept", "application/json"); c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-            try (OutputStream out = c.getOutputStream()) { out.write(("data=" + URLEncoder.encode(query, "UTF-8")).getBytes(StandardCharsets.UTF_8)); }
-            int code = c.getResponseCode();
-            if (code != 200) { c.disconnect(); return new Result(false, false, null, null); }
-            String body;
-            try (InputStream in = c.getInputStream()) { ByteArrayOutputStream o = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n; while ((n = in.read(b)) > 0) o.write(b, 0, n); body = o.toString(StandardCharsets.UTF_8.name()); }
-            finally { c.disconnect(); }
-            return parse(body);
+            // Busy or unreachable (any error, a non-200 answer included): this server is skipped.
+            return parse(Http.postForm(server, query, 6000, 20000, 2 * 1024 * 1024, "Accept", "application/json"));
         } catch (Exception e) { return new Result(false, false, null, null); }
     }
 

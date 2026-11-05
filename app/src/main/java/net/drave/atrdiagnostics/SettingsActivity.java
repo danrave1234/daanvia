@@ -27,7 +27,12 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
     private LinearLayout mapList; private AreaStore.Catalog catalog; private String confirmRemove;
     // Download progress arrives every 256 KB; the list (which measures each area on disk) is redrawn at most twice a second.
     private long mapsPaintedAt; private final java.util.HashMap<String, Long> sizes = new java.util.HashMap<>();
-    private final AreaStore.Listener areaListener = st -> { long now = android.os.SystemClock.elapsedRealtime(); if (st.running && now - mapsPaintedAt < 500) return; mapsPaintedAt = now; if (!st.running) sizes.clear(); paintMaps(); };
+    private final AreaStore.Listener areaListener = st -> { long now = android.os.SystemClock.elapsedRealtime(); if (st.running && now - mapsPaintedAt < 500) return; mapsPaintedAt = now; if (!st.running) { sizes.clear(); loadAreas(); } paintMaps(); };
+    /**
+     * The installed areas, read (each one's region.json) off the main thread when the screen opens and after a download
+     * ends or an area is removed; progress repaints reuse it.
+     */
+    private List<AreaStore.Area> areas = new ArrayList<>(); private boolean areasLoaded; private int areasAsked;
     private TextView adjust; private boolean fitting; private float[] old; private String oldLayout;
     private final BroadcastReceiver changes = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { if (preview != null) preview.invalidate(); paint(); } };
 
@@ -184,8 +189,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         colorDone.setText("Set up for " + KeepAlive.colorOs() + ". Show the steps again");
     }
     protected void onStart() {
-        super.onStart(); AppUpdate.listen(updateListener); paintUpdate(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps();
-        new Thread(() -> { try { AreaStore.Catalog fresh = AreaStore.fetch(this); runOnUiThread(() -> { catalog = fresh; paintMaps(); }); } catch (Exception ignored) {} }).start(); androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }
+        super.onStart(); AppUpdate.listen(updateListener); paintUpdate(); AreaStore.listen(areaListener); catalog = AreaStore.cached(this); paintMaps(); loadAreas(); refreshCatalog();
+        androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED); paint(); }
     protected void onStop() { AppUpdate.unlisten(updateListener); AreaStore.unlisten(areaListener); try { unregisterReceiver(changes); } catch (Exception ignored) {} super.onStop(); }
     protected void onDestroy() { if (fitting) cancelFit(); progressAnim.cancel(); link.detach(this); super.onDestroy(); }
     public void finish() { super.finish(); overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out); }
@@ -280,6 +285,25 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         if (action != null) { TextView a = uk.text(action, 13.5f, 700, ACCENT); a.setPadding(uk.dp(12), uk.dp(8), 0, uk.dp(8)); Runnable go = run; Gabi.press(a, () -> { if (s.active) { Gabi.shake(a); return; } go.run(); }); r.addView(a); }
         updateBox.addView(r);
     }
+    private void loadAreas() {
+        int ask = ++areasAsked; Context app = getApplicationContext();
+        new Thread(() -> { List<AreaStore.Area> found = AreaStore.installed(app); runOnUiThread(() -> {
+            if (isDestroyed() || ask != areasAsked) return; areas = found; areasLoaded = true; paintMaps(); }); }, "area-list").start();
+    }
+    /**
+     * A newer map index, for the Update buttons: at most every 6 hours, like the home screen's own check (whose time it
+     * reads but doesn't set, so the home screen still offers the update). Otherwise the index saved on the phone is used.
+     */
+    private void refreshCatalog() {
+        SharedPreferences p = getSharedPreferences("areas", 0); long now = System.currentTimeMillis();
+        if (now - Math.max(p.getLong("update_checked", 0), p.getLong("settings_checked", 0)) < 6 * 3600_000L) return;
+        Context app = getApplicationContext(); java.lang.ref.WeakReference<SettingsActivity> screen = new java.lang.ref.WeakReference<>(this);
+        new Thread(() -> {
+            AreaStore.Catalog fresh; try { fresh = AreaStore.fetch(app); } catch (Exception e) { return; }
+            p.edit().putLong("settings_checked", System.currentTimeMillis()).apply();
+            SettingsActivity a = screen.get(); if (a != null) a.runOnUiThread(() -> { if (a.isDestroyed()) return; a.catalog = fresh; a.paintMaps(); });
+        }, "daanvia-map-index").start();
+    }
     /** Downloaded areas with size, km and update/remove, plus the download in progress. */
     private void paintMaps() {
         if (mapList == null) return;
@@ -290,23 +314,29 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             TextView cancel = mk.text("Cancel", 13.5f, 700, ACCENT); cancel.setPadding(mk.dp(12), mk.dp(8), 0, mk.dp(8)); Gabi.press(cancel, AreaStore::cancel); r.addView(cancel);
             mapList.addView(r);
         }
-        List<AreaStore.Area> list = AreaStore.installed(this);
+        List<AreaStore.Area> list = areas; boolean busy = st != null && st.running;
         for (AreaStore.Area a : list) {
             boolean update = a.outdated(catalog), confirming = a.id.equals(confirmRemove);
             Long bytes = sizes.get(a.dir.getPath()); if (bytes == null) measureSizes(list);
             String sub = a.kmLabel() + (bytes == null ? "" : " · " + Math.max(1, Math.round(bytes / 1048576.0)) + " MB") + (update ? " · update available" : "");
             LinearLayout r = mk.listRow(IconDrawable.MAP, a.name, sub, null, null);
             if (update) { TextView u = mk.text("Update", 13.5f, 700, ACCENT); u.setPadding(mk.dp(12), mk.dp(8), mk.dp(6), mk.dp(8)); Gabi.press(u, () -> updateArea(a)); r.addView(u); }
-            TextView del = mk.text(confirming ? "Remove?" : "Remove", 13.5f, 700, confirming ? DANGER : MUTED); del.setPadding(mk.dp(12), mk.dp(8), 0, mk.dp(8));
-            Gabi.press(del, () -> {
-                if (s.active) { Gabi.shake(del); return; }
-                if (!confirming) { confirmRemove = a.id; paintMaps(); return; }
-                confirmRemove = null; AreaStore.remove(this, a); sizes.clear(); paintMaps();
-            });
-            r.addView(del); mapList.addView(r);
+            // No Remove while a download runs: it may be this very area's update, swapping its folder.
+            if (!busy) {
+                TextView del = mk.text(confirming ? "Remove?" : "Remove", 13.5f, 700, confirming ? DANGER : MUTED); del.setPadding(mk.dp(12), mk.dp(8), 0, mk.dp(8));
+                Gabi.press(del, () -> {
+                    AreaStore.State now = AreaStore.state();
+                    if (s.active || (now != null && now.running)) { Gabi.shake(del); return; }
+                    if (!confirming) { confirmRemove = a.id; paintMaps(); return; }
+                    confirmRemove = null; AreaStore.remove(this, a); sizes.clear();
+                    List<AreaStore.Area> left = new ArrayList<>(areas); left.remove(a); areas = left; paintMaps();
+                });
+                r.addView(del);
+            }
+            mapList.addView(r);
         }
         if (st == null || !st.running) paintStorage();
-        if (list.isEmpty() && (st == null || !st.running)) mapList.addView(mk.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
+        if (areasLoaded && list.isEmpty() && !busy) mapList.addView(mk.listRow(IconDrawable.MAP, "No areas downloaded yet", "Download the area you ride in", null, null));
     }
     /** An area's size means walking thousands of tile files: done off the main thread, then the list is painted again. */
     private boolean measuring;

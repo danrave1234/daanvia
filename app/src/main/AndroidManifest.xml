@@ -50,6 +50,9 @@
         <receiver android:name=".AppUpdate$InstallReceiver" android:exported="false" />
         <activity android:name=".MoveActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <activity android:name=".RestartActivity" android:exported="false" android:process=":restart" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-        <provider android:name=".ReportProvider" android:authorities="${applicationId}.report" android:exported="false" android:grantUriPermissions="true" />
+        <!-- The support report shared from Support (DashboardLink.writeReport): only files in cache/reports, read-only grants. -->
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.report" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/report_paths" />
+        </provider>
     </application>
 </manifest>

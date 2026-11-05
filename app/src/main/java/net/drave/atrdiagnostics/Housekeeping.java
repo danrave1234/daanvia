@@ -17,11 +17,12 @@ public final class Housekeeping {
         long freed = 0;
         File cache = c.getCacheDir(), files = c.getFilesDir();
         // map downloads that never finished, or areas that were mid-merge when the app closed (checked here, right before
-        // deleting: a download that began after this run was queued must keep its half-written files)
+        // deleting: a download that began after this run was queued must keep its half-written files, and the old copy it
+        // just set aside as trash-…, which comes back if the swap fails)
         AreaStore.State st = AreaStore.state(); boolean downloading = st != null && st.running;
         if (!downloading) freed += remove(new File(cache, "area-download"));
         File[] regions = AreaStore.root(c).listFiles();
-        if (regions != null) for (File d : regions) if (!downloading && d.getName().endsWith(".building") || d.getName().endsWith(".unpacking") || d.getName().startsWith(AreaStore.TRASH)) freed += remove(d);
+        if (regions != null && !downloading) for (File d : regions) if (leftover(d.getName())) freed += remove(d);
         // an app update that is already installed (or older than this version)
         File[] apks = new File(cache, "updates").listFiles();
         if (apks != null) for (File a : apks) {
@@ -44,7 +45,9 @@ public final class Housekeeping {
         if (legacy != null) for (File l : legacy) if (!assetExists(c, "regions/" + l.getName().substring(7) + "/region.json")) freed += remove(l);
         // support reports and leftovers in the cache
         // (a report shared minutes ago may still be read by the app it was shared to, so only an old one goes)
-        File report = new File(cache, "atr-report.json"); if (everything || System.currentTimeMillis() - report.lastModified() > 24 * 3600_000L) freed += remove(report);
+        // (in reports/ now; older versions wrote it straight into the cache)
+        for (File report : new File[]{new File(cache, "reports/atr-report.json"), new File(cache, "atr-report.json")})
+            if (everything || System.currentTimeMillis() - report.lastModified() > 24 * 3600_000L) freed += remove(report);
         if (everything) { File[] k = cache.listFiles(); if (k != null) for (File x : k) if (!x.getName().equals("updates")) freed += remove(x); }
         return freed;
     }
@@ -62,6 +65,8 @@ public final class Housekeeping {
         return n;
     }
 
+    /** A folder in regions/ that no area uses: a merge that never finished, or a removed or replaced area's old copy. */
+    static boolean leftover(String name) { return name.endsWith(".building") || name.endsWith(".unpacking") || name.startsWith(AreaStore.TRASH); }
     /** "daanvia-0.5.1-arm64-v8a.apk" → "0.5.1". */
     static String versionOf(String apkName) {
         String v = apkName.startsWith("daanvia-") ? apkName.substring(8) : apkName;

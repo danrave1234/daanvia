@@ -81,7 +81,7 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         link = DashboardLink.attach(this, this);
         status.setText(link.status()); onLog(); onChanged();
     }
-    protected void onDestroy() { stopGps(); link.detach(this); super.onDestroy(); }
+    protected void onDestroy() { stopGps(); tick.removeCallbacks(paintLog); link.detach(this); super.onDestroy(); }
     protected void onPause() { stopGps(); super.onPause(); }
 
     // ---- GPS check
@@ -193,8 +193,18 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
     }
 
     public void onStatus(String s) { status.setText(s); }
+    // The report is up to 150 KB: setting it again for every line (dozens a second during a test) would stall the screen,
+    // so it is redrawn at most four times a second, always ending on the latest lines.
+    private boolean logPending; private long logAt;
+    public void onLog() {
+        if (logPending) return; logPending = true;
+        tick.postDelayed(paintLog, Math.max(0, logAt + 250 - android.os.SystemClock.uptimeMillis()));
+    }
     // Scrolled without moving focus: fullScroll would focus the (selectable) log text, and the page would jump down to the Log card on every line.
-    public void onLog() { log.setText(link == null ? "" : link.reportText()); logScroll.post(() -> logScroll.scrollTo(0, Math.max(0, log.getHeight() - logScroll.getHeight()))); }
+    private final Runnable paintLog = () -> {
+        logPending = false; logAt = android.os.SystemClock.uptimeMillis();
+        log.setText(link == null ? "" : link.reportText()); logScroll.post(() -> logScroll.scrollTo(0, Math.max(0, log.getHeight() - logScroll.getHeight())));
+    };
     public void onChanged() {
         if (link == null) return;
         boolean id = link.identificationAccepted();
