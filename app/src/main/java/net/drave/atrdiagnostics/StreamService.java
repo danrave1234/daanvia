@@ -190,12 +190,17 @@ public final class StreamService extends Service {
                 if(huid.isEmpty()||huid.getBytes(StandardCharsets.UTF_8).length>100)throw new IOException("Missing or unsupported dashboard identity field");
                 Cipher rsa=Cipher.getInstance("RSA/ECB/PKCS1Padding");rsa.init(Cipher.ENCRYPT_MODE,identity.getPrivate());
                 String signed=Base64.encodeToString(rsa.doFinal(huid.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
+                long huTime=bike.optLong("currentHUTime",0),seenAt=SystemClock.elapsedRealtime();
+                // A dashboard with no clock of its own (still counting from switch-on) is offered the regular time sync, so it
+                // sends its clock every few seconds and takes the phone's in each answer (0x10600, see DashClock).
+                boolean offerSync=DashClock.offerSync(huTime);syncLogged=false;
                 JSONObject phone=new JSONObject().put("pxcVersion","1.0.2").put("phoneUUID",UUID.randomUUID().toString())
                     .put("phoneBrand",Build.BRAND).put("phoneModel",Build.MODEL).put("phoneOsVersion",String.valueOf(Build.VERSION.SDK_INT)).put("phoneOs","Android")
                     .put("package",PACKAGE).put("versionCode",6).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
                     .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",0).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
-                out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
-                long huTime=bike.optLong("currentHUTime",0),seenAt=SystemClock.elapsedRealtime();log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
+                if(offerSync)phone.put("supportSyncCorrectTime",true);
+                out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity."+(offerSync?" Offered the dashboard time sync.":""));
+                log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
                 final PxcWriter clockOut=out;main.postDelayed(()->{if(running)workers.execute(()->pushClock(clockOut,huTime,seenAt));},DashClock.ASK_GRACE_MS);
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
@@ -209,7 +214,9 @@ public final class StreamService extends Service {
             } else if(f.command==DashClock.TIME_SYNC) {
                 timeAsked=true;  // answered here; an unasked 0x10451 on top could overwrite a clock this left alone
                 out.write(Pxc.encode(DashClock.TIME_SYNC+1,DashClock.timeSyncReply(f.payload,System.currentTimeMillis(),TimeZone.getDefault())));
-                log(DashClock.keepsOwnTime(f.payload,System.currentTimeMillis())?"The dashboard's clock is already set; left as it is.":"Set the dashboard's clock: "+clock()+".");
+                // It asks every few seconds: the log gets the first answer, and any change between keeping and setting.
+                boolean kept=DashClock.keepsOwnTime(f.payload,System.currentTimeMillis());
+                if(!syncLogged||kept!=syncKept){syncLogged=true;syncKept=kept;log((kept?"The dashboard's clock is set; left as it is":"Set the dashboard's clock: "+clock())+". It said: "+DashClock.stampOf(f.payload)+".");}
             }
             else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10040||f.command==0x10750||f.command==0x10430||f.command==0x10460) {
                 out.write(Pxc.encode(f.command+1,""));
@@ -225,6 +232,8 @@ public final class StreamService extends Service {
     private volatile String clockChannel="";private volatile boolean clockWithDate;
     /** The dashboard asked for the time in this session (0x10450); then it is answered, never pushed. */
     private volatile boolean timeAsked;
+    /** For the time-sync log lines: whether one was written this session, and whether the last answer kept the dashboard's clock. */
+    private volatile boolean syncLogged,syncKept;
     /**
      * Some dashboards don't ask for the time on a reconnect, and a first answer doesn't always stick (logs of 30 Oct: the
      * clock stayed a count since the bike was switched on). So a few seconds after the hello, a dashboard that didn't ask

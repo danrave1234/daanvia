@@ -53,4 +53,14 @@ public class AuditFixesTest {
         String sent = new String(DashClock.timeSyncReply(req, now, TimeZone.getTimeZone("Asia/Manila")), 16, 4, StandardCharsets.US_ASCII);
         assertEquals("2026", sent);
     }
+
+    @Test public void onlyAClocklessDashboardIsOfferedTimeSync() {
+        assertTrue(DashClock.offerSync(34026));            // counting 34 s since switch-on
+        assertFalse(DashClock.offerSync(0));               // not reported
+        assertFalse(DashClock.offerSync(1793000000000L));  // a real date
+        byte[] req = new byte[45];
+        byte[] t = "2000-01-01 00:00:34.000000000".getBytes(StandardCharsets.US_ASCII); System.arraycopy(t, 0, req, 16, t.length);
+        assertEquals("2000-01-01 00:00:34.000000000", DashClock.stampOf(req));
+        assertEquals("(no time)", DashClock.stampOf(new byte[16]));
+    }
 }

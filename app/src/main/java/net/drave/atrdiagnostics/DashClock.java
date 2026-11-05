@@ -70,6 +70,21 @@ final class DashClock {
         return "Dashboard clock: " + f.format(new Date(huTime)) + (Math.abs(off) <= TOLERANCE_MS ? " (matches the phone)." : " (" + (off > 0 ? "ahead" : "behind") + " by " + Math.round(Math.abs(off) / 60000.0) + " min).");
     }
 
+    /**
+     * Whether to tell the dashboard the phone supports time sync (supportSyncCorrectTime), which makes it send 0x10600
+     * every few seconds. Only for a dashboard still counting from switch-on: it has no time of its own to lose. Some
+     * dashboards (the SSDQ01-0120 on a QJ, for one) ask with 0x10450, get the answer and keep counting from 0:00 anyway;
+     * open-cfmoto and MOTO-HUB both logged that. A dashboard with a real clock is left alone: offering it put some hours out.
+     */
+    static boolean offerSync(long huTime) { return huTime > 0 && huTime < COUNTER_LIMIT; }
+
+    /** For the log: the time a 0x10600 request carried. */
+    static String stampOf(byte[] request) {
+        if (request == null || request.length <= ECHO_BYTES) return "(no time)";
+        String t = new String(request, ECHO_BYTES, Math.min(STAMP_BYTES, request.length - ECHO_BYTES), StandardCharsets.ISO_8859_1).replaceAll("[\\x00 ]+$", "");
+        return t.matches("[\\x20-\\x7e]+") ? t : "(" + (request.length - ECHO_BYTES) + " bytes)";
+    }
+
     /** Body of the 0x10601 reply to a 0x10600 request. */
     static byte[] timeSyncReply(byte[] request, long nowMs, TimeZone zone) {
         byte[] out = new byte[SYNC_REPLY_SIZE];
