@@ -29,6 +29,22 @@ public class AuditFixesTest {
             try { AreaStore.safeName(bad); fail(bad); } catch (org.json.JSONException expected) {}
     }
 
+    @Test public void headingMath() {
+        assertEquals(20f, GeoMath.turn(350f, 10f), 1e-4);
+        assertEquals(-20f, GeoMath.turn(10f, 350f), 1e-4);
+        assertEquals(180.0, GeoMath.angleBetween(0, 180), 1e-9);
+        assertEquals(20.0, GeoMath.angleBetween(350, 10), 1e-9);
+        assertEquals(350.0, GeoMath.normalise(-10), 1e-9);
+        assertEquals(10.0, GeoMath.normalise(730), 1e-9);
+    }
+
+    @Test public void bikeSearchStaysQuickForTenMinutesThenEasesOff() {
+        assertEquals(10000, NavService.searchGap(0));
+        assertEquals(10000, NavService.searchGap(12));
+        assertEquals(20000, NavService.searchGap(13));
+        assertEquals(60000, NavService.searchGap(100));
+    }
+
     @Test public void aResetDashboardDateIsReplaced() {
         long now = 1793000000000L;  // October 2026
         byte[] req = new byte[45];

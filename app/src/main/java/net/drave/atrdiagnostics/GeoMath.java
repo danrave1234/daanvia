@@ -8,6 +8,12 @@ public final class GeoMath {
     public static double segmentDistance(double lat,double lon,double[] a,double[] b){double k=Math.cos(Math.toRadians(lat));double ax=(a[1]-lon)*k,ay=a[0]-lat,bx=(b[1]-lon)*k,by=b[0]-lat,dx=bx-ax,dy=by-ay;double q=dx*dx+dy*dy;double t=q==0?0:Math.max(0,Math.min(1,-(ax*dx+ay*dy)/q));return Math.hypot(ax+t*dx,ay+t*dy)*111195;}
     /** The closest point to (lat, lon) on segment a-b, as {lat, lon}. */
     public static double[] project(double lat,double lon,double[] a,double[] b){double k=Math.cos(Math.toRadians(lat));double ax=(a[1]-lon)*k,ay=a[0]-lat,bx=(b[1]-lon)*k,by=b[0]-lat,dx=bx-ax,dy=by-ay;double q=dx*dx+dy*dy;double t=q==0?0:Math.max(0,Math.min(1,-(ax*dx+ay*dy)/q));return new double[]{a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t};}
+    /** The turn from heading {@code from} to heading {@code to}, in degrees: -180 to 180, positive clockwise. */
+    public static float turn(float from,float to){return ((to-from+540)%360)-180;}
+    /** How far apart two headings are, 0 to 180 degrees, whichever way round. */
+    public static double angleBetween(double a,double b){return Math.abs(((a-b+540)%360)-180);}
+    /** A heading in 0 to 360 degrees. */
+    public static double normalise(double heading){return ((heading%360)+360)%360;}
     public static float bearing(double[] a,double[] b){return (float)((Math.toDegrees(Math.atan2((b[1]-a[1])*Math.cos(Math.toRadians(a[0])),b[0]-a[0]))+360)%360);}
     public static double[] safeRect(int width,int height,float left,float top,float right,float bottom){double l=width*Math.max(0,Math.min(.3,left)),t=height*Math.max(0,Math.min(.3,top)),r=width*(1-Math.max(0,Math.min(.3,right))),b=height*(1-Math.max(0,Math.min(.35,bottom)));return new double[]{l,t,r,b};}
 }

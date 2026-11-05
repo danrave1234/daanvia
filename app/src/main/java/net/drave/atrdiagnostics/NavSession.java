@@ -70,7 +70,6 @@ public final class NavSession {
     public volatile String finished;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */
     public volatile List<Region> regions=Collections.emptyList();public volatile String regionId="";public volatile int regionVersion;
-    /** Where the map reads the area's roads (file:// or asset://); MapLibre parses the file itself, off the main thread. Null without a map. */
     /** The map's main-roads file (file:// or asset://), or null while the area's road tiles are being built. */
     public volatile String roadsUri;
     public double minLat,maxLat,minLon,maxLon;
@@ -85,13 +84,11 @@ public final class NavSession {
     public void resetLayout(){turnCard=DEFAULT_TURN.clone();tripCard=DEFAULT_TRIP.clone();arrowX=DEFAULT_ARROW_X;arrowY=DEFAULT_ARROW_Y;}
     static String cards(float[] t,float[] r,float ax,float ay){StringBuilder b=new StringBuilder();for(float v:t)b.append(v).append(',');for(float v:r)b.append(v).append(',');return b.append(ax).append(',').append(ay).toString();}
     void cards(String saved){resetLayout();if(saved==null||saved.isEmpty())return;try{String[] v=saved.split(",");if(v.length!=10)return;float[] n=new float[10];for(int i=0;i<10;i++)n[i]=Float.parseFloat(v[i]);turnCard=new float[]{n[0],n[1],n[2],n[3]};tripCard=new float[]{n[4],n[5],n[6],n[7]};arrowX=n[8];arrowY=n[9];}catch(NumberFormatException e){resetLayout();}}
-    /** A road line for the bike display, its points packed as lat,lon floats (about 1 m precision) to keep a large area in memory. */
-    /** A road line; bridge / tunnel / layer come from the map data (package schema 4) and draw overpasses above the roads they cross. */
+    /** A road line for the bike display, its points packed as lat,lon floats (about 1 m precision) to keep a large area in memory. Bridge / tunnel / layer come from the map data (package schema 4) and draw overpasses above the roads they cross. */
     public static final class Road {private final float[] xy;public final String name,kind;public final boolean bridge,tunnel;public final int layer;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
         Road(float[] xy,String n,String k){this(xy,n,k,false,false,0);}
         Road(float[] xy,String n,String k,boolean bridge,boolean tunnel,int layer){this.xy=xy;name=n;kind=k;this.bridge=bridge;this.tunnel=tunnel;this.layer=layer;for(int i=0;i+1<xy.length;i+=2){minLat=Math.min(minLat,xy[i]);maxLat=Math.max(maxLat,xy[i]);minLon=Math.min(minLon,xy[i+1]);maxLon=Math.max(maxLon,xy[i+1]);}}
         public int size(){return xy.length/2;} public double lat(int i){return xy[i*2];} public double lon(int i){return xy[i*2+1];}}
-    /** One offline pack: region.json plus its graph and data, either bundled under assets/ or unpacked in a directory. Areas are [minLon,minLat,maxLon,maxLat] boxes. */
     /** The area's place names for search, held as plain arrays rather than JSON objects. */
     public static final class Places {
         public static final Places EMPTY = new Places(new ArrayList<>(), new double[0], new double[0]);
@@ -99,6 +96,7 @@ public final class NavSession {
         Places(List<String> names, double[] lat, double[] lon) { this.names = names; this.lat = lat; this.lon = lon; }
         public int size() { return names.size(); }
     }
+    /** One offline pack: region.json plus its graph and data, either bundled under assets/ or unpacked in a directory. Areas are [minLon,minLat,maxLon,maxLat] boxes. */
     public static final class Region {
         public final String id,name;public final double[] bounds;public final double[][] areas;final String asset;final File dir;final String generation;final List<Region> parts;
         Region(String id,String name,double[] bounds,double[][] areas,String asset,File dir){this(id,name,bounds,areas,asset,dir,"",Collections.emptyList());}
@@ -177,13 +175,13 @@ public final class NavSession {
         }
         return new Places(names,Arrays.copyOf(la,n),Arrays.copyOf(lo,n));
     }
-    /** The road lines the bike display draws, streamed from roads.geojson after the map is already usable. Worker thread. */
     private int lastNumber;
     /** A 0/1 (or true/false) property; for "layer" the number itself is kept in lastNumber. */
     private boolean flag(android.util.JsonReader reader)throws IOException{
         switch(reader.peek()){case BOOLEAN:lastNumber=reader.nextBoolean()?1:0;break;case NUMBER:lastNumber=reader.nextInt();break;
             case STRING:try{lastNumber=Integer.parseInt(reader.nextString().trim());}catch(NumberFormatException e){lastNumber=1;}break;default:reader.skipValue();lastNumber=0;}
         return lastNumber!=0;}
+    /** The road lines the bike display draws, streamed from roads.geojson after the map is already usable. Worker thread. */
     private void loadRoads(Region r){
         try{RoadTiles.Index index=new RoadTiles.Index();RoadTiles.Writer tiles=r.dir!=null&&!RoadTiles.ready(r.dir)?new RoadTiles.Writer(r.dir):null;
             try(android.util.JsonReader reader=json(r,"roads.geojson")){
@@ -227,7 +225,6 @@ public final class NavSession {
     /** Show the downloaded area at a map position the rider is looking at, so panning into another area swaps its roads, search and parking in. One area is held in memory at a time. */
     public void showAt(double lat,double lon){if(!ready||active||routing)return;Region r=Region.at(regions,lat,lon);if(r==null||r==shown)return;
         worker.execute(()->{if(active||r==shown)return;try{display(r);routeRegion=r;message(regionName+" offline · choose a destination");roads.execute(()->loadRoads(r));}catch(Throwable e){android.util.Log.e("Daanvia","Area switch failed",e);}});}
-    /** Drop a removed pack's routing engine so its files are no longer held. Worker thread. */
     /** Drops an area's router, done once this returns: the caller may then move or delete the area's files. */
     public java.util.concurrent.Future<?> forget(String id){return worker.submit(()->close(engines.remove(id)));}
     /** A dropped router holds its graph in native memory, which only closing frees. */
@@ -399,7 +396,7 @@ public final class NavSession {
      */
     private JSONObject avoiding(Region region,JSONObject req,double a,double b)throws Exception{
         double[] h=headedFrom;JSONObject headed=null;
-        if(h!=null&&h[0]==a&&h[1]==b){headed=new JSONObject(req.toString());headed.getJSONArray("locations").getJSONObject(0).put("heading",(int)Math.round(((h[2]%360)+360)%360)).put("heading_tolerance",50);}
+        if(h!=null&&h[0]==a&&h[1]==b){headed=new JSONObject(req.toString());headed.getJSONArray("locations").getJSONObject(0).put("heading",(int)Math.round(GeoMath.normalise(h[2]))).put("heading_tolerance",50);}
         JSONArray blocks=RoadBlocks.near(context,a,b,80);ArrayList<JSONObject> tries=new ArrayList<>();
         if(blocks.length()>0){if(headed!=null)tries.add(new JSONObject(headed.toString()).put("exclude_locations",blocks));tries.add(new JSONObject(req.toString()).put("exclude_locations",blocks));}
         if(headed!=null)tries.add(headed);
@@ -510,14 +507,13 @@ public final class NavSession {
     }
     /** The closest point on each of the nearest public-looking streets within {@code radius} m, nearest first, a named street counting 40 m closer. */
     private List<double[]> nearestRoads(double lat,double lon,int max,double radius){
-        double pad=radius/111000.0,padLon=pad/Math.max(0.2,Math.cos(Math.toRadians(lat)));ArrayList<double[]> found=new ArrayList<>();
-        for(Road r:roadIndex.near(lat-pad,lon-padLon,lat+pad,lon+padLon)){
-            if(MINOR.contains(r.kind))continue;double bestD=radius;double[] best=null;
+        ArrayList<double[]> found=new ArrayList<>();
+        for(Road r:roadIndex.near(lat,lon,radius)){
+            if(Branches.MINOR.contains(r.kind))continue;double bestD=radius;double[] best=null;
             for(int i=0;i+1<r.size();i++){double[] p={r.lat(i),r.lon(i)},q={r.lat(i+1),r.lon(i+1)};double dist=GeoMath.segmentDistance(lat,lon,p,q);if(dist<bestD){bestD=dist;best=GeoMath.project(lat,lon,p,q);}}
             if(best!=null)found.add(new double[]{best[0],best[1],bestD-(r.name.isEmpty()?0:40)});}
         found.sort((x,y)->Double.compare(x[2],y[2]));
         return found.size()>max?new ArrayList<>(found.subList(0,max)):found;}
-    private static final Set<String> MINOR=new HashSet<>(Arrays.asList("service","track","footway","path","steps","pedestrian","cycleway","corridor","bridleway","platform"));
     /** No usable GPS fix right now (none yet, over 12 s old, or rougher than 50 m); never during a simulation. */
     public boolean gpsStale(){return !simulation&&(fixAt==0||SystemClock.elapsedRealtime()-fixAt>12000||accuracy>50);}
     /** Starts a free ride: no destination, no route (see cruise). */
@@ -541,11 +537,11 @@ public final class NavSession {
         double best=Double.MAX_VALUE,score=Double.MAX_VALUE,bestBearing=direction;int nearest=progress;double[] cum=cumulative;boolean measured=cum.length==route.size();
         double reach=measured?cum[Math.min(progress,cum.length-1)]+400:Double.MAX_VALUE;
         for(int i=Math.max(0,progress-8);i<route.size()-1;i++){if(measured&&cum[i]>reach)break;double[] p=route.get(i),q=route.get(i+1);double distance=GeoMath.segmentDistance(a,b,p,q);
-            double sc=distance+(Math.abs(((GeoMath.bearing(p,q)-direction+540)%360)-180)>100?25:0);if(sc<score){score=sc;best=distance;nearest=i;bestBearing=GeoMath.bearing(p,q);}}
+            double sc=distance+(GeoMath.angleBetween(GeoMath.bearing(p,q),direction)>100?25:0);if(sc<score){score=sc;best=distance;nearest=i;bestBearing=GeoMath.bearing(p,q);}}
         // Turned off the route: heading clearly away from the road the route follows, already a little off it. Found in two
         // fixes, about 25 m into the side street, where waiting to be 65 m away took half a block or more.
         // Only once the rider has been on this route: a fallback route that starts behind them would otherwise reroute every 5 s.
-        boolean turnedOff=matched&&!demo&&speedMetersPerSecond>=4&&acc<30&&best>22&&Math.abs(((bestBearing-direction+540)%360)-180)>55;
+        boolean turnedOff=matched&&!demo&&speedMetersPerSecond>=4&&acc<30&&best>22&&GeoMath.angleBetween(bestBearing,direction)>55;
         if(best<Math.max(45,acc)&&!turnedOff){progress=Math.max(progress,nearest);offRoute=0;matched=true;}
         // A stop is passed once the rider reaches its point on the road (the end of its leg), however far the pin sits
         // from the road (inside a mall or a big lot).
@@ -578,14 +574,8 @@ public final class NavSession {
     /** Names the road under the rider, at most every 2 s: the nearest named road line within 30 m running their way. */
     private void nameStreet(double lat,double lon,float direction,float acc){
         long now=SystemClock.elapsedRealtime();if(now-streetAt<2000||acc>40)return;streetAt=now;
-        double pad=30/111000.0,padLon=pad/Math.max(0.2,Math.cos(Math.toRadians(lat)));String best="";double bestD=30;
-        boolean heading=speedMetersPerSecond>2;
-        for(Road r:roadIndex.near(lat-pad,lon-padLon,lat+pad,lon+padLon)){
-            if(r.name.isEmpty()||MINOR.contains(r.kind))continue;
-            for(int i=0;i+1<r.size();i++){double[] p={r.lat(i),r.lon(i)},q={r.lat(i+1),r.lon(i+1)};double d=GeoMath.segmentDistance(lat,lon,p,q);if(d>=bestD)continue;
-                // Riding along it, either way; a cross street at a junction is the closer line for a moment.
-                if(heading){double off=Math.abs(((GeoMath.bearing(p,q)-direction+540)%360)-180);if(off>40&&off<140)continue;}
-                bestD=d;best=r.name;}}
+        // Moving: the road running the rider's way (either way); a cross street at a junction is the closer line for a moment.
+        String found=Branches.nearestNamed(lat,lon,roadIndex,30,speedMetersPerSecond>2?direction:Float.NaN,null);String best=found==null?"":found;
         // Nothing named for a moment (a junction, an unnamed lane): the last name holds for 10 s.
         if(!best.isEmpty()){street=best;streetFound=now;}else if(now-streetFound>10000)street="";
     }
@@ -602,9 +592,9 @@ public final class NavSession {
      * video size it asks for, the frame rate it actually pulls, and its screen type. 0 / "" until a bike has connected.
      */
     public volatile int panelW,panelH,videoW,videoH,bikeFps;public volatile String screenType="";
-    /** The panel's width÷height when it differs from the video's and correcting it is on; 0 to draw the video as it is. */
     /** The bike display shows only the turn and trip cards, no moving map (Settings › Bike display), to save battery. */
     public boolean directionsOnly(){refreshPrefs();return directionsOnlyPref;}
+    /** The panel's width÷height when it differs from the video's and correcting it is on; 0 to draw the video as it is. */
     public float panelAspect(){refreshPrefs();return panelW>0&&panelH>0&&matchShapePref?(float)panelW/panelH:0;}
     // Both are asked for on every frame drawn for the bike display: read from the settings at most twice a second.
     private volatile long prefsAt=-1000;private volatile boolean directionsOnlyPref,matchShapePref=true;

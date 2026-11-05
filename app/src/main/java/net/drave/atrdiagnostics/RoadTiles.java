@@ -101,6 +101,11 @@ final class RoadTiles {
             for (int x = cell(r.minLon); x <= cell(r.maxLon); x++) for (int y = cell(r.minLat); y <= cell(r.maxLat); y++) cells.computeIfAbsent(key(x, y), k -> new ArrayList<>()).add(r);
         }
         /** Roads touching the box, each once. */
+        /** The roads in a square about {@code meters} from (lat, lon) each way. */
+        List<NavSession.Road> near(double lat, double lon, double meters) {
+            double pad = meters / 111000.0, padLon = pad / Math.max(0.2, Math.cos(Math.toRadians(lat)));
+            return near(lat - pad, lon - padLon, lat + pad, lon + padLon);
+        }
         List<NavSession.Road> near(double minLat, double minLon, double maxLat, double maxLon) {
             int x0 = cell(minLon), x1 = cell(maxLon), y0 = cell(minLat), y1 = cell(maxLat);
             ArrayList<NavSession.Road> out = new ArrayList<>(); Set<NavSession.Road> seen = Collections.newSetFromMap(new IdentityHashMap<>());

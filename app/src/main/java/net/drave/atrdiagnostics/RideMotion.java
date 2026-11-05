@@ -36,7 +36,7 @@ final class RideMotion {
         }
         float f = Math.min(1f, (now - poseAt) / 1000f);
         lat = fromLat + (toLat - fromLat) * f; lon = fromLon + (toLon - fromLon) * f;
-        float turn = ((toBearing - fromBearing + 540) % 360) - 180; bearing = (fromBearing + turn * f + 360) % 360;
+        float turn = GeoMath.turn(fromBearing, toBearing); bearing = (fromBearing + turn * f + 360) % 360;
     }
 
     private boolean followRoute(long now, float dtMs) {
@@ -62,7 +62,7 @@ final class RideMotion {
         double[] here = pointAt(route, cum, i, alongShown), ahead = pointAt(route, cum, segmentAt(cum, alongShown + 40), alongShown + 40);
         lat = here[0]; lon = here[1];
         float want = here[0] == ahead[0] && here[1] == ahead[1] ? bearing : GeoMath.bearing(here, ahead);
-        float turn = ((want - bearing + 540) % 360) - 180;
+        float turn = GeoMath.turn(bearing, want);
         if (Math.abs(turn) < 2f) turn = 0;
         bearing = (bearing + turn * Math.min(1f, dtMs / 300f) + 360) % 360;
         return true;
