@@ -54,10 +54,7 @@ public class AuditFixesTest {
         assertEquals("2026", sent);
     }
 
-    @Test public void onlyAClocklessDashboardIsOfferedTimeSync() {
-        assertTrue(DashClock.offerSync(34026));            // counting 34 s since switch-on
-        assertFalse(DashClock.offerSync(0));               // not reported
-        assertFalse(DashClock.offerSync(1793000000000L));  // a real date
+    @Test public void timeSyncLogShowsTheDashboardsTime() {
         byte[] req = new byte[45];
         byte[] t = "2000-01-01 00:00:34.000000000".getBytes(StandardCharsets.US_ASCII); System.arraycopy(t, 0, req, 16, t.length);
         assertEquals("2000-01-01 00:00:34.000000000", DashClock.stampOf(req));

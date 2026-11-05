@@ -191,17 +191,16 @@ public final class StreamService extends Service {
                 Cipher rsa=Cipher.getInstance("RSA/ECB/PKCS1Padding");rsa.init(Cipher.ENCRYPT_MODE,identity.getPrivate());
                 String signed=Base64.encodeToString(rsa.doFinal(huid.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
                 long huTime=bike.optLong("currentHUTime",0),seenAt=SystemClock.elapsedRealtime();
-                // A dashboard with no clock of its own (still counting from switch-on) is offered the regular time sync, so it
-                // sends its clock every few seconds and takes the phone's in each answer (0x10600, see DashClock).
-                boolean offerSync=DashClock.offerSync(huTime);syncLogged=false;
+                syncLogged=false;
                 JSONObject phone=new JSONObject().put("pxcVersion","1.0.2").put("phoneUUID",UUID.randomUUID().toString())
                     .put("phoneBrand",Build.BRAND).put("phoneModel",Build.MODEL).put("phoneOsVersion",String.valueOf(Build.VERSION.SDK_INT)).put("phoneOs","Android")
                     .put("package",PACKAGE).put("versionCode",6).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
                     .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",0).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
-                if(offerSync)phone.put("supportSyncCorrectTime",true);
-                out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity."+(offerSync?" Offered the dashboard time sync.":""));
+                out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
                 log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
                 final PxcWriter clockOut=out;main.postDelayed(()->{if(running)workers.execute(()->pushClock(clockOut,huTime,seenAt));},DashClock.ASK_GRACE_MS);
+                // The Wi-Fi exchange leaves the QJ's clock at 0:00 whatever is answered; Carbit sets it over Bluetooth (see BleClock).
+                synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,m->event("log",m));main.post(bleClock::start);}}
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
@@ -249,7 +248,7 @@ public final class StreamService extends Service {
     }
     /** The phone's time, as the answer to the dashboard's 0x10450 (see DashClock). */
     private void sendTime(PxcWriter out)throws IOException{out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(System.currentTimeMillis(),TimeZone.getDefault(),clockWithDate,clockChannel)));}
-    private Here freeRide;private QuietAudio quiet;
+    private BleClock bleClock;private Here freeRide;private QuietAudio quiet;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
     static String preview(byte[] b){return preview(b,600);}
@@ -314,6 +313,7 @@ public final class StreamService extends Service {
         navigationActive=false;mirroring=false;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;main.removeCallbacksAndMessages(null);
+        synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
         if(freeRide!=null){freeRide.stop();freeRide=null;}
         if(quiet!=null){quiet.stop();quiet=null;}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}
