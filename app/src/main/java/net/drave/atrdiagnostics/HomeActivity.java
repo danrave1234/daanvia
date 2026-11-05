@@ -233,8 +233,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             default:
         }
     }
-    /** Android 13 and later, with predictive back (on by default from targetSdk 36), never call onBackPressed. */
-    @SuppressWarnings("deprecation")
+    /** Android 10-15: the system still calls this (the app has not opted into predictive back there). Android 16 uses the callback. */
+    @SuppressWarnings("deprecation") @android.annotation.SuppressLint("GestureBackNavigation")
     public void onBackPressed() { if (consumesBack()) handleBack(); else super.onBackPressed(); }
     /*
      * There, back goes to a callback, registered only while Daanvia has something to step back from: with none

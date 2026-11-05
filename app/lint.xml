@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<lint>
-    <!-- Temporary: HomeActivity's Back handling is being moved to OnBackInvokedCallback separately. Delete this file once
-         HomeActivity no longer overrides onBackPressed without its own suppression. -->
-    <issue id="GestureBackNavigation">
-        <ignore path="src/main/java/net/drave/atrdiagnostics/HomeActivity.java" />
-    </issue>
-</lint>
