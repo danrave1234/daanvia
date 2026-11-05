@@ -2,8 +2,6 @@ package net.drave.atrdiagnostics;
 
 import org.json.*;
 import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -29,13 +27,8 @@ final class OnlineSearch {
     static List<Place> search(String query, double nearLat, double nearLon, int limit) throws IOException {
         String url = URL + "?q=" + URLEncoder.encode(query.trim(), "UTF-8") + "&limit=" + limit + "&lang=en&bbox=" + BBOX
             + String.format(Locale.US, "&lat=%.3f&lon=%.3f", nearLat, nearLon);  // about 100 m: enough to rank nearby results, without the rider's exact spot
-        HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
-        c.setConnectTimeout(5000); c.setReadTimeout(7000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION + " (github.com/danrave1234/daanvia)");
-        try {
-            if (c.getResponseCode() != 200) throw new IOException("Search unavailable");
-            return parse(AreaStore.readAll(c.getInputStream()));
-        } catch (JSONException e) { throw new IOException("Search unavailable"); }
-        finally { c.disconnect(); }
+        try { return parse(Http.getText(url, 5000, 7000, 4L << 20)); }
+        catch (Http.Status | JSONException e) { throw new IOException("Search unavailable"); }
     }
 
     /** Photon's GeoJSON: a name (or the street address when a place has none) and a short "street, barangay, city" line. */

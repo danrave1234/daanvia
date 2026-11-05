@@ -1,25 +1,19 @@
 package net.drave.atrdiagnostics;
 
 import android.app.Activity;
-import android.app.PendingIntent;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -146,43 +140,15 @@ public final class MoveActivity extends Activity {
         working = true; primary.setEnabled(false); status.setText("Downloading the update for the old Daanvia…");
         Context c = getApplicationContext();
         new Thread(() -> {
-            File apk = new File(getCacheDir(), "daanvia-0.8.1.apk"); PackageInstaller pi = null; int id = -1; boolean committed = false;
+            File apk = new File(getCacheDir(), "daanvia-0.8.1.apk");
             try {
-                download(HANDOVER_URL, apk);
-                pi = getPackageManager().getPackageInstaller();
-                PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-                params.setAppPackageName(OLD_APP);
-                id = pi.createSession(params);
-                try (PackageInstaller.Session session = pi.openSession(id)) {
-                    try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("daanvia-old.apk", 0, apk.length())) {
-                        byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) out.write(b, 0, n); session.fsync(out);
-                    }
-                    int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-                    session.commit(PendingIntent.getBroadcast(c, id, new Intent(c, AppUpdate.InstallReceiver.class).putExtra("old", true), flags).getIntentSender()); committed = true;
-                    apk.delete();  // the install session holds its own copy
-                }
+                Http.download(HANDOVER_URL, apk, HANDOVER_SHA256, null, null, 10000, 30000);
+                AppUpdate.installSession(c, apk, OLD_APP, "daanvia-old.apk", false, new Intent(c, AppUpdate.InstallReceiver.class).putExtra("old", true));
+                apk.delete();  // the install session holds its own copy
                 runOnUiThread(() -> { working = false; primary.setEnabled(true); status.setText("Confirm the update when Android asks, then come back here and tap Move."); });
             } catch (Exception e) {
-                if (pi != null && id >= 0 && !committed) try { pi.abandonSession(id); } catch (Exception ignored) {}
                 failed("The update didn't download. Try again with signal.");
             }
         }, "daanvia-old-update").start();
-    }
-    private static void download(String url, File to) throws Exception {
-        for (int hop = 0; hop < 6; hop++) {
-            HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
-            c.setInstanceFollowRedirects(false); c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION);
-            int code = c.getResponseCode();
-            if (code >= 300 && code < 400 && c.getHeaderField("Location") != null) { url = new URL(new URL(url), c.getHeaderField("Location")).toString(); c.disconnect(); continue; }
-            if (code != 200) { c.disconnect(); throw new IOException("HTTP " + code); }
-            MessageDigest sha = MessageDigest.getInstance("SHA-256");
-            try (InputStream in = c.getInputStream(); OutputStream out = new BufferedOutputStream(new FileOutputStream(to), 1 << 16)) {
-                byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) { out.write(b, 0, n); sha.update(b, 0, n); }
-            } finally { c.disconnect(); }
-            StringBuilder hex = new StringBuilder(); for (byte x : sha.digest()) hex.append(String.format(Locale.US, "%02x", x));
-            if (!HANDOVER_SHA256.equalsIgnoreCase(hex.toString())) { to.delete(); throw new IOException("damaged download"); }
-            return;
-        }
-        throw new IOException("Too many redirects");
     }
 }

@@ -768,9 +768,10 @@ public final class DashboardLink {
         j.put("frames_sent_by_test", new JSONObject(frameEvidence));
         j.put("user_reported_visible_output", new JSONObject(visualEvidence));
         synchronized(report) { j.put("log", report.toString()); }
-        File out = new File(context.getCacheDir(), "atr-report.json");
+        // In a folder of its own: the share provider (res/xml/report_paths.xml) can only ever hand out files from there.
+        File dir = new File(context.getCacheDir(), "reports"), out = new File(dir, "atr-report.json"); dir.mkdirs();
         try (FileOutputStream f = new FileOutputStream(out)) { f.write(j.toString(2).getBytes(StandardCharsets.UTF_8)); }
-        return Uri.parse("content://" + context.getPackageName() + ".report/atr-report.json");
+        return androidx.core.content.FileProvider.getUriForFile(context, context.getPackageName() + ".report", out);
     }
 
 

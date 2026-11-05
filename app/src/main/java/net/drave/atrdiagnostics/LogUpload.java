@@ -6,9 +6,6 @@ import android.os.SystemClock;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.UUID;
@@ -110,16 +107,9 @@ final class LogUpload {
         JSONObject body = new JSONObject().put("install", install(c)).put("version", BuildInfo.VERSION)
             .put("model", Build.MANUFACTURER + " " + Build.MODEL).put("android", Build.VERSION.SDK_INT).put("text", text);
         byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-        HttpURLConnection h = (HttpURLConnection) new URL(ENDPOINT).openConnection();
-        try {
-            h.setConnectTimeout(10000); h.setReadTimeout(20000); h.setDoOutput(true); h.setRequestMethod("POST");
-            h.setRequestProperty("Content-Type", "application/json"); h.setRequestProperty("X-Daanvia-Key", KEY);
-            h.setFixedLengthStreamingMode(bytes.length);
-            try (OutputStream o = h.getOutputStream()) { o.write(bytes); }
-            int code = h.getResponseCode();
-            // Refused for good (too big, bad key): dropped, or that piece would block every later log. Busy: tried again later.
-            if (code == 408 || code == 429 || code >= 500) throw new IOException("Upload not taken now: " + code);
-        } finally { h.disconnect(); }
+        int code = Http.post(ENDPOINT, "application/json", bytes, 10000, 20000, "X-Daanvia-Key", KEY);
+        // Refused for good (too big, bad key): dropped, or that piece would block every later log. Busy: tried again later.
+        if (code == 408 || code == 429 || code >= 500) throw new IOException("Upload not taken now: " + code);
     }
 
     /** A random id this install made for itself: tells uploads from different phones apart, and nothing else. */

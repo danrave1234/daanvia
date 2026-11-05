@@ -5,10 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import org.json.*;
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
@@ -101,8 +98,8 @@ public final class AreaStore {
     // ---------------------------------------------------------------- catalog
     public static Catalog fetch(Context c) throws Exception {
         String from = base(c), json;
-        try { json = new String(get(from + CURRENT, null, null, null), StandardCharsets.UTF_8); }
-        catch (Missing none) { json = new String(get(from + LEGACY, null, null, null), StandardCharsets.UTF_8); }  // no generation published yet, or mid-switch
+        try { json = index(from + CURRENT); }
+        catch (Missing none) { json = index(from + LEGACY); }  // no generation published yet, or mid-switch
         Catalog cat = parse(json); c.getSharedPreferences("areas", 0).edit().putString("index", json).apply(); return cat;
     }
     /**
@@ -267,11 +264,10 @@ public final class AreaStore {
     }
 
     private static File fetch(String from, File to, String file, String sha256, long[] done, long total, String name) throws Exception {
-        MessageDigest sha = MessageDigest.getInstance("SHA-256"); long start = done[0];
-        try (OutputStream out = new BufferedOutputStream(new FileOutputStream(to), 1 << 16)) {
-            get(from + file, out, sha, (d, t) -> { done[0] = start + d; post(new State(name, done[0], total, true, false, null)); });
-        }
-        if (!sha256.isEmpty() && !sha256.equalsIgnoreCase(hex(sha.digest()))) { to.delete(); throw new IOException("The download was damaged. Try again."); }
+        long start = done[0];
+        try { Http.download(from + file, to, sha256, cancel, (d, t) -> { done[0] = start + d; post(new State(name, done[0], total, true, false, null)); }, 10000, 30000); }
+        catch (Http.Status e) { if (e.code == 404) throw new Missing(); throw e; }
+        done[0] = start + to.length(); post(new State(name, done[0], total, true, false, null));
         return to;
     }
 
@@ -310,53 +306,59 @@ public final class AreaStore {
                         f.getParentFile().mkdirs();
                         try (OutputStream o = new BufferedOutputStream(new FileOutputStream(f), 1 << 16)) { int n; while ((n = z.read(b)) > 0) o.write(b, 0, n); }
                     } else if (out.containsKey(name)) {
-                        String body = inner(readAll(z), name);
-                        if (!body.isEmpty()) { Writer w = out.get(name); if (any.get(name)) w.write(','); w.write(body); any.put(name, true); }
+                        // Streamed: a cell's roads.geojson can be tens of MB, too much to hold as text (several times over) at once.
+                        // The reader is not closed: that would close the zip.
+                        if (inner(new InputStreamReader(z, StandardCharsets.UTF_8), out.get(name), any.get(name))) any.put(name, true);
                     }
                 }
             }
         }
-        /** The array contents between a file's wrapper, trimmed. */
-        static String inner(String text, String name) {
-            String t = text.trim(); int open = t.indexOf('['), close = t.lastIndexOf(']');
-            if (open < 0 || close <= open) return "";
-            return t.substring(open + 1, close).trim();
+        /**
+         * Copies the array contents between a file's wrapper (after the first '[', before the last ']'), trimmed, to
+         * {@code w}, with a ',' first when {@code comma}. True if anything was written (an empty array writes nothing).
+         * Only the text since the latest ']' is held back, as it may be the last one; everything else goes straight
+         * through. A file with no closing ']' is broken and throws.
+         */
+        static boolean inner(Reader in, Writer w, boolean comma) throws IOException {
+            Trim t = new Trim(w, comma); char[] b = new char[1 << 16]; int n; boolean open = false, closed = false;
+            StringBuilder held = new StringBuilder();
+            while ((n = in.read(b)) > 0) for (int i = 0; i < n; i++) {
+                char ch = b[i];
+                if (!open) open = ch == '[';
+                else if (ch == ']') { closed = true; for (int k = 0; k < held.length(); k++) t.put(held.charAt(k)); held.setLength(0); held.append(ch); }  // not the last ']' after all
+                else if (held.length() > 0) held.append(ch);
+                else t.put(ch);
+            }
+            if (open && !closed) throw new IOException("The map file is damaged");
+            return t.done();
+        }
+        /** Writes content trimmed: leading spaces dropped, spaces held until more content follows, so trailing ones go too. */
+        private static final class Trim {
+            private final Writer w; private final boolean comma; private final char[] o = new char[1 << 16]; private int on; private boolean wrote;
+            private final StringBuilder space = new StringBuilder();
+            Trim(Writer w, boolean comma) { this.w = w; this.comma = comma; }
+            void put(char x) throws IOException {
+                if (x <= ' ') { if (wrote) space.append(x); return; }
+                if (!wrote) { wrote = true; if (comma) out(','); }
+                for (int k = 0; k < space.length(); k++) out(space.charAt(k));
+                space.setLength(0); out(x);
+            }
+            private void out(char x) throws IOException { if (on == o.length) { w.write(o, 0, on); on = 0; } o[on++] = x; }
+            boolean done() throws IOException { if (on > 0) w.write(o, 0, on); on = 0; return wrote; }
         }
         public void close() throws IOException { for (String[] f : FILES) { Writer w = out.get(f[0]); w.write(f[2]); w.close(); } }
     }
 
     // ---------------------------------------------------------------- io
-    interface Progress { void update(long done, long total); }
     /** HTTP 404. */
     static final class Missing extends IOException { Missing() { super("That map isn’t available yet"); } }
-    private static byte[] get(String url, OutputStream out, MessageDigest sha, Progress progress) throws Exception {
-        for (int hop = 0; hop < 6; hop++) {
-            HttpURLConnection c = (HttpURLConnection)new URL(url).openConnection();
-            c.setInstanceFollowRedirects(false); c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setRequestProperty("User-Agent", "Daanvia/" + BuildInfo.VERSION);
-            int code = c.getResponseCode();
-            if (code >= 300 && code < 400 && c.getHeaderField("Location") != null) { url = new URL(new URL(url), c.getHeaderField("Location")).toString(); c.disconnect(); continue; }
-            if (code != 200) { c.disconnect(); if (code == 404) throw new Missing(); throw new IOException("Server error " + code); }
-            long total = c.getContentLengthLong(), done = 0, last = 0;
-            ByteArrayOutputStream mem = out == null ? new ByteArrayOutputStream() : null;
-            try (InputStream in = c.getInputStream()) {
-                byte[] b = new byte[1 << 16]; int n;
-                while ((n = in.read(b)) > 0) {
-                    if (cancel.get() && out != null) throw new IOException("Download cancelled");
-                    if (sha != null) sha.update(b, 0, n);
-                    if (out != null) out.write(b, 0, n); else mem.write(b, 0, n);
-                    done += n; if (progress != null && done - last > 256 * 1024) { last = done; progress.update(done, total); }
-                }
-            } finally { c.disconnect(); }
-            // A connection closed early by a proxy or a dropped signal ends the stream without an error: never a complete file.
-            if (total > 0 && done != total) throw new IOException("The download was cut short. Try again.");
-            if (progress != null) progress.update(done, total);
-            return mem == null ? null : mem.toByteArray();
-        }
-        throw new IOException("Too many redirects");
+    /** The map index (a few MB at most); a 404 as Missing. */
+    private static String index(String url) throws IOException {
+        try { return Http.getText(url, 10000, 30000, 32L << 20); } catch (Http.Status e) { if (e.code == 404) throw new Missing(); throw e; }
     }
     /** A whole file as text, closing it again (readAll leaves the stream open: a zip is read entry by entry). */
     static String readFile(File f) throws IOException { try (InputStream in = new FileInputStream(f)) { return readAll(in); } }
-    static String readAll(InputStream in) throws IOException { ByteArrayOutputStream o = new ByteArrayOutputStream(); byte[] b = new byte[1 << 16]; int n; while ((n = in.read(b)) > 0) o.write(b, 0, n); return o.toString("UTF-8"); }
+    static String readAll(InputStream in) throws IOException { return Http.readAll(in); }
     public static long diskBytes(File f) { if (f.isFile()) return f.length(); long s = 0; File[] k = f.listFiles(); if (k != null) for (File x : k) s += diskBytes(x); return s; }
     /** The squares of {@code picked} in a newer index: the same ids, or the quarters a busy square was split into. */
     static List<Cell> same(Catalog fresh, List<Cell> picked) {
@@ -370,5 +372,4 @@ public final class AreaStore {
     }
     private static void cancelled() throws IOException { if (cancel.get()) throw new IOException("Download cancelled"); }
     public static void delete(File f) { File[] k = f.listFiles(); if (k != null) for (File x : k) delete(x); f.delete(); }
-    private static String hex(byte[] d) { StringBuilder s = new StringBuilder(); for (byte x : d) s.append(String.format(Locale.US, "%02x", x)); return s.toString(); }
 }

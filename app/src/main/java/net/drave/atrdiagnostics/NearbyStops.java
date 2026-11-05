@@ -2,8 +2,7 @@ package net.drave.atrdiagnostics;
 
 import android.content.Context;
 import org.json.*;
-import java.io.*;
-import java.net.*;
+import java.io.IOException;
 import java.util.*;
 
 /** Small, user-triggered OSM searches. A bounded local cache remains usable without signal. */
@@ -15,19 +14,12 @@ final class NearbyStops {
         if(saved!=null&&System.currentTimeMillis()-checked<86400000L)return nearest(TripStop.parse(saved),lat,lon);
         String around=String.format(Locale.US,"(around:5000,%.3f,%.3f)",lat,lon)/* about 100 m, plenty for a 5 km search */;
         String query="[out:json][timeout:12][maxsize:16777216];("+(fuel?"nwr[amenity=fuel]"+around+";":"nwr[amenity~\"^(cafe|restaurant|fast_food)$\"]"+around+";nwr[highway=rest_area]"+around+";")+");out center 100;";
-        HttpURLConnection connection=(HttpURLConnection)new URL("https://overpass-api.de/api/interpreter").openConnection();
-        connection.setConnectTimeout(5000);connection.setReadTimeout(16000);connection.setRequestProperty("User-Agent","Daanvia/"+BuildInfo.VERSION+" (github.com/danrave1234/daanvia)");connection.setRequestMethod("POST");connection.setDoOutput(true);
-        connection.setRequestProperty("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
         try{
-            try(OutputStream out=connection.getOutputStream()){out.write(("data="+URLEncoder.encode(query,"UTF-8")).getBytes(java.nio.charset.StandardCharsets.UTF_8));}
-            if(connection.getResponseCode()!=200)throw new IOException("Place search is unavailable. Try again later or add a saved stop.");
-            ByteArrayOutputStream data=new ByteArrayOutputStream();byte[] bytes=new byte[8192];int n;
-            try(InputStream in=connection.getInputStream()){while((n=in.read(bytes))!=-1){if(data.size()+n>2*1024*1024)throw new IOException("Place response is too large");data.write(bytes,0,n);}}
-            List<TripStop> found=nearest(parse(data.toString("UTF-8"),fuel),lat,lon);
+            List<TripStop> found=nearest(parse(Http.postForm("https://overpass-api.de/api/interpreter",query,5000,16000,2*1024*1024),fuel),lat,lon);
             // Keep at most twelve small search areas, so travelling never grows this cache without bound.
             if(cache.getAll().size()>24)cache.edit().clear().apply();
             cache.edit().putString(key,TripStop.json(found).toString()).putLong(key+":at",System.currentTimeMillis()).apply();return found;
-        }catch(Exception e){if(saved!=null)return nearest(TripStop.parse(saved),lat,lon);throw new IOException("No cached stops here. Connect to search OpenStreetMap, or add a saved place.",e);}finally{connection.disconnect();}
+        }catch(Exception e){if(saved!=null)return nearest(TripStop.parse(saved),lat,lon);throw new IOException("No cached stops here. Connect to search OpenStreetMap, or add a saved place.",e);}
     }
     static List<TripStop> parse(String raw,boolean fuel)throws JSONException{
         JSONArray entries=new JSONObject(raw).getJSONArray("elements");List<TripStop> out=new ArrayList<>();

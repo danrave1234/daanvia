@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The support report, shared to another app from Support. Nothing else in the cache can be handed out. -->
+<paths>
+    <cache-path name="reports" path="reports/" />
+</paths>
