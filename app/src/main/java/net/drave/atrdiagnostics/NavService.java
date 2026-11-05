@@ -9,15 +9,16 @@ public final class NavService extends Service {
     public int onStartCommand(Intent i,int f,int id){
         if(finishing!=null){handler.removeCallbacks(finishing);finishing=null;}
         // Restarted by Android after the phone closed Daanvia mid-ride (this service is sticky during real rides).
-        if(i==null)return resumeAfterRestart()?START_STICKY:START_NOT_STICKY;
+        if(i==null){running=this;return resumeAfterRestart()?START_STICKY:START_NOT_STICKY;}
         // The display is stopped through its link, which then knows the rider meant it (not a drop to reconnect from).
         if("stop".equals(i.getAction())){if(s!=null)s.stop();DashboardLink link=DashboardLink.existing();if(link!=null)link.stop();else stopService(new Intent(this,StreamService.class));stopSelf();return START_NOT_STICKY;}
-        s=NavSession.get(this);boolean demo=i.getBooleanExtra("demo",false);demoRide=demo;
+        running=this;s=NavSession.get(this);boolean demo=i.getBooleanExtra("demo",false);demoRide=demo;
         if("repeat".equals(i.getAction())||"audio_stop".equals(i.getAction())){
             if(!s.active){stopSelf();return START_NOT_STICKY;}
             ensureVoice();if("repeat".equals(i.getAction()))speakCurrent();else voice.stop();return s.simulation?START_NOT_STICKY:START_STICKY;
         }
         try{
+            if(i.getBooleanExtra("cruise",false))s.beginCruise();else s.cruise=false;
             foreground(demo);
             ensureVoice();
             if(!demo)logStatus();
@@ -31,15 +32,18 @@ public final class NavService extends Service {
     }
     private void foreground(boolean demo){
             NotifyChannels.create(this);
-            PendingIntent open=PendingIntent.getActivity(this,20,new Intent(this,HomeActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            PendingIntent commands=PendingIntent.getActivity(this,24,new Intent(this,VoiceCommandsActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            Notification n=new Notification.Builder(this,NotifyChannels.RIDE).setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText("Tap to return to directions").setContentIntent(open).setOngoing(true).setVisibility(Notification.VISIBILITY_PUBLIC)
-                // Work from the lock screen: Reconnect bike and Exit run in the background; Commands opens over the lock screen.
-                .addAction(new Notification.Action.Builder(null,"Reconnect bike",RideActions.intent(this,RideActions.RECONNECT,25)).build()).addAction(new Notification.Action.Builder(null,"Commands",commands).build()).addAction(new Notification.Action.Builder(null,"Exit",RideActions.intent(this,RideActions.EXIT,26)).build()).build();
+            shownStatus=null;Notification n=build(demo,"Tap to return to directions");
             startForeground(22,n,demo?android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE:android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
             // OPPO/OnePlus/realme close apps ~5 min after the screen goes off unless they play audio (see QuietAudio): for
             // the whole ride, not only while the bike display is connected.
             if(!demo&&KeepAlive.colorOs()!=null){if(quiet==null)quiet=new QuietAudio(m->LogUpload.add(this,stamp()+m+"\n"));quiet.start(this);}
+    }
+    private Notification build(boolean demo,String text){
+        PendingIntent open=PendingIntent.getActivity(this,20,new Intent(this,HomeActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent commands=PendingIntent.getActivity(this,24,new Intent(this,VoiceCommandsActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        return new Notification.Builder(this,NotifyChannels.RIDE).setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":s!=null&&s.cruise?"Daanvia · free ride":"Daanvia directions").setContentText(text).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PUBLIC)
+            // Work from the lock screen: Reconnect bike and Exit run in the background; Commands opens over the lock screen.
+            .addAction(new Notification.Action.Builder(null,"Reconnect bike",RideActions.intent(this,RideActions.RECONNECT,25)).build()).addAction(new Notification.Action.Builder(null,"Commands",commands).build()).addAction(new Notification.Action.Builder(null,"Exit",RideActions.intent(this,RideActions.EXIT,26)).build()).build();
     }
     private QuietAudio quiet;
     private static String stamp(){return new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  ";}
@@ -57,6 +61,9 @@ public final class NavService extends Service {
             s=NavSession.get(this);foreground(false);
             ensureVoice();
             subscribe();filter.reset();
+            // A free ride (no destination) just carries on: location, the bike display, the keep-alive.
+            if(r.optBoolean("cruise")){logStatus();s.beginCruise();s.active=true;s.simulation=false;handler.post(measure);s.message("Picked up your free ride");s.signal();try{getSystemService(NotificationManager.class).notify(22,build(false,"Tap to return to the map"));}catch(Exception ignored){}
+                DashboardLink.headless(this).allowAuto();searches=0;handler.post(bikeSearch);return true;}
             final double la=r.getDouble("lat"),lo=r.getDouble("lon");final String name=r.optString("name","your destination");
             resumeTries=0;if(resumer!=null)handler.removeCallbacks(resumer);
             resumer=new Runnable(){public void run(){
@@ -90,10 +97,19 @@ public final class NavService extends Service {
     private int searches;
     /**
      * Wait before the next search for the bike. A search keeps Wi-Fi scanning for up to 45 s, so a bike that stays off
-     * shouldn't be looked for back to back: every 20 s for the first three tries (a link that just dropped comes straight
-     * back), then 20 s longer each time, up to every 3 minutes. Starting a ride or reconnecting starts over.
+     * shouldn't be looked for back to back forever: 10 s apart for the first dozen tries (about ten minutes, a stop with the
+     * bike switched off: it is found soon after it is switched on again), then 10 s longer each time, up to a minute (the
+     * old three minutes left riders reconnecting by hand). Starting a ride or tapping Reconnect starts over.
      */
-    static long searchGap(int searches){return Math.min(180000,20000+Math.max(0,searches-3)*20000L);}
+    static long searchGap(int searches){return Math.min(60000,10000+Math.max(0,searches-12)*10000L);}
+    private static NavService running;
+    /** The rider tapped Reconnect: look for the bike at the short pace again. */
+    static void searchAgain(){NavService n=running;if(n==null)return;n.searches=0;n.handler.removeCallbacks(n.bikeSearch);n.handler.postDelayed(n.bikeSearch,50000);}
+    /** The bike display's state, as the ride notification's text, so a tap on Reconnect visibly does something. */
+    static void status(String text){NavService n=running;if(n==null||n.s==null||!n.s.active||text==null)return;
+        String shown=StreamService.navigationActive?"Tap to return to directions":text;if(shown.equals(n.shownStatus))return;n.shownStatus=shown;
+        try{n.getSystemService(NotificationManager.class).notify(22,n.build(n.demoRide,shown));}catch(Exception ignored){}}
+    private String shownStatus;
     private void subscribe(){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)throw new SecurityException("Precise location required");if(gps==null)gps=new LocationFeed(this,this::onLocationChanged,true);gps.stop();if(!gps.start())s.message("GPS is off · enable Location");else s.message("Waiting for GPS · offline region ready");}
     private void onLocationChanged(Location l){if(l.getElapsedRealtimeNanos()>0&&SystemClock.elapsedRealtimeNanos()-l.getElapsedRealtimeNanos()>12000000000L)return;
         // A fix that bounced off buildings would pull the rider off the route and start a reroute (see FixFilter).
@@ -125,10 +141,10 @@ public final class NavService extends Service {
         finishing=this::stopSelf;handler.postDelayed(finishing,4000);
     }
     private void ensureVoice(){if(voice==null)voice=new VoiceOutput(this,message->{if(voice!=null&&!voice.ready())s.message(message);else s.signal();});}
-    private void speakCurrent(){if(voice!=null&&s.active)voice.speak(s.arrived?"Destination nearby":GuidancePrompts.distance(s.distanceToTurn)+". "+s.instruction);}
+    private void speakCurrent(){if(voice!=null&&s.active&&!s.cruise)voice.speak(s.arrived?"Destination nearby":GuidancePrompts.distance(s.distanceToTurn)+". "+s.instruction);}
     private void speak(){
         if(s.shape!=spokenRoute){spokenRoute=s.shape;prompts.reset();}
-        if(!s.active||voice==null||!voice.ready()||SystemClock.elapsedRealtime()<s.commandAudioUntil||!getSharedPreferences("ui",0).getBoolean("voice",true))return;
+        if(!s.active||s.cruise||voice==null||!voice.ready()||SystemClock.elapsedRealtime()<s.commandAudioUntil||!getSharedPreferences("ui",0).getBoolean("voice",true))return;
         long now=SystemClock.elapsedRealtime();int stage=prompts.next(s.maneuver,s.distanceToTurn,s.speedMetersPerSecond,s.accuracy,s.arrived,now);
         if(stage==GuidancePrompts.NONE)return;
         org.json.JSONObject maneuver=s.maneuvers.optJSONObject(s.maneuver);
@@ -146,6 +162,7 @@ public final class NavService extends Service {
     private void logStatus(){LogUpload.add(this,new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  "+KeepAlive.status(this)+"\n");}
     @android.annotation.SuppressLint("MissingPermission")
     public void onDestroy(){
+        if(running==this)running=null;
         // The ride's battery, heat and display numbers go with the log, sent now that the ride is over.
         if(metrics!=null&&s!=null)metrics.flush(s);
         if(metrics!=null&&!demoRide)LogUpload.add(this,new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  Ride diagnostics: "+RideMetrics.forReport(this).optJSONObject("latest")+"\n");

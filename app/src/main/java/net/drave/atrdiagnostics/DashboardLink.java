@@ -94,9 +94,18 @@ public final class DashboardLink {
     /** The notification's Reconnect (works from the lock screen): drop the link and find the bike again, the quiet way. */
     public void reconnect() {
         log("Reconnect tapped on the notification.");
-        stoppedByUser = false; quickDrops = 0;
-        replaceStream(() -> { if (running) cleanup(); autoNavigation(); });
+        // Taps in a row (nothing seemed to happen) while a search is already under way: let that search finish.
+        long now = SystemClock.elapsedRealtime();
+        if (now - reconnectTapAt < 10000 && running && !serviceActive) { label("Looking for your bike…"); return; }
+        reconnectTapAt = now;
+        stoppedByUser = false; quickDrops = 0; quietMisses = 0;
+        // Keep looking for five minutes, not one search: the bike may still be starting up when the tap comes.
+        reconnectUntil = now + 5 * 60_000L;
+        NavService.searchAgain();
+        label("Looking for your bike…");
+        replaceStream(() -> { if (running) cleanup(); autoNavigation(); main.removeCallbacks(reconnect); main.postDelayed(reconnect, 8000); });
     }
+    private long reconnectTapAt;
     /** Back to Daanvia's directions on the bike display. */
     public void stopMirror() { replaceStream(this::sendNavigation); }
     private void replaceStream(Runnable next) {
@@ -128,7 +137,7 @@ public final class DashboardLink {
     private Intent captureConsent;
     private final Map<String,String> visualEvidence = new LinkedHashMap<>();
     private final Map<String,Long> frameEvidence = new LinkedHashMap<>();
-    private volatile boolean running, active, connecting;
+    private volatile boolean running, active, connecting, extended;
     private boolean ownDiscovery;
     private volatile int generation;
     private Runnable deadline;
@@ -331,7 +340,7 @@ public final class DashboardLink {
         return s.replaceAll("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}", "[device address redacted]")
             .replaceAll("(?i)(pwd|password|passphrase|token|huid|uuid|serial|sn)[\\\"'\\s:=]+[^,}\\s]+", "$1=[redacted]");
     }
-    private void label(String s) { verdict = s; main.post(() -> ui.onStatus(s)); }
+    private void label(String s) { verdict = s; main.post(() -> { ui.onStatus(s); NavService.status(s); }); }
     public void note(String s) { log(s); }
 
     public boolean hasPermissions() {
@@ -406,7 +415,7 @@ public final class DashboardLink {
     private void start(boolean mode) {
         // A search or test now would cut the live display off when it times out.
         if (serviceActive) { log("The bike display is already connected. Stop it first to run another test."); ui.onChanged(); return; }
-        cleanup(); running = true; active = mode; connecting = false; tested.clear();
+        cleanup(); running = true; active = mode; connecting = false; extended = false; tested.clear();
         if (pendingStream == 0) identificationAccepted = false;
         ui.onChanged();
         trustedInterface = null; trustedOwner = null;
@@ -430,6 +439,8 @@ public final class DashboardLink {
             if (running && g == generation && (!quiet || apApproved) && tested.isEmpty() && trustedInterface == null && !password.isEmpty()) joinAp();
         }, 18000);
         deadline = () -> {
+            // The bike was found and is pairing right now: give it the moment it needs instead of starting over.
+            if (running && g == generation && connecting && !extended) { extended = true; main.postDelayed(deadline, 15000); return; }
             if (running && g == generation) {
                 if (tested.isEmpty() && !verbose()) { quietMisses++; log("Bike display not found (background search " + quietMisses + "); still looking."); cleanup(); label("Not connected"); ui.onChanged(); return; }
                 if (tested.isEmpty() && quiet) quietMisses++;
@@ -515,7 +526,17 @@ public final class DashboardLink {
                 log("QR-matched dashboard peer found. Requesting connection; accept Android’s prompt if shown.");
                 WifiP2pConfig cfg = new WifiP2pConfig(); cfg.deviceAddress = d.deviceAddress;
                 cfg.wps.setup = WpsInfo.PBC; cfg.groupOwnerIntent = 0;
-                p2p.connect(channel, cfg, action("Dashboard pairing", () -> main.postDelayed(this::group, 2000)));
+                p2p.connect(channel, cfg, action("Dashboard pairing", () -> { log("Pairing request accepted by Android; waiting for the bike."); main.postDelayed(this::group, 2000); }));
+                // A bike that was just switched on can see the request before it is ready and never answer it (logs of
+                // 5 Nov: found twice, paired never). Without a group soon, the request is dropped and made again.
+                main.postDelayed(() -> {
+                    if (!running || g != generation || !connecting || trustedInterface != null) return;
+                    log("The bike didn't finish pairing; asking again.");
+                    try { p2p.cancelConnect(channel, null); } catch (Exception ignored) {}
+                    connecting = false;
+                    try { p2p.discoverPeers(channel, null); } catch (SecurityException ignored) {}
+                    main.postDelayed(this::peers, 1500);
+                }, 14000);
                 return;
             }
         }); } catch (SecurityException e) { log("Peer scan blocked by Android permissions."); }

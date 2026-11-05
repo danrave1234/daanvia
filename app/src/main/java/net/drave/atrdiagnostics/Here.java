@@ -57,6 +57,7 @@ final class Here {
         if (s.fixAt > 0 && at - s.fixAt < 15_000 && Math.abs(acc - s.accuracy) < 3
             && GeoMath.distance(s.lat, s.lon, l.getLatitude(), l.getLongitude()) < Math.max(1.5, acc * 0.1)) return;
         boolean moving = l.hasBearing() && (!l.hasSpeed() || l.getSpeed() > 1.4f);
+        s.speedMetersPerSecond = l.hasSpeed() ? Math.max(0, l.getSpeed()) : 0;  // the map's arrow and the bike display's ride view use it
         s.update(l.getLatitude(), l.getLongitude(), acc, moving ? l.getBearing() : s.bearing, false, at);
     }
     private static long ageMillis(Location l) { return l.getElapsedRealtimeNanos() > 0 ? Math.max(0, (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1_000_000L) : 0; }

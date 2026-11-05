@@ -88,13 +88,14 @@ public final class DashboardRenderer {
         if (s.calibration) { grid(target, vw, vh); target.restore(); return; }
         // Directions only (Settings › Bike display): the cards on a plain background, no moving map. About a third of the
         // work of the full picture (measured), and only a few frames a second are needed since little moves.
-        boolean simple = s.directionsOnly() && s.active && !s.layoutEditing;
+        boolean simple = s.directionsOnly() && s.active && !s.cruise && !s.layoutEditing;
         // With no map to keep clear, the cards fill the screen: a large turn card, and the trip along the bottom.
         RectF turn = simple ? new RectF(vw * 0.04f, vh * 0.04f, vw * 0.96f, vh * 0.68f) : card(s.turnCard, vw, vh);
         RectF trip = simple ? new RectF(vw * 0.04f, vh * 0.72f, vw * 0.96f, vh * 0.96f) : card(s.tripCard, vw, vh);
         if (simple) { target.drawColor(land()); pixelsPerSecond = 0; } else drawMap(target, vw, vh, turn, trip);
         boolean sample = s.layoutEditing && !s.active;
-        if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
+        if (s.active && s.cruise && !sample) cruise(target, turn);
+        else if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
         else idle(target, turn);
         if (s.layoutEditing) outlines(target, turn, trip, s.arrowX * vw, s.arrowY * vh);
         popup(target, vw, vh);
@@ -241,6 +242,23 @@ public final class DashboardRenderer {
         }
     }
 
+    /**
+     * A free ride (no destination): where the turn card goes, the road the rider is on, their speed and the time. The map
+     * behind it is the ride view, heading-up, so the roads ahead show as they come.
+     */
+    private void cruise(Canvas c, RectF r) {
+        cardBackground(c, r);
+        float k = unit(r, 280, 270), pad = 18 * k, x = r.left + pad, w = r.width() - pad * 2;
+        p.setLetterSpacing(0.18f); text(c, "FREE RIDE", x, r.top + pad + 13 * k, 14 * k, pal.accent, black); p.setLetterSpacing(0);
+        float y = r.top + pad + 13 * k;
+        String road = s.street.isEmpty() ? "Riding" : s.street;
+        for (String line : wrap(road, w, 30 * k, bold, 2)) { if (y + 36 * k > r.bottom - pad) break; y += 36 * k; text(c, line, x, y, 30 * k, ink(), bold); }
+        boolean stale = !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000);
+        String speed = stale ? "GPS weak" : Math.round(s.speedMetersPerSecond * 3.6f) + " km/h";
+        float ss = Math.min(54 * k, r.height() * 0.24f);
+        if (y + ss * 1.15f < r.bottom - pad * 0.3f) { y += ss * 1.15f; text(c, fit(speed, w, ss, black), x, y, ss, stale ? pal.danger : ink(), black); }
+        if (y + 26 * k < r.bottom) { y += 26 * k; text(c, fit(Gabi.clock(0), w, 17 * k, semi), x, y, 17 * k, muted(), semi); }
+    }
     private void idle(Canvas c, RectF r) {
         cardBackground(c, r);
         float k = unit(r, 280, 270), pad = 18 * k, x = r.left + pad, w = r.width() - pad * 2;
@@ -254,7 +272,7 @@ public final class DashboardRenderer {
             if (y + 32 * k < r.bottom) { y += 32 * k; text(c, fit(Gabi.minutes(s.seconds) + " · " + distance(s.remaining), w, 20 * k, black), x, y, 20 * k, pal.accent, black); }
         } else {
             y += 28 * k; text(c, fit(s.ready ? s.regionName : "Getting the map ready…", w, 17 * k, bold), x, y, 17 * k, soft(), bold);
-            if (y + 24 * k < r.bottom) { y += 24 * k; text(c, fit("Choose a destination on your phone", w, 14 * k, semi), x, y, 14 * k, muted(), semi); }
+            if (y + 24 * k < r.bottom) { y += 24 * k; text(c, fit("Choose a destination, or Just ride", w, 14 * k, semi), x, y, 14 * k, muted(), semi); }
         }
     }
 
@@ -317,7 +335,7 @@ public final class DashboardRenderer {
         if (s.active && s.remaining < 400) z = Math.min(z, 0.85);
         return z;
     }
-    private float targetTilt() { return !riding() ? 0 : s.active && s.remaining < 400 ? 58 : 48; }
+    private float targetTilt() { return !riding() ? 0 : s.active && !s.cruise && s.remaining < 400 ? 58 : 48; }
     /**
      * The ride view (heading-up, tilted, zoom by speed): on a ride, and also riding around without one while the bike
      * display is on. Without a ride it holds for 20 s after slowing below about 7 km/h, so a red light doesn't flip the

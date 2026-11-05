@@ -590,6 +590,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         LinearLayout c = k.column(0);
         LinearLayout head = k.row(8);
         TextView title = k.text("Ride somewhere", 19, 750, INK); head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        // No destination: the bike display shows the map of the roads ahead and the phone follows the rider (a free ride).
+        TextView justRide = k.text("Just ride", 14, 800, ON_ACCENT); justRide.setGravity(Gravity.CENTER); justRide.setPadding(k.dp(16), 0, k.dp(16), 0); justRide.setMinHeight(k.dp(40));
+        theme.add(p -> { justRide.setBackground(Gabi.round(p.accent, k.dp(20))); justRide.setTextColor(p.onAccent); });
+        justRide.setContentDescription("Just ride, without a destination"); Gabi.press(justRide, this::startCruise); head.addView(justRide);
         head.addView(k.info("Search for a place, tap a saved place, or press and hold anywhere on the map to drop a pin. You can also share a place to Daanvia from Google Maps to save it here."));
         c.addView(head);
         exploreStatus = k.text("", 13, 500, MUTED); exploreStatus.setPadding(0, k.dp(4), 0, k.dp(14)); c.addView(exploreStatus);
@@ -1253,6 +1257,21 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!demo && !resuming && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
         startForegroundService(new Intent(this, NavService.class).putExtra("demo", demo));
     }
+    /** Just ride: a free ride with no destination (NavSession.cruise). The bike display connects and shows the roads ahead. */
+    private void startCruise() {
+        if (s.active) { go(Mode.RIDE); return; }
+        if (!s.ready) { notice("The map is still getting ready"); return; }
+        if (!Here.precise(this)) { notice("Riding needs precise location"); requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 73); return; }
+        if (s.simulation) { s.simulation = false; s.fixAt = 0; }
+        pendingPlan = false; destName = null; demoTrip = false; plannedTrip = Collections.emptyList();
+        // Kept until the ride ends, so a free ride Android cut short starts again on its own (see NavService.resumeAfterRestart).
+        try { getSharedPreferences("ui", 0).edit().putString("ride", new org.json.JSONObject().put("cruise", true).put("at", System.currentTimeMillis()).toString()).apply(); } catch (org.json.JSONException ignored) {}
+        link.allowAuto(); autoDelay = 15000; ui.removeCallbacks(retryConnect); autoConnect();
+        if (!resuming) KeepAlive.askForRide(this);
+        if (!resuming && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
+        s.beginCruise();
+        startForegroundService(new Intent(this, NavService.class).putExtra("cruise", true));
+    }
     private void openTrip(List<TripStop> stops,String name) {
         if(s.active){notice("End the ride before changing its stops");return;}
         if(stops.isEmpty()){notice("Add a destination first");return;}
@@ -1275,6 +1294,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         try {
             org.json.JSONObject r = new org.json.JSONObject(raw);
             if (System.currentTimeMillis() - Math.max(r.getLong("at"), u.getLong("ride_alive", 0)) > 30 * 60_000L) { u.edit().remove("ride").apply(); return; }
+            if (r.optBoolean("cruise")) { resuming = true; try { startCruise(); } finally { resuming = false; } notice("Continuing your free ride", null, null, 6000); return; }
             double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
             boolean killed = KeepAlive.killedBySystem(this); KeepAlive.recheckColorOs(this);
             JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");
@@ -1402,6 +1422,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         s.stop(); stopService(new Intent(this, NavService.class)); refresh();
     }
     private void paintRide() {
+        if (s.cruise) { paintCruise(); return; }
+        Gabi.show(blockBtn, true, 0);
         JSONArray ms = s.maneuvers; int idx = s.maneuver;
         JSONObject m = ms.optJSONObject(idx);
         boolean arriving = "Destination nearby".equals(s.instruction);
@@ -1425,6 +1447,21 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!endArmed) endBtn.setText(arriving ? "Finish" : "End");
         etaMeta.setText(Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
         simBadge.setVisibility(s.simulation ? View.VISIBLE : View.GONE);
+        tftBadge.setVisibility(StreamService.navigationActive ? View.VISIBLE : View.GONE);
+    }
+    /** The ride screen on a free ride: the road the rider is on and their speed, with End; no turns, no arrival time. */
+    private void paintCruise() {
+        boolean stale = !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000 || s.accuracy > 50);
+        maneuverIcon.setImageDrawable(iconFor(IconDrawable.STRAIGHT, theme.palette.onAccent, 2.6f));
+        maneuverDist.setText(stale ? "GPS weak" : s.street.isEmpty() ? "Free ride" : s.street);
+        maneuverDist.setTextColor(stale ? theme.palette.danger : theme.palette.ink);
+        maneuverStreet.setText(stale ? "Waiting for a clear GPS signal" : "No destination · the map follows you");
+        Gabi.show(thenChip, false, -k.dp(6));
+        etaMin.setText(stale ? "–" : Math.round(s.speedMetersPerSecond * 3.6f) + " km/h");
+        etaMeta.setText(s.street.isEmpty() ? "Free ride · no destination" : "Free ride · " + s.street);
+        if (!endArmed) endBtn.setText("End");
+        Gabi.show(blockBtn, false, 0);
+        simBadge.setVisibility(View.GONE);
         tftBadge.setVisibility(StreamService.navigationActive ? View.VISIBLE : View.GONE);
     }
     private IconDrawable iconFor(int type, int color, float stroke) { return new IconDrawable(type, color).stroke(stroke); }
@@ -1547,7 +1584,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else if (mode == Mode.RIDE && !rideFrames) paintRideRoute(shape, Math.min(s.progress, shape.size() - 1), s.viewLat, s.viewLon);
         // destination / pin
         GeoJsonSource dest = src(MapStyle.DEST), drop = src(MapStyle.DROP);
-        String destKey = routeMode && destName != null || mode == Mode.RIDE ? (mode == Mode.RIDE ? s.destLat + "," + s.destLon : destLat + "," + destLon) : "";
+        String destKey = routeMode && destName != null || mode == Mode.RIDE && !s.cruise ? (mode == Mode.RIDE ? s.destLat + "," + s.destLon : destLat + "," + destLon) : "";
         if (!destKey.equals(drawnDest)) { drawnDest = destKey; if (destKey.isEmpty()) dest.setGeoJson(MapStyle.empty()); else dest.setGeoJson(mode == Mode.RIDE ? MapStyle.point(s.destLat, s.destLon) : MapStyle.point(destLat, destLon)); }
         String dropKey = mode == Mode.PIN || mode == Mode.SAVE ? dropLat + "," + dropLon : mode == Mode.LOT && lot != null ? lot.lat + "," + lot.lon : "";
         if (!dropKey.equals(drawnDrop)) { drawnDrop = dropKey; if (dropKey.isEmpty()) drop.setGeoJson(MapStyle.empty()); else drop.setGeoJson(mode == Mode.LOT && lot != null ? MapStyle.point(lot.lat, lot.lon) : MapStyle.point(dropLat, dropLon)); }
@@ -1605,7 +1642,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // Outside rides the dot is MapLibre's own location puck: it glides between fixes and turns its beam with the
     // phone's compass inside the map renderer, every frame, with no map data changing hands. (Doing that by hand
     // with a GeoJSON point updated many times a second was what made the dot and the map stutter.)
-    private org.maplibre.android.location.LocationComponent locPuck; private boolean locPuckOn;
+    private org.maplibre.android.location.LocationComponent locPuck; private boolean locPuckOn, puckArrow;
     /** Debug builds only: adb shell am broadcast -a net.drave.atrdiagnostics.DEBUG_MAP --es hide id,id --es show id --ez puck false (performance checks). */
     private BroadcastReceiver debugReceiver;
     private void debugLayers() {
@@ -1627,6 +1664,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         try {
             org.maplibre.android.location.LocationComponentOptions o = org.maplibre.android.location.LocationComponentOptions.builder(this)
                 .foregroundDrawable(R.drawable.puck_dot).foregroundDrawableStale(R.drawable.puck_dot).bearingDrawable(R.drawable.puck_beam)
+                .gpsDrawable(R.drawable.puck_arrow)
                 .backgroundDrawable(R.drawable.puck_none).backgroundDrawableStale(R.drawable.puck_none)
                 .accuracyColor(0xFFFFB020).accuracyAlpha(0.12f).accuracyAnimationEnabled(true).compassAnimationEnabled(true).enableStaleState(false).pulseEnabled(false)
                 .trackingGesturesManagement(false).minZoomIconScale(0.85f).maxZoomIconScale(1f).elevation(0f).build();
@@ -1641,7 +1679,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (locPuck == null || on == locPuckOn || on && !Here.allowed(this)) return;
         try {
             locPuck.setLocationComponentEnabled(on); locPuckOn = on;
-            if (on) { locPuck.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE); locPuck.setRenderMode(org.maplibre.android.location.modes.RenderMode.COMPASS); }
+            if (on) { locPuck.setCameraMode(org.maplibre.android.location.modes.CameraMode.NONE); puckArrow = false; locPuck.setRenderMode(org.maplibre.android.location.modes.RenderMode.COMPASS); }
         } catch (Exception e) { android.util.Log.w("Daanvia", "Location puck", e); }
     }
     private android.location.Location puckLocation() {
@@ -1657,6 +1695,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (mode == Mode.RIDE && s.active) { showLocationPuck(false); startRideFrames(); return; }
         if (locPuck == null) return;
         boolean was = locPuckOn; showLocationPuck(true);
+        // Moving: an arrow pointing the way the rider goes. Standing: the dot, its beam turning with the phone's compass.
+        boolean arrow = s.speedMetersPerSecond > 2 && SystemClock.elapsedRealtime() - s.fixAt < 6000;
+        if (locPuckOn && arrow != puckArrow) { puckArrow = arrow; try { locPuck.setRenderMode(arrow ? org.maplibre.android.location.modes.RenderMode.GPS : org.maplibre.android.location.modes.RenderMode.COMPASS); } catch (Exception ignored) {} }
         if (s.fixAt == lastFix && was) return;
         lastFix = s.fixAt;
         if (locPuckOn) locPuck.forceLocationUpdate(puckLocation());
@@ -1753,6 +1794,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (mode == Mode.RIDE && s.active) { getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); lastFix = -1; startRideFrames(); armBikeMode(); }
     }
     private void paintBikeMode() {
+        if (s.cruise) {
+            bikeIcon.setImageDrawable(iconFor(IconDrawable.STRAIGHT, theme.palette.onAccent, 2.6f));
+            bikeDist.setText(Math.round(s.speedMetersPerSecond * 3.6f) + " km/h"); bikeStreet.setText(s.street.isEmpty() ? "Free ride" : s.street); bikeEta.setText("Free ride · no destination");
+            if (!endArmed) bikeEnd.setText("End"); return;
+        }
         JSONObject m = s.maneuvers.optJSONObject(s.maneuver);
         boolean arriving = "Destination nearby".equals(s.instruction);
         int type = arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
