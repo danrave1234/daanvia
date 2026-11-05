@@ -53,7 +53,7 @@ public final class TripPlannerActivity extends Activity {
     private String tripName(){String value=title.getText().toString().trim();return value.isEmpty()?"My ride":value;}
     private void message(String text){status.setText(text==null?"Could not complete this action":text);}
     private void paint(){
-        revision++;rows.removeAllViews();
+        revision++;rows.removeAllViews();syncBack();
         if(stops.isEmpty()){rows.addView(k.text("No stops yet · add your final destination first",14,550,MUTED));return;}
         for(int i=0;i<stops.size();i++){final int at=i;TripStop stop=stops.get(i);LinearLayout card=GabiPage.card(k);
             card.addView(k.text((i+1)+" · "+stop.name+(i==stops.size()-1?" · finish":""),15,650,INK));
@@ -78,7 +78,7 @@ public final class TripPlannerActivity extends Activity {
     }
     private void save(){if(stops.isEmpty()){message("Add stops first");return;}try{JSONObject saved=new JSONObject(getSharedPreferences("trips",0).getString("saved","{}"));
         if(saved.has(tripName())&&!(tripName().equals(replaceName)&&SystemClock.elapsedRealtime()-replaceWarnedAt<6000)){replaceName=tripName();replaceWarnedAt=SystemClock.elapsedRealtime();message("A trip named "+tripName()+" is already saved. Tap Save again to replace it, or change the name.");return;}
-        replaceName=null;dirty=false;saved.put(tripName(),TripStop.json(stops));getSharedPreferences("trips",0).edit().putString("saved",saved.toString()).apply();message("Saved "+tripName()+" on this phone");}catch(Exception e){message(e.getMessage());}}
+        replaceName=null;dirty=false;saved.put(tripName(),TripStop.json(stops));getSharedPreferences("trips",0).edit().putString("saved",saved.toString()).apply();syncBack();message("Saved "+tripName()+" on this phone");}catch(Exception e){message(e.getMessage());}}
     private void load(){try{JSONObject saved=new JSONObject(getSharedPreferences("trips",0).getString("saved","{}"));List<String> keys=new ArrayList<>();saved.keys().forEachRemaining(keys::add);Collections.sort(keys);if(keys.isEmpty()){message("No saved trips yet");return;}new AlertDialog.Builder(this).setTitle("Open trip").setItems(keys.toArray(new String[0]),(d,which)->{try{stops.clear();stops.addAll(TripStop.parse(saved.getJSONArray(keys.get(which)).toString()));title.setText(keys.get(which));dirty=false;paint();}catch(Exception e){message(e.getMessage());}}).setNeutralButton("Delete a trip",(d,w)->deleteTrip(keys)).show();}catch(Exception e){message(e.getMessage());}}
     /** Pick a saved trip to delete, then confirm. */
     private void deleteTrip(List<String> keys){
@@ -88,8 +88,22 @@ public final class TripPlannerActivity extends Activity {
         }).setNegativeButton("Cancel",null).show();
     }
     /** Leaving with stops that aren't saved: warn once; a second Back within a few seconds leaves. */
+    private boolean warnOnBack(){return dirty&&!stops.isEmpty()&&SystemClock.elapsedRealtime()-backWarnedAt>BACK_WINDOW;}
+    private void warnBack(){backWarnedAt=SystemClock.elapsedRealtime();message("Your stops aren't saved. Tap Save trip, or press Back again to leave without saving.");syncBack();main.postDelayed(this::syncBack,BACK_WINDOW+50);}
+    private static final long BACK_WINDOW=4000;
+    /** Android 13+: Back is only intercepted while a warning is due, so every other Back keeps the system's predictive animation. */
+    private Object backCallback;private boolean backRegistered;
+    private void syncBack(){
+        if(Build.VERSION.SDK_INT<33||isFinishing())return;
+        if(backCallback==null)backCallback=(android.window.OnBackInvokedCallback)this::warnBack;
+        boolean want=warnOnBack();if(want==backRegistered)return;backRegistered=want;
+        android.window.OnBackInvokedDispatcher d=getOnBackInvokedDispatcher();android.window.OnBackInvokedCallback cb=(android.window.OnBackInvokedCallback)backCallback;
+        if(want)d.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,cb);else d.unregisterOnBackInvokedCallback(cb);
+    }
+    /** Android 10-12, and 13-15 while the app hasn't opted into predictive back: the system still calls this instead. */
+    @SuppressWarnings("deprecation") @android.annotation.SuppressLint("GestureBackNavigation")
     public void onBackPressed(){
-        if(dirty&&!stops.isEmpty()&&SystemClock.elapsedRealtime()-backWarnedAt>4000){backWarnedAt=SystemClock.elapsedRealtime();message("Your stops aren't saved. Tap Save trip, or press Back again to leave without saving.");return;}
+        if(warnOnBack()){warnBack();return;}
         super.onBackPressed();
     }
     private void nearby(String kind){
