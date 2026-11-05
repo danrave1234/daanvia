@@ -7,7 +7,7 @@ import android.graphics.drawable.Drawable;
 public final class IconDrawable extends Drawable {
     public static final int SEARCH = 1, LOC = 2, BIKE = 3, RIGHT = 4, LEFT = 5, SLIGHT_RIGHT = 6, SLIGHT_LEFT = 7, SHARP_RIGHT = 8, SHARP_LEFT = 9,
         UTURN = 10, STRAIGHT = 11, FLAG = 12, ROUNDABOUT = 13, MERGE = 14, PARK = 15, TFT = 16, PLAY = 17, PIN = 18, CLOCK = 19, CLOSE = 20,
-        CHEVRON = 21, BACK = 22, QR = 23, SHARE = 24, CROSSHAIR = 25, SUN = 26, MOON = 27, CHECK = 28, PHOTO = 29, TOOLS = 30, STOP = 31, AUTO = 32, ROAD = 33, GEAR = 34, STAR = 35, STAR_FILLED = 36, INFO = 37, DOWNLOAD = 38, VOICE = 39, MUTE = 40, MAP = 41, COMPASS = 42, MIRROR = 43,
+        CHEVRON = 21, BACK = 22, SHARE = 24, MOON = 27, CHECK = 28, TOOLS = 30, GEAR = 34, STAR = 35, STAR_FILLED = 36, INFO = 37, DOWNLOAD = 38, VOICE = 39, MUTE = 40, MAP = 41, COMPASS = 42, MIRROR = 43,
         FOOD = 44, CAFE = 45, BAG = 46, CART = 47, HEALTH = 48, PILL = 49, PESO = 50, CAP = 51, CHURCH = 52, BED = 53, FUEL = 54, TREE = 55, BUS = 56, CIVIC = 57;
 
     private final int type; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG); private final Path path = new Path(), solid = new Path(); private boolean filled;
@@ -17,6 +17,8 @@ public final class IconDrawable extends Drawable {
     }
     public void setColor(int color) { paint.setColor(color); invalidateSelf(); }
     public IconDrawable stroke(float w) { paint.setStrokeWidth(w); invalidateSelf(); return this; }
+    /** Already this icon in this colour and line width: the ride screen keeps it instead of building another on every fix. */
+    public boolean is(int type, int color, float stroke) { return this.type == type && paint.getColor() == color && paint.getStrokeWidth() == stroke; }
 
     private void build() {
         Path p = path;
@@ -44,18 +46,10 @@ public final class IconDrawable extends Drawable {
             case CLOSE: p.moveTo(6, 6); p.lineTo(18, 18); p.moveTo(18, 6); p.lineTo(6, 18); break;
             case CHEVRON: p.moveTo(9, 6); p.lineTo(15, 12); p.lineTo(9, 18); break;
             case BACK: p.moveTo(15, 6); p.lineTo(9, 12); p.lineTo(15, 18); break;
-            case QR: p.addRoundRect(3, 3, 10, 10, 1, 1, Path.Direction.CW); p.addRoundRect(14, 3, 21, 10, 1, 1, Path.Direction.CW); p.addRoundRect(3, 14, 10, 21, 1, 1, Path.Direction.CW);
-                p.moveTo(14, 14); p.lineTo(17, 14); p.lineTo(17, 17); p.moveTo(21, 14); p.lineTo(21, 21); p.lineTo(14, 21); break;
             case SHARE: p.moveTo(4, 12); p.lineTo(4, 20); p.lineTo(20, 20); p.lineTo(20, 12); p.moveTo(12, 3); p.lineTo(12, 15); p.moveTo(7, 8); p.lineTo(12, 3); p.lineTo(17, 8); break;
-            case CROSSHAIR: p.addCircle(12, 12, 7, Path.Direction.CW); p.moveTo(12, 2); p.lineTo(12, 5); p.moveTo(12, 19); p.lineTo(12, 22); p.moveTo(2, 12); p.lineTo(5, 12); p.moveTo(19, 12); p.lineTo(22, 12); break;
-            case SUN: p.addCircle(12, 12, 4, Path.Direction.CW);
-                for (int i = 0; i < 8; i++) { double a = Math.PI / 4 * i; p.moveTo((float)(12 + Math.cos(a) * 7), (float)(12 + Math.sin(a) * 7)); p.lineTo((float)(12 + Math.cos(a) * 9.5), (float)(12 + Math.sin(a) * 9.5)); } break;
             case MOON: { Path a = new Path(); a.addCircle(12, 12, 8.5f, Path.Direction.CW); Path b = new Path(); b.addCircle(17, 8, 7, Path.Direction.CW); a.op(b, Path.Op.DIFFERENCE); p.set(a); break; }
-            case AUTO: p.addCircle(12, 12, 8.5f, Path.Direction.CW); p.moveTo(12, 3.5f); p.lineTo(12, 20.5f); break;
             case CHECK: p.moveTo(5, 12.5f); p.lineTo(10, 17.5f); p.lineTo(19, 7); break;
-            case PHOTO: p.addRoundRect(3, 5, 21, 19, 3, 3, Path.Direction.CW); p.addCircle(12, 12, 3.5f, Path.Direction.CW); p.moveTo(8, 5); p.lineTo(9.5f, 3); p.lineTo(14.5f, 3); p.lineTo(16, 5); break;
             case TOOLS: p.moveTo(14.5f, 6.5f); p.quadTo(17, 3, 20.5f, 5); p.lineTo(17.5f, 8); p.lineTo(16, 8); p.lineTo(16, 6.5f); p.lineTo(19, 3.5f); p.moveTo(14.5f, 6.5f); p.lineTo(4, 17); p.lineTo(7, 20); p.lineTo(17.5f, 9.5f); break;
-            case STOP: p.addRoundRect(6, 6, 18, 18, 2.5f, 2.5f, Path.Direction.CW); break;
             case GEAR: p.addCircle(12, 12, 3.2f, Path.Direction.CW); p.addCircle(12, 12, 7.2f, Path.Direction.CW);
                 for (int i = 0; i < 8; i++) { double a = Math.PI / 4 * i; p.moveTo((float)(12 + Math.cos(a) * 7.2), (float)(12 + Math.sin(a) * 7.2)); p.lineTo((float)(12 + Math.cos(a) * 9.8), (float)(12 + Math.sin(a) * 9.8)); } break;
             case STAR: case STAR_FILLED:
@@ -90,7 +84,6 @@ public final class IconDrawable extends Drawable {
             case TREE: p.addCircle(12, 9, 6, Path.Direction.CW); p.moveTo(12, 15); p.lineTo(12, 21.5f); break;
             case BUS: p.addRoundRect(5, 3, 19, 18, 2.5f, 2.5f, Path.Direction.CW); p.moveTo(5, 11); p.lineTo(19, 11); p.moveTo(8, 18); p.lineTo(8, 21); p.moveTo(16, 18); p.lineTo(16, 21); break;
             case CIVIC: p.moveTo(3, 21); p.lineTo(21, 21); p.moveTo(3.5f, 9); p.lineTo(12, 4); p.lineTo(20.5f, 9); p.close(); p.moveTo(7, 11.5f); p.lineTo(7, 18); p.moveTo(12, 11.5f); p.lineTo(12, 18); p.moveTo(17, 11.5f); p.lineTo(17, 18); break;
-            case ROAD: p.moveTo(8, 3); p.lineTo(4, 21); p.moveTo(16, 3); p.lineTo(20, 21); p.moveTo(12, 4); p.lineTo(12, 7); p.moveTo(12, 11); p.lineTo(12, 14); p.moveTo(12, 18); p.lineTo(12, 20); break;
         }
     }
 

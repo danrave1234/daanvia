@@ -254,7 +254,7 @@ public final class DashboardRenderer {
         String road = s.street.isEmpty() ? "Riding" : s.street;
         for (String line : wrap(road, w, 30 * k, bold, 2)) { if (y + 36 * k > r.bottom - pad) break; y += 36 * k; text(c, line, x, y, 30 * k, ink(), bold); }
         boolean stale = !s.simulation && (s.fixAt == 0 || SystemClock.elapsedRealtime() - s.fixAt > 12000);
-        String speed = stale ? "GPS weak" : Math.round(s.speedMetersPerSecond * 3.6f) + " km/h";
+        String speed = stale ? "GPS weak" : Gabi.speed(s.speedMetersPerSecond);
         float ss = Math.min(54 * k, r.height() * 0.24f);
         if (y + ss * 1.15f < r.bottom - pad * 0.3f) { y += ss * 1.15f; text(c, fit(speed, w, ss, black), x, y, ss, stale ? pal.danger : ink(), black); }
         if (y + 26 * k < r.bottom) { y += 26 * k; text(c, fit(Gabi.clock(0), w, 17 * k, semi), x, y, 17 * k, muted(), semi); }

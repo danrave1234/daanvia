@@ -161,6 +161,12 @@ public final class Gabi {
             f.setContentDescription(actionLabel(iconType));
             press(f, action); return f;
         }
+        /** A 52 dp rounded button with a short bold label (the ride screen's End and Blocked); a null {@code bg} leaves the background to the caller. */
+        public TextView pill(String label, int weight, Role bg, Role fg, Runnable action) {
+            TextView b = text(label, 15, weight, fg); b.setGravity(Gravity.CENTER); b.setMinHeight(dp(52));
+            if (bg != null) t.add(p -> b.setBackground(round(bg.color(p), dp(26))));
+            press(b, action); return b;
+        }
         public TextView chip(String label, Role bg, Role fg) {
             TextView v = text(label, 12, 700, fg); v.setPadding(dp(10), dp(6), dp(10), dp(6)); v.setGravity(Gravity.CENTER_VERTICAL);
             t.add(p -> v.setBackground(round(bg.color(p), dp(99))));
@@ -253,12 +259,12 @@ public final class Gabi {
     }
 
     public enum Role {
-        INK, INK_SOFT, MUTED, ACCENT, ON_ACCENT, DANGER, OK, CHIP, GLASS, GRAB, BG, ACCENT_SOFT, OK_SOFT, DANGER_SOFT, WHITE;
+        INK, INK_SOFT, MUTED, ACCENT, ON_ACCENT, DANGER, OK, CHIP, GLASS, GRAB, ACCENT_SOFT, OK_SOFT, DANGER_SOFT, WHITE;
         public int color(Palette p) {
             switch (this) {
                 case INK: return p.ink; case INK_SOFT: return p.inkSoft; case MUTED: return p.muted; case ACCENT: return p.accent; case ON_ACCENT: return p.onAccent;
                 case DANGER: return p.danger; case OK: return p.ok; case CHIP: return p.chip; case GLASS: return p.glass; case GRAB: return p.night ? 0x38FFFFFF : 0x2E101820;
-                case BG: return p.bg; case ACCENT_SOFT: return p.accentSoft; case OK_SOFT: return p.okSoft; case DANGER_SOFT: return p.dangerSoft; default: return 0xFFFFFFFF;
+                case ACCENT_SOFT: return p.accentSoft; case OK_SOFT: return p.okSoft; case DANGER_SOFT: return p.dangerSoft; default: return 0xFFFFFFFF;
             }
         }
     }
@@ -271,7 +277,7 @@ public final class Gabi {
     private static String actionLabel(int icon) {
         switch(icon){
             case IconDrawable.SEARCH:return "Search places";
-            case IconDrawable.LOC:case IconDrawable.CROSSHAIR:return "Find my location";
+            case IconDrawable.LOC:return "Find my location";
             case IconDrawable.CLOSE:return "Close";
             case IconDrawable.BACK:return "Back";
             case IconDrawable.STAR:return "Save place";
@@ -281,14 +287,10 @@ public final class Gabi {
             case IconDrawable.VOICE:return "Mute voice directions";
             case IconDrawable.MUTE:return "Enable voice directions";
             case IconDrawable.MOON:return "Rest phone screen";
-            case IconDrawable.SUN:return "Day theme";
-            case IconDrawable.AUTO:return "Automatic theme";
             case IconDrawable.COMPASS:return "Point map north";
             case IconDrawable.MIRROR:return "Mirror phone to bike display";
             case IconDrawable.PLAY:return "Start";
-            case IconDrawable.STOP:return "Stop ride";
             case IconDrawable.DOWNLOAD:return "Download map";
-            case IconDrawable.QR:return "Scan bike QR code";
             case IconDrawable.SHARE:return "Share";
             case IconDrawable.CHECK:return "Confirm";
             case IconDrawable.PARK:return "Parking details";
@@ -337,6 +339,8 @@ public final class Gabi {
         if (meters < 1000) return Math.max(0, Math.round(meters / 10) * 10) + " m";
         return String.format(Locale.US, meters < 10000 ? "%.1f km" : "%.0f km", meters / 1000);
     }
+    /** The rider's speed as the ride screens show it, "42 km/h". */
+    public static String speed(float metersPerSecond) { return Math.round(metersPerSecond * 3.6f) + " km/h"; }
     public static String minutes(double seconds) {
         long m = Math.max(1, Math.round(seconds / 60));
         return m < 60 ? m + " min" : (m / 60) + " h " + (m % 60) + " min";
