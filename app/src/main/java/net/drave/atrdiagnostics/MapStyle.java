@@ -30,7 +30,7 @@ final class MapStyle {
     /** The streets on screen, swapped in square by square (see RoadTiles). */
     static final String ROADS_NEAR = "roads-near";
     static final String ALTERNATIVES = "route-alternatives";
-    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DONE = "route-done", DEST = "dest", DROP = "drop", PARKING = "parking";
+    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DEST = "dest", DROP = "drop", PARKING = "parking";
 
     static String base(Gabi.Palette p) {
         return "{\"version\":8,\"glyphs\":\"" + GLYPHS + "\",\"sources\":{},\"layers\":[{\"id\":\"background\",\"type\":\"background\",\"paint\":{\"background-color\":\"" + hex(p.bg) + "\"}}]}";
@@ -110,8 +110,7 @@ final class MapStyle {
         st.addSource(new GeoJsonSource(ALTERNATIVES, new GeoJsonOptions().withMaxZoom(16)));
         st.addLayer(new LineLayer("alternative-case", ALTERNATIVES).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 7, 14, 9, 17, 16))));
         st.addLayer(new LineLayer("alternative-line", ALTERNATIVES).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 4, 14, 5.6f, 17, 10.5f))));
-        st.addSource(new GeoJsonSource(DONE, new GeoJsonOptions().withMaxZoom(16))); st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16).withLineMetrics(true)));
-        st.addLayer(new LineLayer("route-done", DONE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 3, 14, 5, 17, 10))));
+        st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16).withLineMetrics(true)));
         st.addLayer(new LineLayer("route-glow", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineBlur(7f), lineWidth(width(10, 12, 14, 18, 17, 34))));
         st.addLayer(new LineLayer("route-case", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 6.5f, 14, 9, 17, 16))));
         st.addLayer(new LineLayer("route-line", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 3.8f, 14, 5.6f, 17, 10.5f))));
@@ -207,7 +206,6 @@ final class MapStyle {
         line(st, "road-secondary", n ? 0xFF313E4C : 0xFFFFF1CC, 1f);
         line(st, "road-primary-case", n ? 0xFF0A1016 : 0xFFD6B26A, 1f);
         line(st, "road-primary", n ? 0xFF3E4C5C : 0xFFFFDE93, 1f);
-        line(st, "route-done", n ? 0xFF5E6B78 : 0xFFA9B1B9, 0.55f);
         line(st, "route-glow", p.accent, n ? 0.38f : 0.22f); routeGlowOpacity = n ? 0.38f : 0.22f;
         line(st, "alternative-case", n ? 0xFF202D43 : 0xFF425A7A, 1f);
         line(st, "alternative-line", n ? 0xFF889FBE : 0xFF9AB5D8, 1f);
@@ -326,9 +324,8 @@ final class MapStyle {
     }
     static Feature point(double lat, double lon) { return Feature.fromGeometry(Point.fromLngLat(lon, lat)); }
     static FeatureCollection empty() { return FeatureCollection.fromFeatures(new Feature[0]); }
-    static LineString line(List<double[]> latLon, int from, int to, double[] head) {
+    static LineString line(List<double[]> latLon, int from, int to) {
         ArrayList<Point> pts = new ArrayList<>(Math.max(2, to - from + 1));
-        if (head != null) pts.add(Point.fromLngLat(head[1], head[0]));
         for (int i = Math.max(0, from); i < Math.min(to, latLon.size()); i++) pts.add(Point.fromLngLat(latLon.get(i)[1], latLon.get(i)[0]));
         if (pts.size() == 1) pts.add(pts.get(0));
         return LineString.fromLngLats(pts);
