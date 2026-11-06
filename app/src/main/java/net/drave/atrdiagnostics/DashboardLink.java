@@ -313,6 +313,7 @@ public final class DashboardLink {
             String crash = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + "  CRASH on " + t.getName() + ": " + w + "\n";
             try (FileOutputStream f = new FileOutputStream(logFile, true)) { f.write(crash.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
             LogUpload.addNow(context, crash);
+            LogUpload.sendAndWait(context, 3000);
             if (prior != null) prior.uncaughtException(t, x);
         });
     }
@@ -411,10 +412,15 @@ public final class DashboardLink {
     public void askBluetoothIfNeeded() {
         // Not while the Wi-Fi permissions are being asked: Android shows one question at a time and drops the other.
         if (!profileReady || !hasPermissions()) return;
-        // Asked each time Daanvia opens until allowed; Android itself stops showing it after two refusals.
-        if (!BleClock.allowed(context) && BleClock.permissions().length > 0) { synchronized (hosts) { if (hosts.isEmpty()) return; } ui.requestPermissions(BleClock.permissions(), BLUETOOTH_PERMISSIONS); }
-        else askBluetoothOn();
+        // Asked once each time Daanvia starts until allowed; Android itself stops showing it after two refusals. Once per
+        // start, not per screen: coming back from the question shows the screen again, and must not ask again.
+        if (!BleClock.allowed(context) && BleClock.permissions().length > 0) {
+            if (askedBluetoothPermission) return;
+            synchronized (hosts) { if (hosts.isEmpty()) return; }
+            askedBluetoothPermission = true; ui.requestPermissions(BleClock.permissions(), BLUETOOTH_PERMISSIONS);
+        } else askBluetoothOn();
     }
+    private boolean askedBluetoothPermission;
     private boolean askedBluetoothOn;
     /** Bluetooth off: Android's own "turn on Bluetooth?" question, once each time Daanvia is opened, so the clock can be set. */
     @android.annotation.SuppressLint("MissingPermission")

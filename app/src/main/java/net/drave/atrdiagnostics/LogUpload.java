@@ -75,6 +75,17 @@ final class LogUpload {
         io.execute(() -> send(app));
     }
 
+    /**
+     * For the crash handler: send what's queued and wait up to {@code ms} for it. Without the wait the app closed before
+     * the crash left the phone, and a crash on every start never reached the logs (0.9.22).
+     */
+    static void sendAndWait(Context c, long ms) {
+        if (!enabled(c)) return;
+        lastTry = SystemClock.elapsedRealtime();
+        Context app = c.getApplicationContext();
+        try { io.submit(() -> send(app)).get(ms, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
+    }
+
     private static File outbox(Context c) { return new File(c.getFilesDir(), "log-outbox.txt"); }
     private static File sending(Context c) { return new File(c.getFilesDir(), "log-sending.txt"); }
 

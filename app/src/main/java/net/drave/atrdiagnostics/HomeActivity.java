@@ -191,7 +191,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
         if (!s.active) { here.start(); checkMapUpdates(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
         // Android shows one permission request at a time; the location answer starts auto-connect (onRequestPermissionsResult).
-        refresh(); if (!asking) { autoConnect(); link.askBluetoothIfNeeded(); }
+        refresh(); if (!asking) { autoConnect(); bluetoothForClock(); }
     }
     protected void onResume() { super.onResume(); mapView.onResume(); themeCheckedAt = 0; markSaved(); refresh(); }
     protected void onPause() {
@@ -967,6 +967,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
      * marked alive while it runs): route to the same place again and start it on its own once GPS is clear, instead of
      * an offer that was easy to miss. Rides last seen more than 30 minutes ago are dropped.
      */
+    /** Bluetooth only sets the bike's clock: if asking for it ever fails, Daanvia opens anyway and the log says why. */
+    private void bluetoothForClock() {
+        try { link.askBluetoothIfNeeded(); } catch (RuntimeException e) { link.note("Couldn't ask for Bluetooth for the bike's clock: " + e); }
+    }
     private void offerResume() {
         if (s.active) return;
         android.content.SharedPreferences u = getSharedPreferences("ui", 0); String raw = u.getString("ride", null); if (raw == null) return;
@@ -1227,7 +1231,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else if (code == 73) notice("Directions need precise location. Turn it on in Android’s app settings for Daanvia.");
         if (code == DashboardLink.PERMISSIONS) link.onPermissionsResult();
         if (code == DashboardLink.BLUETOOTH_PERMISSIONS) {
-            if (BleClock.allowed(this)) link.askBluetoothIfNeeded();
+            if (BleClock.allowed(this)) bluetoothForClock();
             else if (!getSharedPreferences("ui", 0).getBoolean("bt_clock_noticed", false)) { getSharedPreferences("ui", 0).edit().putBoolean("bt_clock_noticed", true).apply(); notice("Without Nearby devices, Daanvia can't set the bike's clock. You can allow it in Android's app settings."); }
         }
     }
