@@ -191,9 +191,12 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
-        if (!s.active) { here.start(); checkMapUpdates(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
+        if (!s.active) { here.start(); checkMapUpdates(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false);
+        // Opening Daanvia (not just coming back from one of its own screens) looks for the bike again, even if the display was stopped before.
+        if (stoppedAt == 0 || SystemClock.elapsedRealtime() - stoppedAt > 60_000) link.allowAuto();
+        lookStep = 0;
         // Android shows one permission request at a time; the location answer starts auto-connect (onRequestPermissionsResult).
-        refresh(); if (!asking) { autoConnect(); bluetoothForClock(); }
+        refresh(); if (!asking) { autoConnect(); lookAgain(); bluetoothForClock(); }
     }
     protected void onResume() { super.onResume(); mapView.onResume(); themeCheckedAt = 0; markSaved(); refresh(); }
     protected void onPause() {
@@ -201,7 +204,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             getSharedPreferences("ui", 0).edit().putFloat("cam_lat", (float)c.target.getLatitude()).putFloat("cam_lon", (float)c.target.getLongitude()).putFloat("cam_zoom", (float)c.zoom).apply(); }
         mapView.onPause(); super.onPause();
     }
-    protected void onStop() { ride.stop(); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    protected void onStop() { ride.stop(); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; stoppedAt = SystemClock.elapsedRealtime(); ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     /** This launch only opened the move screen: nothing was set up, so there is nothing to tear down. */
     private boolean moving, offerUninstallOld;
     private final BroadcastReceiver closeScreens = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { finishAndRemoveTask(); } };
@@ -934,7 +937,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
      */
     private void rideStarting(JSONObject keep) {
         if (keep != null) try { getSharedPreferences("ui", 0).edit().putString("ride", keep.put("at", System.currentTimeMillis()).toString()).apply(); } catch (JSONException ignored) {}
-        link.allowAuto(); autoDelay = 15000; ui.removeCallbacks(retryConnect); autoConnect();
+        link.allowAuto(); lookStep = 0; autoConnect(); lookAgain();
     }
     /**
      * Ask the phone to leave the ride running. Never when a ride starts again on its own after the phone closed the app:
@@ -1314,9 +1317,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     public void onRequestPermissionsResult(int code, String[] p, int[] r) {
         super.onRequestPermissionsResult(code, p, r);
         if (code == 71 && Here.allowed(this)) {
-            centerOnFix = true; locate(); autoConnect();
+            centerOnFix = true; locate(); autoConnect(); lookAgain();
             if (!Here.precise(this)) notice("Using your approximate location. Allow precise location for turn-by-turn directions.");
-        } else if (code == 71) { pendingPlan = false; centerOnFix = false; notice("Allow location so Daanvia can show where you are."); refresh(); autoConnect(); }
+        } else if (code == 71) { pendingPlan = false; centerOnFix = false; notice("Allow location so Daanvia can show where you are."); refresh(); autoConnect(); lookAgain(); }
         if (code == 72) { if (r.length > 0 && r[0] != PackageManager.PERMISSION_GRANTED) notificationsNotice(); else if (s.active && !s.simulation) KeepAlive.askForRide(this); }
         if (code == 73 && Here.precise(this)) { here.stop(); here.start(); notice("Precise location on. Tap Start ride when the dot settles."); }
         else if (code == 73) notice("Directions need precise location. Turn it on in Android’s app settings for Daanvia.");
@@ -1360,22 +1363,35 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
 
     // ================================================================ bike display
-    private final Runnable retryConnect = this::autoConnect;
+    private final Runnable retryConnect = () -> { autoConnect(); lookAgain(); };
     /** Keep trying to reach the saved dashboard while the app is open and the display is not live. */
     private void autoConnect() {
         if (!started || link == null || !link.profileReady() || StreamService.navigationActive || link.searching()) return;
         if (!link.hasPermissions()) { if (askedLinkPermissions) return; askedLinkPermissions = true; link.askPermissions(); refresh(); return; }
-        link.autoNavigation(); refresh();
+        if (!link.wifiOn()) { if (!wifiNoticed) { wifiNoticed = true; notice("Turn on Wi-Fi so Daanvia can connect to your bike"); } return; }
+        wifiNoticed = false; link.autoNavigation(); refresh();
     }
-    /** Look for the bike every 15 s at first, then every 30 s, 1 min and 2 min while it isn't found. */
-    private long autoDelay = 15000;
+    private boolean wifiNoticed;
+    /*
+     * While Daanvia is open and the bike display isn't live, it keeps looking: a new search 5 s after the last one ended,
+     * then 10 s, 20 s, 30 s, 1 min, and every 2 min after that. A timer of its own, so it goes on whatever the last search
+     * reported (it used to wait for a status change, and stopped after the first miss when none came).
+     */
+    private static final long[] LOOK_AFTER = {5_000, 10_000, 20_000, 30_000, 60_000};
+    private static final long LOOK_SLOW = 120_000;
+    private int lookStep; private long stoppedAt;
+    private void lookAgain() {
+        ui.removeCallbacks(retryConnect);
+        if (!started || link == null) return;
+        long wait;
+        if (StreamService.navigationActive) { lookStep = 0; wait = 30_000; }   // live: check now and then that it still is
+        else if (link.searching()) wait = 5_000;                               // a search is running: wait for it to end
+        else wait = lookStep < LOOK_AFTER.length ? LOOK_AFTER[lookStep++] : LOOK_SLOW;
+        ui.postDelayed(retryConnect, wait);
+    }
     public void onStatus(String status) { refresh(); }
     public void onLog() {}
-    public void onChanged() {
-        refresh();
-        if (StreamService.navigationActive) autoDelay = 15000;
-        else if (started && link != null && !link.searching()) { ui.removeCallbacks(retryConnect); ui.postDelayed(retryConnect, autoDelay); autoDelay = Math.min(120000, autoDelay * 2); }
-    }
+    public void onChanged() { refresh(); if (StreamService.navigationActive) lookStep = 0; }
     public void onPermissionsMissing() { notice("Allow Nearby devices and precise location so Daanvia can find your bike"); }
     public void onNavigationStarted() { link.settle(); notice("Connected. Daanvia is on the bike display."); refresh(); if (mode == Mode.RIDE) ride.armBikeMode(); }
 }

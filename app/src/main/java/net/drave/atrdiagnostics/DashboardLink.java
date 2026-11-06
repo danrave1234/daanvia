@@ -244,6 +244,8 @@ public final class DashboardLink {
      * A background attempt (auto-connect, reconnect): Wi-Fi Direct only, never Android's "connect to device" Wi-Fi sheet,
      * which would otherwise pop up every time the bike is off. Does nothing while Wi-Fi is off.
      */
+    /** The phone's Wi-Fi is on (the bike display connects over it). */
+    public boolean wifiOn() { return wifi != null && wifi.isWifiEnabled(); }
     public void autoNavigation() {
         if (!profileReady || stoppedByUser || wifi == null || !wifi.isWifiEnabled() || !hasPermissions()) return;
         quiet = true; pendingStream = MODE_NAVIGATION; start(true);
