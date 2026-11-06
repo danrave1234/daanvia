@@ -17,7 +17,7 @@ public final class NavSession {
     private final ExecutorService roads=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"daanvia-roads");t.setPriority(Thread.MIN_PRIORITY);return t;});
     public volatile boolean ready,active,simulation,calibration,routing,noMap;
     /**
-     * A free ride: riding with no destination, for the bike display's map of the roads ahead (Just ride). The ride's
+     * A free ride: riding with no destination, for the bike display's map of the roads ahead (0.9.21 and older: Just ride; now connected without a ride is a free ride on its own, see DashboardRenderer). The ride's
      * services run as for any ride (location, keep-alive, the bike display), with no route, turns or voice.
      */
     public volatile boolean cruise;

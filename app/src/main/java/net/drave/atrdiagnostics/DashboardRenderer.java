@@ -96,7 +96,9 @@ public final class DashboardRenderer {
         boolean sample = s.layoutEditing && !s.active;
         if (s.active && s.cruise && !sample) cruise(target, turn);
         else if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
-        else idle(target, turn);
+        // No ride: connected is a free ride (the street, speed and roads ahead), unless a planned route waits to start.
+        else if (!s.shape.isEmpty() && !s.destination.isEmpty()) idle(target, turn);
+        else cruise(target, turn);
         if (s.layoutEditing) outlines(target, turn, trip, s.arrowX * vw, s.arrowY * vh);
         popup(target, vw, vh);
         target.restore();
@@ -270,9 +272,6 @@ public final class DashboardRenderer {
             y += 30 * k; text(c, "Route ready", x, y, 15 * k, muted(), bold);
             for (String line : wrap(s.destination, w, 22 * k, bold, 2)) { if (y + 28 * k > r.bottom - pad) break; y += 27 * k; text(c, line, x, y, 22 * k, ink(), bold); }
             if (y + 32 * k < r.bottom) { y += 32 * k; text(c, fit(Gabi.minutes(s.seconds) + " · " + distance(s.remaining), w, 20 * k, black), x, y, 20 * k, pal.accent, black); }
-        } else {
-            y += 28 * k; text(c, fit(s.ready ? s.regionName : "Getting the map ready…", w, 17 * k, bold), x, y, 17 * k, soft(), bold);
-            if (y + 24 * k < r.bottom) { y += 24 * k; text(c, fit("Choose a destination, or Just ride", w, 14 * k, semi), x, y, 14 * k, muted(), semi); }
         }
     }
 

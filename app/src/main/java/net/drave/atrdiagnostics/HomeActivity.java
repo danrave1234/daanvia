@@ -494,10 +494,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         LinearLayout c = k.column(0);
         LinearLayout head = k.row(8);
         TextView title = k.text("Ride somewhere", 19, 750, INK); head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        // No destination: the bike display shows the map of the roads ahead and the phone follows the rider (a free ride).
-        TextView justRide = k.text("Just ride", 14, 800, ON_ACCENT); justRide.setGravity(Gravity.CENTER); justRide.setPadding(k.dp(16), 0, k.dp(16), 0); justRide.setMinHeight(k.dp(40));
-        theme.add(p -> justRide.setBackground(Gabi.round(p.accent, k.dp(20))));
-        justRide.setContentDescription("Just ride, without a destination"); Gabi.press(justRide, this::startCruise); head.addView(justRide);
         head.addView(k.info("Search for a place, tap a saved place, or press and hold anywhere on the map to drop a pin. You can also share a place to Daanvia from Google Maps to save it here."));
         c.addView(head);
         exploreStatus = k.text("", 13, 500, MUTED); exploreStatus.setPadding(0, k.dp(4), 0, k.dp(14)); c.addView(exploreStatus);
@@ -955,20 +951,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!demo && System.currentTimeMillis() - p.getLong("notifications_reminded", 0) > 3L * 24 * 3600 * 1000) { p.edit().putLong("notifications_reminded", System.currentTimeMillis()).apply(); notificationsNotice(); }
         return false;
     }
-    /** Just ride: a free ride with no destination (NavSession.cruise). The bike display connects and shows the roads ahead. */
-    private void startCruise() {
-        if (s.active) { go(Mode.RIDE); return; }
-        if (!s.ready) { notice("The map is still getting ready"); return; }
-        if (!Here.precise(this)) { notice("Riding needs precise location"); requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 74); return; }
-        endSimulation();
-        pendingPlan = false; destName = null; demoTrip = false; plannedTrip = Collections.emptyList();
-        // A free ride Android cut short starts again on its own (see NavService.resumeAfterRestart).
-        JSONObject keep = null; try { keep = new JSONObject().put("cruise", true); } catch (JSONException ignored) {}
-        rideStarting(keep);
-        rideAsks(!resuming && askNotifications(false));
-        s.beginCruise();
-        startForegroundService(new Intent(this, NavService.class).putExtra("cruise", true));
-    }
     private void openTrip(List<TripStop> stops,String name) {
         if(s.active){notice("End the ride before changing its stops");return;}
         if(stops.isEmpty()){notice("Add a destination first");return;}
@@ -992,10 +974,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             org.json.JSONObject r = new org.json.JSONObject(raw);
             if (System.currentTimeMillis() - Math.max(r.getLong("at"), u.getLong("ride_alive", 0)) > 30 * 60_000L) { u.edit().remove("ride").apply(); return; }
             boolean killed = KeepAlive.killedBySystem(this); KeepAlive.recheckColorOs(this);
-            if (r.optBoolean("cruise")) { resuming = true; try { startCruise(); } finally { resuming = false; }
-                if (killed) notice("Your phone closed Daanvia, so your free ride is starting again. Tap to stop your phone closing it", "Fix", () -> { if (KeepAlive.colorOs() != null) openSettings("coloros"); else KeepAlive.fix(this); }, 15000);
-                else notice("Continuing your free ride", null, null, 6000);
-                return; }
+            // A free ride from 0.9.21 or older: there's nothing to resume now, the bike display rides along on its own.
+            if (r.optBoolean("cruise")) { u.edit().remove("ride").apply(); return; }
             double la = r.getDouble("lat"), lo = r.getDouble("lon"); String name = r.getString("name");
             JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");
             // Back on the route the rider chose, not the quickest one (see NavSession.chosenVia).
@@ -1245,8 +1225,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (code == 72) { if (r.length > 0 && r[0] != PackageManager.PERMISSION_GRANTED) notificationsNotice(); else if (s.active && !s.simulation) KeepAlive.askForRide(this); }
         if (code == 73 && Here.precise(this)) { here.stop(); here.start(); notice("Precise location on. Tap Start ride when the dot settles."); }
         else if (code == 73) notice("Directions need precise location. Turn it on in Android’s app settings for Daanvia.");
-        if (code == 74 && Here.precise(this)) { here.stop(); here.start(); notice("Precise location on. Tap Just ride again when the dot settles."); }
-        else if (code == 74) notice("Riding needs precise location. Turn it on in Android’s app settings for Daanvia.");
         if (code == DashboardLink.PERMISSIONS) link.onPermissionsResult();
         if (code == DashboardLink.BLUETOOTH_PERMISSIONS) {
             if (BleClock.allowed(this)) link.askBluetoothIfNeeded();
