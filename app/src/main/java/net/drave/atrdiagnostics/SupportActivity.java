@@ -16,6 +16,7 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
 
 /** Support and test tools: the connection test, test pattern, mirror test, visual confirmation, logs and report. */
 public final class SupportActivity extends Activity implements DashboardLink.Host {
+    public void askPermissions(String[] permissions, int requestCode) { requestPermissions(permissions, requestCode); }
     private Gabi.Kit k; private DashboardLink link; private TextView status, log, pattern, mirror, confirm; private LinearLayout choices, permissionBanner; private ScrollView logScroll;
 
     public void onCreate(Bundle state) {

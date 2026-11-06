@@ -31,6 +31,7 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
  * map (MapPainter) are their own classes; this one holds the screen's lifecycle, its modes and what refreshes them.
  */
 public final class HomeActivity extends Activity implements DashboardLink.Host {
+    public void askPermissions(String[] permissions, int requestCode) { requestPermissions(permissions, requestCode); }
     private enum Mode { SELECT, EXPLORE, SEARCH, PIN, SAVE, LOT, ROUTE, RIDE, PARK_FORM }
 
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k;

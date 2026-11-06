@@ -31,7 +31,11 @@ public final class DashboardLink {
         void onStatus(String status);
         void onLog();
         void onChanged();
-        void requestPermissions(String[] permissions, int requestCode);
+        /**
+         * Ask Android for permissions (each screen calls its own requestPermissions). Not named requestPermissions: R8
+         * renamed the interface method, Activity's own one can't be renamed, and 0.9.22 crashed on open (AbstractMethodError).
+         */
+        void askPermissions(String[] permissions, int requestCode);
         void onPermissionsMissing();
         void onNavigationStarted();
     }
@@ -48,7 +52,7 @@ public final class DashboardLink {
         public void onStatus(String status) { for (Host h : all()) h.onStatus(status); }
         public void onLog() { for (Host h : all()) h.onLog(); }
         public void onChanged() { for (Host h : all()) h.onChanged(); }
-        public void requestPermissions(String[] permissions, int requestCode) { Host h = top(); if (h != null) h.requestPermissions(permissions, requestCode); else log("Open Daanvia to allow Nearby devices and location."); }
+        public void askPermissions(String[] permissions, int requestCode) { Host h = top(); if (h != null) h.askPermissions(permissions, requestCode); else log("Open Daanvia to allow Nearby devices and location."); }
         public void onPermissionsMissing() { Host h = top(); if (h != null) h.onPermissionsMissing(); }
         public void onNavigationStarted() { Host h = top(); if (h != null) h.onNavigationStarted(); }
     };
@@ -392,7 +396,7 @@ public final class DashboardLink {
             p.add(Manifest.permission.ACCESS_COARSE_LOCATION); p.add(Manifest.permission.ACCESS_FINE_LOCATION);
             if (Build.VERSION.SDK_INT >= 33) p.add(Manifest.permission.NEARBY_WIFI_DEVICES);
             if (askBluetooth) { p.addAll(java.util.Arrays.asList(BleClock.permissions())); context.getSharedPreferences("ui", 0).edit().putBoolean("bt_clock_asked2", true).apply(); }
-            ui.requestPermissions(p.toArray(new String[0]), PERMISSIONS);
+            ui.askPermissions(p.toArray(new String[0]), PERMISSIONS);
         } else { askBluetoothOn(); start(mode); }
     }
     /**
@@ -417,7 +421,7 @@ public final class DashboardLink {
         if (!BleClock.allowed(context) && BleClock.permissions().length > 0) {
             if (askedBluetoothPermission) return;
             synchronized (hosts) { if (hosts.isEmpty()) return; }
-            askedBluetoothPermission = true; ui.requestPermissions(BleClock.permissions(), BLUETOOTH_PERMISSIONS);
+            askedBluetoothPermission = true; ui.askPermissions(BleClock.permissions(), BLUETOOTH_PERMISSIONS);
         } else askBluetoothOn();
     }
     private boolean askedBluetoothPermission;

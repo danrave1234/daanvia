@@ -18,6 +18,7 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
 
 /** Settings: the bike connection, TFT fit, map theme, testing tools and app information. */
 public final class SettingsActivity extends Activity implements DashboardLink.Host {
+    public void askPermissions(String[] permissions, int requestCode) { requestPermissions(permissions, requestCode); }
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k; private DashboardLink link;
     /** The update row and the map list are rebuilt often (twice a second during a download): their rows get themes of their own, cleared each time. */
     private Gabi.Themer updateTheme, mapsTheme; private Gabi.Kit uk, mk;

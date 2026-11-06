@@ -6,6 +6,13 @@ import static org.junit.Assert.*;
 
 /** The privacy and safety checks added in the November audit. */
 public class AuditFixesTest {
+    /** 0.9.22 closed on open: R8 renamed Host.requestPermissions, which the screens got from Activity, which can't be renamed. */
+    @Test public void screenHostMethodsAreNotActivitysOwn() throws Exception {
+        for (java.lang.reflect.Method m : DashboardLink.Host.class.getDeclaredMethods()) {
+            boolean clash; try { android.app.Activity.class.getMethod(m.getName(), m.getParameterTypes()); clash = true; } catch (NoSuchMethodException e) { clash = false; }
+            assertFalse(m.getName() + " is also an Activity method", clash);
+        }
+    }
     @Test public void logsHideTheBikesWifiNameAndCoordinates() {
         String line = LogUpload.scrub("19:48:29  QR decoded. Dashboard network: qj-5G-9c26; security: WPA; at 10.31234,123.88912\n");
         assertFalse(line.contains("qj-5G-9c26"));
