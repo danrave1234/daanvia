@@ -6,6 +6,14 @@ import static org.junit.Assert.*;
 
 /** The privacy and safety checks added in the November audit. */
 public class AuditFixesTest {
+    /** "7/11" finds the 7-Eleven branches, closest first. */
+    @Test public void sevenElevenAsRidersTypeIt() {
+        for (String q : new String[]{"7/11", "711", "7 11", "seven eleven", "7-Eleven"}) assertEquals(q, "7-Eleven", SearchIndex.alias(q));
+        assertEquals("Jollibee", SearchIndex.alias("Jollibee"));
+        SearchIndex idx = new SearchIndex(java.util.Arrays.asList("7-Eleven", "7-Eleven", "Jollibee"), new double[]{10.40, 10.30, 10.31}, new double[]{123.90, 123.90, 123.90});
+        int[] hits = idx.query(SearchIndex.alias("7/11"), 10.30, 123.90, 10);
+        assertEquals(2, hits.length); assertEquals(10.30, idx.lat[hits[0]], 1e-9);
+    }
     /** 0.9.22 closed on open: R8 renamed Host.requestPermissions, which the screens got from Activity, which can't be renamed. */
     @Test public void screenHostMethodsAreNotActivitysOwn() throws Exception {
         for (java.lang.reflect.Method m : DashboardLink.Host.class.getDeclaredMethods()) {

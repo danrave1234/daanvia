@@ -40,6 +40,15 @@ public final class SearchIndex {
     /** How many places at least 1 km apart have this name: more than one means a chain whose branches need telling apart (see Branches). */
     public int copies(String name) { Integer n = copies.get(fold(name)); return n == null ? 0 : n; }
 
+    /** What riders type for a name the map spells another way ("7/11", "711" for 7-Eleven). The query as typed otherwise. */
+    public static String alias(String q) {
+        String f = fold(q);
+        switch (f) {
+            case "7 11": case "711": case "7eleven": case "seven eleven": case "7 eleven": return "7-Eleven";
+            default: return q;
+        }
+    }
+
     public static String fold(String s) {
         String n = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
         return n.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9 ]+", " ").replaceAll(" +", " ").trim();

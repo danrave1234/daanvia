@@ -30,7 +30,7 @@ final class MapStyle {
     /** The streets on screen, swapped in square by square (see RoadTiles). */
     static final String ROADS_NEAR = "roads-near";
     static final String ALTERNATIVES = "route-alternatives";
-    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DEST = "dest", DROP = "drop", PARKING = "parking";
+    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DEST = "dest", DROP = "drop", PARKING = "parking", RESULTS = "results";
 
     static String base(Gabi.Palette p) {
         return "{\"version\":8,\"glyphs\":\"" + GLYPHS + "\",\"sources\":{},\"layers\":[{\"id\":\"background\",\"type\":\"background\",\"paint\":{\"background-color\":\"" + hex(p.bg) + "\"}}]}";
@@ -128,6 +128,11 @@ final class MapStyle {
         st.addSource(new GeoJsonSource(PARKING));
         st.addLayer(new SymbolLayer("parking", PARKING).withProperties(iconImage(get("icon")), iconAllowOverlap(false), iconIgnorePlacement(false), iconAnchor(Property.ICON_ANCHOR_BOTTOM_LEFT), iconOffset(new Float[]{-14f, 14f})));
         st.addSource(new GeoJsonSource(DEST)); st.addSource(new GeoJsonSource(DROP));
+        // Search results shown on the map: a pin each, named under it; the closest one larger, and drawn on top.
+        st.addSource(new GeoJsonSource(RESULTS));
+        st.addLayer(new SymbolLayer("results", RESULTS).withProperties(iconImage(get("icon")), iconAllowOverlap(true), iconIgnorePlacement(true), iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+            symbolSortKey(get("rank")), textField(get("label")), textFont(FONT_BOLD), textSize(12f), textAnchor(Property.TEXT_ANCHOR_TOP), textOffset(new Float[]{0f, 0.15f}),
+            textMaxWidth(8f), textOptional(true), textHaloWidth(1.4f)));
         st.addLayer(new SymbolLayer("dest", DEST).withProperties(iconImage("dest"), iconAllowOverlap(true), iconIgnorePlacement(true), iconAnchor(Property.ICON_ANCHOR_CENTER)));
         st.addLayer(new SymbolLayer("drop", DROP).withProperties(iconImage("drop"), iconAllowOverlap(true), iconIgnorePlacement(true), iconAnchor(Property.ICON_ANCHOR_BOTTOM)));
 
@@ -135,7 +140,7 @@ final class MapStyle {
         st.addSource(new GeoJsonSource(CELLS));
         st.addLayer(new FillLayer("cells-fill", CELLS).withProperties(fillOpacity(0.16f)));
         st.addLayer(new LineLayer("cells-line", CELLS).withProperties(lineWidth(1.4f), lineOpacity(0.7f), lineDasharray(new Float[]{2f, 2f})));
-        st.addImage("dest", dest(c)); st.addImage("drop", drop(c));
+        st.addImage("dest", dest(c)); st.addImage("drop", drop(c)); st.addImage("result", result(c, 0.78f)); st.addImage("result-near", result(c, 1f));
         st.addImage("poi-other", poiBadge(c, 0, 0xFF8A949E));
         for (Object[] t : POI_TYPES) st.addImage("poi-" + t[0], poiBadge(c, (int)t[1], (int)t[2]));
     }
@@ -237,6 +242,7 @@ final class MapStyle {
         text(st, "online-street-names", n ? 0xFF9AA8B6 : 0xFF5E6670, n ? 0xFF0E151C : 0xFFFFFFFF);
         text(st, "online-poi", n ? 0xFFC9D3DC : 0xFF3A424B, n ? 0xFF0E151C : 0xFFFFFFFF); text(st, "online-poi-major", n ? 0xFFDCE3EA : 0xFF2B323A, n ? 0xFF0E151C : 0xFFFFFFFF);
         text(st, "online-places", n ? 0xFFDCE3EA : 0xFF2B323A, n ? 0xFF0E151C : 0xFFF7F4EC);
+        text(st, "results", n ? 0xFFF2F5F8 : 0xFF1F252B, n ? 0xFF0E151C : 0xFFFFFFFF);
     }
 
     // ---------------------------------------------------------------- place-type badges
@@ -376,6 +382,15 @@ final class MapStyle {
         Path pin = new Path(); pin.addCircle(cx, cy, r, Path.Direction.CW); pin.moveTo(cx - r * 0.72f, cy + r * 0.7f); pin.lineTo(cx, h - 2 * s); pin.lineTo(cx + r * 0.72f, cy + r * 0.7f); pin.close();
         p.setShadowLayer(5 * s, 0, 2 * s, 0x77000000); p.setColor(0xFFFFB020); cv.drawPath(pin, p); p.clearShadowLayer();
         p.setColor(0xFF1A1203); cv.drawCircle(cx, cy, 4.5f * s, p);
+        return b;
+    }
+    /** A search result's pin: the drop pin's shape with a white middle, smaller for all but the closest. */
+    static Bitmap result(Context c, float scale) {
+        float s = d(c) * scale; int w = Math.round(32 * s), h = Math.round(42 * s); Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); Canvas cv = new Canvas(b); Paint p = paint();
+        float cx = w / 2f, r = 11.5f * s, cy = r + 4 * s;
+        Path pin = new Path(); pin.addCircle(cx, cy, r, Path.Direction.CW); pin.moveTo(cx - r * 0.72f, cy + r * 0.7f); pin.lineTo(cx, h - 2 * s); pin.lineTo(cx + r * 0.72f, cy + r * 0.7f); pin.close();
+        p.setShadowLayer(4 * s, 0, 1.5f * s, 0x77000000); p.setColor(0xFFE5484D); cv.drawPath(pin, p); p.clearShadowLayer();
+        p.setColor(0xFFFFFFFF); cv.drawCircle(cx, cy, 4.5f * s, p);
         return b;
     }
     static Bitmap parkingPin(Context c, Gabi.Palette pal, String price) {

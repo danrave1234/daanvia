@@ -36,6 +36,35 @@ final class SearchPanel {
         double[] searchFrom();
         /** The area's search index finished loading. */
         void onIndexed();
+        /** Show the results as pins on the map (Search on the keyboard, or "Show on map"). */
+        void showOnMap();
+    }
+    /** One result, for the map. */
+    static final class Spot {
+        final String name, sub; final double lat, lon;
+        Spot(String name, String sub, double lat, double lon) { this.name = name; this.sub = sub; this.lat = lat; this.lon = lon; }
+    }
+    private final ArrayList<Spot> spots = new ArrayList<>(); private String spotsQuery = ""; private double[] spotsFrom = {0, 0};
+    /** What was searched for, as typed. */
+    String query() { return field.getText().toString().trim(); }
+    /** Where the distances are from. */
+    double[] from() { return spotsFrom; }
+    /** The shown results, closest first: at most {@code n}. */
+    List<Spot> nearest(int n) {
+        ArrayList<Spot> l = new ArrayList<>(spots); double la = spotsFrom[0], lo = spotsFrom[1];
+        l.sort((x, y) -> Double.compare(GeoMath.distance(la, lo, x.lat, x.lon), GeoMath.distance(la, lo, y.lat, y.lon)));
+        return l.size() > n ? new ArrayList<>(l.subList(0, n)) : l;
+    }
+    void hint(String text) { field.setHint(text); }
+    /** An empty field, for a new search (a stop for the trip). */
+    void clear() { field.setText(""); }
+    private void spot(String name, String sub, double lat, double lon) { spots.add(new Spot(name, sub, lat, lon)); }
+    /** At the top of the results: see them all on the map. */
+    private void mapRow() {
+        View old = results.findViewWithTag("map-row"); if (old != null) results.removeView(old);
+        if (spots.isEmpty() || spotsQuery.isEmpty()) return;
+        View row = rk.listRow(IconDrawable.LOC, "Show on map", spots.size() == 1 ? "1 place" : spots.size() + " places, closest first", null, host::showOnMap);
+        row.setTag("map-row"); results.addView(row, 0);
     }
 
     static final int PARKING_METERS = 150;
@@ -73,7 +102,7 @@ final class SearchPanel {
             public void beforeTextChanged(CharSequence x, int b, int c, int d) {} public void onTextChanged(CharSequence x, int b, int c, int d) {}
             public void afterTextChanged(Editable e) { ui.removeCallbacks(run); ui.postDelayed(run, 110); }
         });
-        field.setOnEditorActionListener((v, act, e) -> { host.hideKeyboard(); return true; });
+        field.setOnEditorActionListener((v, act, e) -> { if (!spots.isEmpty() && !spotsQuery.isEmpty()) host.showOnMap(); else host.hideKeyboard(); return true; });
     }
 
     private volatile PlaceCache placeCache;
@@ -135,7 +164,7 @@ final class SearchPanel {
     /** Search what's in the field: offline at once, online a moment later. */
     final Runnable run = this::search;
     private void search() {
-        String q = field.getText().toString(); int token = ++searchToken;
+        String q = SearchIndex.alias(field.getText().toString()); int token = ++searchToken;
         double[] from = host.searchFrom(); double fromLat = from[0], fromLon = from[1];
         if (index == null) { showResults(q, null); searchOnline(token, q, fromLat, fromLon); return; }
         SearchIndex idx = index;
@@ -193,16 +222,19 @@ final class SearchPanel {
         HashMap<String, Integer> seen = new HashMap<>(); for (OnlineSearch.Place pl : found) seen.merge(SearchIndex.fold(pl.name), 1, Integer::sum);
         for (OnlineSearch.Place pl : fresh) {
             boolean chain = seen.get(SearchIndex.fold(pl.name)) > 1 || index != null && index.copies(pl.name) > 1; String name = chain ? pl.branch : pl.name;
+            spot(name, pl.address.isEmpty() ? null : pl.address, pl.lat, pl.lon);
             results.addView(rk.listRow(IconDrawable.PIN, highlight(name, q), pl.address.isEmpty() ? null : pl.address, Gabi.distance(GeoMath.distance(fromLat, fromLon, pl.lat, pl.lon)), () -> host.choose(pl.lat, pl.lon, name)));
         }
         results.addView(googleRow(q));
         animateRows(start);
+        mapRow();
     }
     private void showResults(String q, Found r) {
-        results.removeAllViews(); resultsTheme.clear(); shownNames.clear(); shownSpots.clear();
+        results.removeAllViews(); resultsTheme.clear(); shownNames.clear(); shownSpots.clear(); spots.clear(); spotsQuery = q.trim(); spotsFrom = host.searchFrom();
         if (r == null) { results.addView(waiting(IconDrawable.CLOCK, q.trim().length() >= 3 ? "Searching…" : "Getting search ready…")); return; }
         int[] hits = r.hits; double fromLat = r.fromLat, fromLon = r.fromLon; String[] nearOf = r.near; List<PlaceCache.Entry> kept = r.kept;
         SearchIndex index = r.index; Lots lots = index == this.index ? this.lots : null; String[] labels = r.labels;
+        for (Bookmarks.Place b : bookmarks.match(q)) if (!q.trim().isEmpty()) spot(b.name, "Saved", b.lat, b.lon);
         for (Bookmarks.Place b : bookmarks.match(q)) results.addView(starRow(rk, b, highlight(b.name, q), "Saved", Gabi.distance(GeoMath.distance(fromLat, fromLon, b.lat, b.lon))));
         boolean anySaved = results.getChildCount() > 0;
         if (q.trim().isEmpty()) {
@@ -232,18 +264,19 @@ final class SearchPanel {
                 }
                 String around = nearOf[n] == null ? null : "Near " + nearOf[n];
                 String sub = parent[n] != -1 ? "Part of " + index.names[hits[parent[n]]] : near.isEmpty() ? around : (around == null ? "" : around + " · ") + near.size() + " parking nearby";
-                shown(name, la, lo);
+                shown(name, la, lo); if (parent[n] == -1) spot(label, around, la, lo);
                 results.addView(rk.listRow(IconDrawable.PIN, highlight(label, q), sub, Gabi.distance(GeoMath.distance(fromLat, fromLon, la, lo)), () -> host.choose(la, lo, label)));
                 addLots(rk, results, near, name, la, lo, 3);
             }
             // Places found online before: still here without signal.
             for (PlaceCache.Entry e : kept) {
                 if (alreadyShown(e.name, e.lat, e.lon)) continue;
-                shown(e.name, e.lat, e.lon);
+                shown(e.name, e.lat, e.lon); spot(e.name, e.address.isEmpty() ? null : e.address, e.lat, e.lon);
                 results.addView(rk.listRow(IconDrawable.PIN, highlight(e.name, q), e.address.isEmpty() ? null : e.address, Gabi.distance(GeoMath.distance(fromLat, fromLon, e.lat, e.lon)), () -> host.choose(e.lat, e.lon, e.name)));
             }
         }
         animateRows(0);
+        mapRow();
     }
 
     // ---------------------------------------------------------------- rows

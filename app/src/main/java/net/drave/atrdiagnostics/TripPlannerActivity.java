@@ -30,6 +30,7 @@ public final class TripPlannerActivity extends Activity {
         page.content.addView(k.text("Stops are visited in order from your location. Routes use downloaded scooter maps; times exclude stop duration and live traffic.",14,500,MUTED));
         title=edit("Trip name");title.setText("My ride");page.content.addView(title);
         rows=k.column(8);page.content.addView(rows);
+        page.content.addView(k.primary("Add a stop from the map",this::pickOnMap));
         query=edit("Find a stop or enter latitude, longitude");query.setInputType(android.text.InputType.TYPE_CLASS_TEXT);page.content.addView(query);
         query.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int before,int count){main.removeCallbacks(search);main.postDelayed(search,250);}public void afterTextChanged(Editable e){}});
         results=k.column(6);page.content.addView(results);
@@ -47,7 +48,15 @@ public final class TripPlannerActivity extends Activity {
         page.content.addView(k.ghost("Export stops as GPX",()->{if(stops.isEmpty()){message("Add stops first");return;}startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/gpx+xml").putExtra(Intent.EXTRA_TITLE,"daanvia-trip.gpx"),92);}));
         page.content.addView(k.text("GPX import supports up to 20 route stops or waypoints. Roads are recalculated with your offline maps; a GPX track trace is not turn-by-turn guidance.",12.5f,500,MUTED));
         try{String raw=state!=null?state.getString("stops"):getIntent().getStringExtra("stops");if(raw!=null)stops.addAll(TripStop.parse(raw));else if(!s.active&&!s.shape.isEmpty()){stops.addAll(s.remainingStops());if(stops.isEmpty())stops.add(new TripStop(s.destination,s.destLat,s.destLon));}
-            if(state!=null)title.setText(state.getString("title","My ride"));}catch(Exception e){message(e.getMessage());}paint();search();
+            if(state!=null)title.setText(state.getString("title","My ride"));
+            // Back from the map with a stop picked there: the trip as it was, plus that stop.
+            else{String t=getIntent().getStringExtra("title");if(t!=null)title.setText(t);if(getIntent().getBooleanExtra("added",false)&&!stops.isEmpty()){dirty=true;message("Added "+stops.get(stops.size()-1).name+". Move stops to change their order.");}}
+        }catch(Exception e){message(e.getMessage());}paint();search();
+    }
+    /** Search for the stop on the map, with its pins and distances, like the map's own search. The stops go along and come back. */
+    private void pickOnMap(){
+        if(stops.size()>=TripStop.MAX){message("Use at most 20 stops");return;}
+        try{dirty=false;startActivity(new Intent(this,HomeActivity.class).putExtra("pick_stop",TripStop.json(stops).toString()).putExtra("trip_name",tripName()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));finish();}catch(Exception e){message(e.getMessage());}
     }
     private EditText edit(String hint){EditText text=new EditText(this);text.setHint(hint);text.setSingleLine(true);text.setTextSize(16);text.setMinHeight(k.dp(52));text.setPadding(k.dp(12),k.dp(8),k.dp(12),k.dp(8));k.t.add(p->{text.setTextColor(p.ink);text.setHintTextColor(p.muted);text.setBackground(Gabi.round(p.chip,k.dp(12)));});return text;}
     private String tripName(){String value=title.getText().toString().trim();return value.isEmpty()?"My ride":value;}

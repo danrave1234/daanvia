@@ -32,7 +32,7 @@ import static net.drave.atrdiagnostics.Gabi.Role.*;
  */
 public final class HomeActivity extends Activity implements DashboardLink.Host {
     public void askPermissions(String[] permissions, int requestCode) { requestPermissions(permissions, requestCode); }
-    private enum Mode { SELECT, EXPLORE, SEARCH, PIN, SAVE, LOT, ROUTE, RIDE, PARK_FORM }
+    private enum Mode { SELECT, EXPLORE, SEARCH, RESULTS, PIN, SAVE, LOT, ROUTE, RIDE, PARK_FORM }
 
     private NavSession s; private Gabi.Themer theme; private Gabi.Kit k;
     // Lists rebuilt from scratch (saved and recent places, parking, a lot's facts) colour their rows through themes of
@@ -135,6 +135,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 return new double[]{s.fixAt > 0 ? s.lat : map != null ? map.getCameraPosition().target.getLatitude() : s.lat, s.fixAt > 0 ? s.lon : map != null ? map.getCameraPosition().target.getLongitude() : s.lon};
             }
             public void onIndexed() { paintRecents(); if (mode == Mode.SEARCH) search.run.run(); }
+            public void showOnMap() { showResults(); }
         });
         buildNotice();
         picker = new AreaPicker(this, s, k, root, mapView, ui, net, lay, () -> search.towns, new AreaPicker.Host() {
@@ -145,7 +146,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             public void hideKeyboard() { HomeActivity.this.hideKeyboard(); }
             public GeoJsonSource cells() { return layersReady ? src(MapStyle.CELLS) : null; }
         });
-        explore = buildExplore(); pinSheet = buildPin(); saveSheet = buildSave(); lotSheet = buildLot(); routeSheet = buildRoute(); parkForm = buildParkForm();
+        resultsSheet = buildResults(); explore = buildExplore(); pinSheet = buildPin(); saveSheet = buildSave(); lotSheet = buildLot(); routeSheet = buildRoute(); parkForm = buildParkForm();
         setContentView(root);
         Gabi.insets(root, (l, t, r, b, ime) -> { lay.top = t; lay.bottom = b; lay.ime = ime; layoutInsets(); });
         root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != laidW || b - t != laidH) { laidW = r - l; laidH = b - t; root.post(()->{layoutInsets();if(mode==Mode.ROUTE&&!s.shape.isEmpty())ui.postDelayed(()->painter.fitRoute(s.shape, destLat, destLon),200);}); } });
@@ -229,7 +230,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         switch (mode) {
             case SEARCH: case PIN: case SAVE: case PARK_FORM: go(Mode.EXPLORE); return;
             case SELECT: picker.close(); return;
-            case LOT: go(Mode.SEARCH); return;
+            case LOT: case RESULTS: go(Mode.SEARCH); return;
             case ROUTE: closeRoute(); return;
             default:
         }
@@ -274,6 +275,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else map.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(12.3, 122.6), 5.2));
         map.setStyle(new org.maplibre.android.maps.Style.Builder().fromJson(MapStyle.base(theme.palette)), st -> { style = st; refresh(); if (mode == Mode.SELECT) picker.center(null); });
         map.addOnMapLongClickListener(p -> { onLongPress(p.getLatitude(), p.getLongitude()); return true; });
+        map.addOnMapClickListener(this::tapResult);
         map.addOnMapClickListener(this::tapRoute);
         map.addOnMapClickListener(this::tapLabel);
         map.addOnMapClickListener(p -> { if (mode == Mode.PIN) { go(Mode.EXPLORE); return true; } return false; });
@@ -752,7 +754,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         return false;
     }
     private boolean tapLabel(LatLng p) {
-        if (map == null || s.active || !(mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.ROUTE)) return false;
+        if (map == null || s.active || !(mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.ROUTE || mode == Mode.RESULTS)) return false;
         android.graphics.PointF at = map.getProjection().toScreenLocation(p); float r = k.dp(16);
         List<Feature> hits = map.queryRenderedFeatures(new android.graphics.RectF(at.x - r, at.y - r, at.x + r, at.y + r), "online-poi-major", "online-poi", "online-places");
         Feature best = null; double bestD = Double.MAX_VALUE; double[] spot = null;
@@ -891,6 +893,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** Leave the demo: the simulated position goes, so real GPS takes over. */
     private void endSimulation() { if (s.simulation) { s.simulation = false; s.fixAt = 0; } }
     private void choose(double lat, double lon, String name) {
+        if (pickStops != null) { addPickedStop(lat, lon, name); return; }
+        fromResults = mode == Mode.RESULTS;
         if (s.active) { notice("End the ride before changing destination"); return; }
         if (s.routing) { notice("Wait for the route calculation"); return; }
         hideKeyboard();
@@ -905,7 +909,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     /** A live fix from the last two minutes; the phone's last known spot can be much older. */
     private boolean freshFix() { return s.fixAt > 0 && SystemClock.elapsedRealtime() - s.fixAt < 120000; }
-    private void closeRoute() { if (!s.active) endSimulation(); pendingPlan = false; destName = null; demoTrip = false; go(Mode.EXPLORE); if (!s.active) getSharedPreferences("ui", 0).edit().remove("ride").apply(); }
+    private void closeRoute() { if (!s.active) endSimulation(); pendingPlan = false; destName = null; demoTrip = false; go(fromResults && resultsShown != null ? Mode.RESULTS : Mode.EXPLORE); if (!s.active) getSharedPreferences("ui", 0).edit().remove("ride").apply(); }
 
     private void start() {
         boolean demo = demoTrip;
@@ -1047,14 +1051,99 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         } catch (Exception e) { parkError.setText("Enter a valid non-negative amount or leave it blank"); parkError.setVisibility(View.VISIBLE); Gabi.shake(parkPrice); }
     }
 
+    // ================================================================ search results on the map
+    private LinearLayout resultsSheet, resultsList; private TextView resultsTitle, resultsSub;
+    /** The results on the map (kept while a route from them is previewed, to come back to); null when none. */
+    private org.maplibre.geojson.FeatureCollection resultsShown;
+    /** The route on screen was picked from the results on the map: closing it goes back to them. */
+    private boolean fromResults;
+    private LinearLayout buildResults() {
+        LinearLayout c = k.column(0);
+        LinearLayout head = k.row(10); LinearLayout titles = k.column(2);
+        resultsTitle = k.single(k.text("", 17, 750, INK)); resultsSub = k.single(k.text("", 13, 550, MUTED));
+        titles.addView(resultsTitle); titles.addView(resultsSub); head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
+        head.addView(k.circle(IconDrawable.SEARCH, 36, CHIP, ACCENT, () -> go(Mode.SEARCH)));
+        head.addView(k.circle(IconDrawable.CLOSE, 36, CHIP, MUTED, () -> { resultsShown = null; go(Mode.EXPLORE); }));
+        c.addView(head);
+        resultsList = k.column(0); resultsList.setPadding(0, k.dp(6), 0, 0); c.addView(resultsList);
+        return c;
+    }
+    /** Search's results as pins, the closest first in the list under the map, the map framed on the closest few and the rider. */
+    private void showResults() {
+        List<SearchPanel.Spot> near = search.nearest(30);
+        if (near.isEmpty()) { notice("Nothing to show on the map yet"); return; }
+        double[] from = search.from();
+        ArrayList<Feature> pins = new ArrayList<>();
+        for (int i = 0; i < near.size(); i++) { SearchPanel.Spot p = near.get(i); Feature f = MapStyle.point(p.lat, p.lon);
+            f.addStringProperty("label", i < 5 ? p.name : ""); f.addStringProperty("name", p.name); f.addStringProperty("icon", i == 0 ? "result-near" : "result"); f.addNumberProperty("rank", near.size() - i); pins.add(f); }
+        resultsShown = org.maplibre.geojson.FeatureCollection.fromFeatures(pins);
+        resultsTitle.setText(pickStops != null ? "Add a stop" : "“" + search.query() + "”");
+        resultsSub.setText((near.size() == 1 ? "1 place" : near.size() + " places") + ", closest first" + (pickStops != null ? " · tap one to add it" : ""));
+        resultsList.removeAllViews();
+        // The closest four under the map, so the map stays in view; the rest are pins, and all of them in the list.
+        for (int i = 0; i < near.size() && i < 4; i++) { SearchPanel.Spot p = near.get(i);
+            resultsList.addView(k.listRow(IconDrawable.PIN, p.name, p.sub, Gabi.distance(GeoMath.distance(from[0], from[1], p.lat, p.lon)), () -> choose(p.lat, p.lon, p.name))); }
+        if (near.size() > 4) resultsList.addView(k.listRow(IconDrawable.SEARCH, "See all " + near.size() + " in the list", null, null, () -> go(Mode.SEARCH)));
+        go(Mode.RESULTS);
+        // Framed on the closest five and the rider (when the phone knows where they are), above the sheet.
+        if (map == null) return;
+        org.maplibre.android.geometry.LatLngBounds.Builder b = new org.maplibre.android.geometry.LatLngBounds.Builder();
+        int framed = Math.min(5, near.size()); for (int i = 0; i < framed; i++) b.include(new LatLng(near.get(i).lat, near.get(i).lon));
+        if (s.fixAt > 0 && GeoMath.distance(s.lat, s.lon, near.get(0).lat, near.get(0).lon) < 30_000) b.include(new LatLng(s.lat, s.lon));
+        ui.postDelayed(() -> {
+            if (map == null || mode != Mode.RESULTS) return;
+            int sheetH = sheet.getHeight() > 0 ? sheet.getHeight() : k.dp(330);
+            int[] pad = lay.landscape ? new int[]{lay.panelW + k.dp(56), lay.top + k.dp(56), k.dp(56), lay.bottom + k.dp(56)} : new int[]{k.dp(56), lay.top + k.dp(56), k.dp(56), sheetH + lay.bottom + k.dp(40)};
+            try {
+                if (framed == 1 && s.fixAt == 0) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(near.get(0).lat, near.get(0).lon), 15.5), 800);
+                else map.animateCamera(CameraUpdateFactory.newLatLngBounds(b.build(), pad[0], pad[1], pad[2], pad[3]), 800);
+            } catch (Exception e) { map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(near.get(0).lat, near.get(0).lon), 15), 800); }
+        }, 250);
+    }
+    private void pins(org.maplibre.geojson.FeatureCollection fc) { GeoJsonSource src = src(MapStyle.RESULTS); if (src != null) src.setGeoJson(fc == null ? MapStyle.empty() : fc); }
+    /** A result's pin tapped: go there (or add it as a stop). */
+    private boolean tapResult(LatLng p) {
+        if (map == null || mode != Mode.RESULTS) return false;
+        android.graphics.PointF at = map.getProjection().toScreenLocation(p); float r = k.dp(22);
+        Feature best = null; double bestD = Double.MAX_VALUE;
+        for (Feature f : map.queryRenderedFeatures(new android.graphics.RectF(at.x - r, at.y - r * 1.6f, at.x + r, at.y + r), "results")) {
+            if (!(f.geometry() instanceof org.maplibre.geojson.Point)) continue; org.maplibre.geojson.Point pt = (org.maplibre.geojson.Point)f.geometry();
+            android.graphics.PointF sp = map.getProjection().toScreenLocation(new LatLng(pt.latitude(), pt.longitude()));
+            double d = Math.hypot(sp.x - at.x, sp.y - k.dp(14) - at.y); if (d < bestD) { bestD = d; best = f; }
+        }
+        if (best == null) return false;
+        org.maplibre.geojson.Point pt = (org.maplibre.geojson.Point)best.geometry();
+        root.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+        choose(pt.latitude(), pt.longitude(), best.getStringProperty("name"));
+        return true;
+    }
+
+    // ================================================================ a stop for the trip planner
+    /** Stops of the trip being planned, while its next stop is searched for here; null otherwise. */
+    private List<TripStop> pickStops; private String pickTrip;
+    private void addPickedStop(double lat, double lon, String name) {
+        List<TripStop> stops = new ArrayList<>(pickStops);
+        if (stops.size() >= TripStop.MAX) { notice("Use at most 20 stops"); return; }
+        stops.add(new TripStop(name, lat, lon)); pickStops = null; search.hint("Search a place"); resultsShown = null;
+        hideKeyboard(); go(Mode.EXPLORE); openPlanner(stops, true);
+    }
+    private void openPlanner(List<TripStop> stops, boolean added) {
+        try { startActivity(new Intent(this, TripPlannerActivity.class).putExtra("stops", TripStop.json(stops).toString()).putExtra("title", pickTrip).putExtra("added", added)); }
+        catch (JSONException e) { notice("Could not open the trip: " + e.getMessage()); }
+    }
+
     // ================================================================ modes
     private void go(Mode next) {
+        // Leaving the stop search without a stop: back to the trip, as it was.
+        if (next == Mode.EXPLORE && pickStops != null) { List<TripStop> keep = pickStops; pickStops = null; search.hint("Search a place"); openPlanner(keep, false); }
         Mode prev = mode; mode = next;
         boolean searching = next == Mode.SEARCH, riding = next == Mode.RIDE;
-        if (searching && prev == Mode.LOT) { sheet.hide(); search.reveal(); }
+        if (prev == Mode.RESULTS && next != Mode.RESULTS) pins(null);
+        if (next == Mode.SEARCH && prev != Mode.ROUTE) fromResults = false;
+        if (searching && (prev == Mode.LOT || prev == Mode.RESULTS)) { sheet.hide(); search.reveal(); }
         else if (searching) search.open();
         else if (prev == Mode.SEARCH) { hideKeyboard(); search.hide(); }
-        if (next == Mode.SEARCH && prev == Mode.LOT) { layoutInsets(); paintLocateFab(); paintMap(); syncBack(); return; }
+        if (next == Mode.SEARCH && (prev == Mode.LOT || prev == Mode.RESULTS)) { layoutInsets(); paintLocateFab(); paintMap(); syncBack(); return; }
         Gabi.show(top, next == Mode.EXPLORE || next == Mode.PIN, -k.dp(14));
         if (prev == Mode.SAVE && next != Mode.SAVE) hideKeyboard();
         ride.show(riding);
@@ -1068,6 +1157,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             case LOT: sheet.swap(lotSheet); break;
             case PARK_FORM: sheet.swap(parkForm); parkName.requestFocus(); ui.postDelayed(() -> { if (mode == Mode.PARK_FORM) showKeyboard(parkName); }, 120); break;
             case SEARCH: sheet.hide(); break;
+            case RESULTS: pins(resultsShown); sheet.swap(resultsSheet); break;
             case RIDE: sheet.hide(); ride.enter(); painter.puckStale(); break;
         }
         // During a ride the ride service follows GPS; the map's own listener would only duplicate it.
@@ -1251,6 +1341,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // ================================================================ shared places
     private void handleIntent(Intent i) {
         if (i == null) return;
+        if (i.hasExtra("pick_stop")) { String raw = i.getStringExtra("pick_stop"); pickTrip = i.getStringExtra("trip_name"); i.removeExtra("pick_stop");
+            try { pickStops = new ArrayList<>(TripStop.parse(raw)); } catch (Exception e) { pickStops = new ArrayList<>(); }
+            search.hint("Search a stop to add"); search.clear(); resultsShown = null; go(Mode.SEARCH); return; }
         if(i.hasExtra("trip")){String raw=i.getStringExtra("trip"), name=i.getStringExtra("trip_name");i.removeExtra("trip");try{openTrip(TripStop.parse(raw),name==null?"My ride":name);}catch(Exception e){notice("Could not open trip: "+e.getMessage());}return;}
         if (i.getBooleanExtra("demo", false)) { i.removeExtra("demo"); demo(); return; }
         if (i.getBooleanExtra("select_area", false)) { i.removeExtra("select_area"); if (map != null) picker.open(null); else ui.postDelayed(() -> picker.open(null), 600); return; }
