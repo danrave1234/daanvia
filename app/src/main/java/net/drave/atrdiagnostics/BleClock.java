@@ -55,6 +55,29 @@ import java.util.function.Consumer;
 final class BleClock {
     static final long SCAN_MS = 30_000, QUIET_MS = 60_000, PUSH_MS = 3_000, REPUSH_MS = 25_000;
     static final int MAX_DEVICES = 3;
+    /** The clock test (Support): an unfiltered scan this long, then the strongest {@link #LAB_DEVICES} devices get every time shape. */
+    static final long LAB_SCAN_MS = 12_000, LAB_GAP_MS = 6_000, LAB_MS = 75_000;
+    static final int LAB_DEVICES = 5;
+
+    /** The clock test's time shapes, in the order they are written. */
+    static final String[] SHAPES = {
+        "number, local time (Carbit's own message)",
+        "number, local time, a write the dashboard must confirm",
+        "number, UTC time",
+        "text, local time"};
+    /** Bluetooth's own standard services (battery, device info and the like) are never a dashboard channel. */
+    static boolean standard(UUID u) {
+        return (u.getMostSignificantBits() & 0xFFFFFFFFL) == 0x1000L && u.getLeastSignificantBits() == 0x800000805F9B34FBL && (u.getMostSignificantBits() >>> 32) < 0x2000;
+    }
+    static String abilities(int p) {
+        StringBuilder b = new StringBuilder();
+        if ((p & BluetoothGattCharacteristic.PROPERTY_READ) != 0) b.append("read ");
+        if ((p & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) b.append("write ");
+        if ((p & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) b.append("write-no-reply ");
+        if ((p & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) b.append("notify ");
+        if ((p & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) b.append("indicate ");
+        return b.toString().trim();
+    }
 
     // Serial-over-BLE services and their data characteristics, as used by EasyConn dashboards (MOTO-HUB's notes).
     private static final List<UUID> SERVICES = uuids("00001c00-d102-11e1-9b23-000efb0000b2", "0000474d-0000-1000-8000-00805f9b34fb",
@@ -85,10 +108,20 @@ final class BleClock {
     private BluetoothLeScanner scanner;
     private boolean closed, scanning;
     private int found;
+    /**
+     * The clock test from Support: scans without the service filter (the dashboard may not advertise the ids the filter
+     * knows; MOTO-HUB's Voge didn't), logs every device heard, then connects to the strongest few, logs what each offers,
+     * and writes the time to each serial-shaped channel in every shape worth trying, {@link #LAB_GAP_MS} apart, so the
+     * rider can say which one the bike's clock took. Only ever run by the rider's tap.
+     */
+    private final boolean lab;
+    private final Map<String, ScanResult> heard = new HashMap<>();
+    private final Runnable onDone;
 
-    BleClock(Context c, Consumer<String> log) { context = c.getApplicationContext(); this.log = log; }
+    BleClock(Context c, Consumer<String> log) { this(c, log, false, null); }
+    BleClock(Context c, Consumer<String> log, boolean lab, Runnable onDone) { context = c.getApplicationContext(); this.log = log; this.lab = lab; this.onDone = onDone; }
 
-    private void log(String s) { log.accept("Bluetooth clock: " + s); }
+    private void log(String s) { log.accept((lab ? "Clock test: " : "Bluetooth clock: ") + s); }
 
     @SuppressLint("MissingPermission")
     synchronized void start() {
@@ -101,12 +134,14 @@ final class BleClock {
         scanner = adapter.getBluetoothLeScanner();
         if (scanner == null) { log("Bluetooth scanning isn't available right now."); return; }
         List<ScanFilter> filters = new ArrayList<>();
-        for (UUID u : SERVICES) filters.add(new ScanFilter.Builder().setServiceUuid(new ParcelUuid(u)).build());
+        if (!lab) for (UUID u : SERVICES) filters.add(new ScanFilter.Builder().setServiceUuid(new ParcelUuid(u)).build());
         ScanSettings settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
         try { scanner.startScan(filters, settings, scan); scanning = true; }
         catch (Exception e) { log("couldn't start scanning: " + e.getClass().getSimpleName()); return; }
-        log("looking for the dashboard for " + SCAN_MS / 1000 + " s. Close Carbit Ride first, or it keeps the dashboard's Bluetooth to itself.");
-        main.postDelayed(this::endScan, SCAN_MS);
+        long scanMs = lab ? LAB_SCAN_MS : SCAN_MS;
+        log((lab ? "listening to every Bluetooth device nearby for " : "looking for the dashboard for ") + scanMs / 1000 + " s. Close Carbit Ride first, or it keeps the dashboard's Bluetooth to itself.");
+        main.postDelayed(this::endScan, scanMs);
+        if (lab) main.postDelayed(() -> { log("finished. Which step's time did the bike's clock show? Note the step number from the lines above, then share the report."); close(); }, LAB_MS);
     }
 
     @SuppressLint("MissingPermission")
@@ -114,7 +149,41 @@ final class BleClock {
         if (!scanning) return;
         scanning = false;
         try { scanner.stopScan(scan); } catch (Exception ignored) {}
+        if (lab) { tryNearest(); return; }
         if (found == 0 && !closed) log("no dashboard Bluetooth found in " + SCAN_MS / 1000 + " s. Is the bike on, and Carbit Ride closed?");
+    }
+
+    /** The clock test: the nearest devices heard (the bike is the one beside the phone) are connected to, strongest first. */
+    private void tryNearest() {
+        if (closed) return;
+        List<ScanResult> all = new ArrayList<>(heard.values());
+        all.sort((a, b) -> b.getRssi() - a.getRssi());
+        int n = Math.min(LAB_DEVICES, all.size());
+        if (n == 0) { log("nothing heard. Is Bluetooth on and the bike switched on?"); return; }
+        log("heard " + all.size() + " device" + (all.size() == 1 ? "" : "s") + ". Trying the nearest " + n + ". Watch the bike's clock.");
+        for (int i = 0; i < n; i++) {
+            BluetoothDevice d = all.get(i).getDevice();
+            Link l = new Link(d, "device " + (i + 1) + " (" + nameOf(all.get(i)) + ", " + all.get(i).getRssi() + " dBm)");
+            links.put(d.getAddress(), l); l.open();
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private static String nameOf(ScanResult r) {
+        String name = null; try { name = r.getDevice().getName(); } catch (Exception ignored) {}
+        if (name == null && r.getScanRecord() != null) name = r.getScanRecord().getDeviceName();
+        return name == null || name.isEmpty() ? "no name" : name;
+    }
+
+    /** The clock test: each device heard, logged once with its name, signal and the services it advertises. */
+    private synchronized void hear(ScanResult r) {
+        BluetoothDevice d = r.getDevice();
+        if (closed || d == null) return;
+        boolean first = !heard.containsKey(d.getAddress());
+        heard.put(d.getAddress(), r);
+        if (!first || heard.size() > 40) return;
+        List<ParcelUuid> ids = r.getScanRecord() == null ? null : r.getScanRecord().getServiceUuids();
+        log("heard " + nameOf(r) + ", " + r.getRssi() + " dBm" + (ids == null || ids.isEmpty() ? "" : ", services " + ids) + ".");
     }
 
     @SuppressLint("MissingPermission")
@@ -124,11 +193,12 @@ final class BleClock {
         if (scanning) { scanning = false; try { scanner.stopScan(scan); } catch (Exception ignored) {} }
         for (Link l : links.values()) l.close();
         links.clear();
+        if (onDone != null) main.post(onDone);
     }
 
     private final ScanCallback scan = new ScanCallback() {
-        @Override public void onScanResult(int type, ScanResult r) { connect(r); }
-        @Override public void onBatchScanResults(List<ScanResult> rs) { for (ScanResult r : rs) connect(r); }
+        @Override public void onScanResult(int type, ScanResult r) { if (lab) hear(r); else connect(r); }
+        @Override public void onBatchScanResults(List<ScanResult> rs) { for (ScanResult r : rs) if (lab) hear(r); else connect(r); }
         @Override public void onScanFailed(int code) { log("scan failed (Android error " + code + ")."); synchronized (BleClock.this) { scanning = false; } }
     };
 
@@ -183,11 +253,25 @@ final class BleClock {
             close();
         }
 
-        /** The dashboard data characteristic to write to: one of the known ones, else none. */
+        /**
+         * The dashboard data characteristic to write to: one of the known ones; in the clock test also the one writable
+         * characteristic of a service that isn't one of Bluetooth's standard ones and has something to listen on (the
+         * shape of a serial channel). Else none.
+         */
         private BluetoothGattCharacteristic writableData(BluetoothGatt g) {
             for (BluetoothGattService s : g.getServices()) {
                 if (!SERVICES.contains(s.getUuid())) continue;
                 for (BluetoothGattCharacteristic c : s.getCharacteristics()) if (CHARACTERISTICS.contains(c.getUuid()) && writable(c)) return c;
+            }
+            if (!lab) return null;
+            for (BluetoothGattService s : g.getServices()) {
+                if (standard(s.getUuid())) continue;
+                BluetoothGattCharacteristic w = null; int writes = 0, listens = 0;
+                for (BluetoothGattCharacteristic c : s.getCharacteristics()) {
+                    if (writable(c)) { writes++; w = c; }
+                    if ((c.getProperties() & (BluetoothGattCharacteristic.PROPERTY_NOTIFY | BluetoothGattCharacteristic.PROPERTY_INDICATE)) != 0) listens++;
+                }
+                if (writes == 1 && listens >= 1) return w;
             }
             return null;
         }
@@ -235,21 +319,54 @@ final class BleClock {
         @Override public void onServicesDiscovered(BluetoothGatt g, int status) {
             if (done) return;
             int listening = 0;
+            if (lab) describe(g);
+            data = writableData(g);
             for (BluetoothGattService s : g.getServices()) {
-                if (!SERVICES.contains(s.getUuid())) continue;
+                boolean chosen = data != null && data.getService() == s;
+                if (!SERVICES.contains(s.getUuid()) && !chosen) continue;
                 for (BluetoothGattCharacteristic c : s.getCharacteristics()) {
                     int p = c.getProperties();
-                    if (!CHARACTERISTICS.contains(c.getUuid()) || (p & (BluetoothGattCharacteristic.PROPERTY_NOTIFY | BluetoothGattCharacteristic.PROPERTY_INDICATE)) == 0) continue;
+                    if (!(CHARACTERISTICS.contains(c.getUuid()) || chosen) || (p & (BluetoothGattCharacteristic.PROPERTY_NOTIFY | BluetoothGattCharacteristic.PROPERTY_INDICATE)) == 0) continue;
                     try { g.setCharacteristicNotification(c, true); } catch (Exception ignored) {}
                     BluetoothGattDescriptor d = c.getDescriptor(CCCD);
                     if (d != null) { subscribe.add(d); listening++; }
                 }
             }
-            data = writableData(g);
             if (listening == 0 && data == null) { log(label + " has no dashboard data channel. Let go."); close(); return; }
             log(label + ": listening on " + listening + " data channel" + (listening == 1 ? "" : "s") + (data == null ? "; nothing to write the time to." : ". Sending the time in " + PUSH_MS / 1000 + " s."));
             nextSubscription(g);
-            if (data != null) { main.postDelayed(() -> push(g), PUSH_MS); main.postDelayed(() -> push(g), PUSH_MS + REPUSH_MS); }
+            if (data == null) return;
+            if (!lab) { main.postDelayed(() -> push(g), PUSH_MS); main.postDelayed(() -> push(g), PUSH_MS + REPUSH_MS); return; }
+            log(label + ": writing the time to " + data.getUuid() + ", one shape every " + LAB_GAP_MS / 1000 + " s.");
+            for (int i = 0; i < SHAPES.length; i++) { final int step = i; main.postDelayed(() -> labWrite(g, step), PUSH_MS + i * LAB_GAP_MS); }
+        }
+
+        /** Every service and characteristic the device offers, for the report (ids and abilities only, never values). */
+        private void describe(BluetoothGatt g) {
+            StringBuilder b = new StringBuilder();
+            for (BluetoothGattService s : g.getServices()) {
+                b.append("\n  service ").append(s.getUuid());
+                for (BluetoothGattCharacteristic c : s.getCharacteristics()) b.append("\n    ").append(c.getUuid()).append(" ").append(abilities(c.getProperties()));
+            }
+            log(label + " offers:" + b);
+        }
+
+        /** The clock test's step {@code i}: one time shape, written once. */
+        @SuppressLint("MissingPermission")
+        @SuppressWarnings("deprecation")
+        private synchronized void labWrite(BluetoothGatt g, int i) {
+            if (done || data == null) return;
+            long now = System.currentTimeMillis(); TimeZone z = TimeZone.getDefault();
+            byte[] frame = i <= 1 ? EcBtp.syncTimeReply(now, z) : i == 2 ? EcBtp.syncTime(now) : EcBtp.queryTimeReply(now, z);
+            int p = data.getProperties();
+            boolean confirmed = i == 1 && (p & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 || (p & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) == 0;
+            int type = confirmed ? BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT : BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE;
+            boolean ok;
+            try {
+                if (Build.VERSION.SDK_INT >= 33) ok = g.writeCharacteristic(data, frame, type) == android.bluetooth.BluetoothStatusCodes.SUCCESS;
+                else { data.setWriteType(type); data.setValue(frame); ok = g.writeCharacteristic(data); }
+            } catch (Exception e) { ok = false; }
+            log(label + ": step " + (i + 1) + "/" + SHAPES.length + " at " + new java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(new java.util.Date(now)) + ", " + SHAPES[i] + (ok ? "." : ": Android refused the write."));
         }
 
         /** Turns on notifications one channel at a time (Android runs one Bluetooth request at a time). */

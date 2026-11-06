@@ -58,9 +58,10 @@ final class EcBtp {
     private static byte xor(byte[] b, int n) { int x = 0; for (int i = 0; i < n; i++) x ^= b[i] & 0xff; return (byte) x; }
 
     /** Answer to command 0x01. */
-    static byte[] syncTimeReply(long nowMs, TimeZone zone) {
-        long t = nowMs + zone.getRawOffset();
-        byte[] p = new byte[8]; for (int i = 0; i < 8; i++) p[i] = (byte) (t >>> (8 * i));
+    static byte[] syncTimeReply(long nowMs, TimeZone zone) { return syncTime(nowMs + zone.getRawOffset()); }
+    /** A 0x01 frame carrying {@code ms} as 8 little-endian bytes. */
+    static byte[] syncTime(long ms) {
+        byte[] p = new byte[8]; for (int i = 0; i < 8; i++) p[i] = (byte) (ms >>> (8 * i));
         return build(SYNC_TIME, p);
     }
 

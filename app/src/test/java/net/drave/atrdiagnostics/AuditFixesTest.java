@@ -60,4 +60,15 @@ public class AuditFixesTest {
         assertEquals("2000-01-01 00:00:34.000000000", DashClock.stampOf(req));
         assertEquals("(no time)", DashClock.stampOf(new byte[16]));
     }
+
+    @Test public void clockTestSkipsBluetoothsStandardServicesAndSendsCarbitsFrame() {
+        assertTrue(BleClock.standard(java.util.UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb")));   // battery
+        assertFalse(BleClock.standard(java.util.UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")));  // vendor serial
+        assertFalse(BleClock.standard(java.util.UUID.fromString("5fe695f1-fd7b-4f9b-98cc-ee6cf57a776e")));
+        EcBtp.Frame f = EcBtp.parse(EcBtp.syncTime(0x0102030405060708L));
+        assertEquals(EcBtp.SYNC_TIME, f.command);
+        assertEquals(8, f.payload.length);
+        assertEquals(0x08, f.payload[0]);
+        assertEquals(0x01, f.payload[7]);
+    }
 }

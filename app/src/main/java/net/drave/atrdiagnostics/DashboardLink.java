@@ -36,7 +36,7 @@ public final class DashboardLink {
         void onNavigationStarted();
     }
 
-    public static final int PERMISSIONS = 10;
+    public static final int PERMISSIONS = 10, BLUETOOTH_PERMISSIONS = 11;
     public static final int MODE_NAVIGATION = 3, MODE_PATTERN = 1, MODE_MIRROR = 2;
 
     private final Context context;
@@ -402,6 +402,18 @@ public final class DashboardLink {
         if (BleClock.allowed(context) || BleClock.permissions().length == 0) return false;
         if (context.getSharedPreferences("ui", 0).getBoolean("bt_clock_asked2", false)) return false;
         synchronized (hosts) { return !hosts.isEmpty(); }
+    }
+    /**
+     * When Daanvia opens with a bike paired: ask once for Nearby devices, or, once allowed, to turn Bluetooth on. The
+     * bike usually reconnects by itself, which never asks for anything, so without this the clock was never set
+     * (0.9.21 logs: Nearby devices off on every connection).
+     */
+    public void askBluetoothIfNeeded() {
+        // Not while the Wi-Fi permissions are being asked: Android shows one question at a time and drops the other.
+        if (!profileReady || !hasPermissions()) return;
+        // Asked each time Daanvia opens until allowed; Android itself stops showing it after two refusals.
+        if (!BleClock.allowed(context) && BleClock.permissions().length > 0) { synchronized (hosts) { if (hosts.isEmpty()) return; } ui.requestPermissions(BleClock.permissions(), BLUETOOTH_PERMISSIONS); }
+        else askBluetoothOn();
     }
     private boolean askedBluetoothOn;
     /** Bluetooth off: Android's own "turn on Bluetooth?" question, once each time Daanvia is opened, so the clock can be set. */

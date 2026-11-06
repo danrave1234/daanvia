@@ -191,7 +191,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
         if (!s.active) { here.start(); checkMapUpdates(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false); autoDelay = 15000;
         // Android shows one permission request at a time; the location answer starts auto-connect (onRequestPermissionsResult).
-        refresh(); if (!asking) autoConnect();
+        refresh(); if (!asking) { autoConnect(); link.askBluetoothIfNeeded(); }
     }
     protected void onResume() { super.onResume(); mapView.onResume(); themeCheckedAt = 0; markSaved(); refresh(); }
     protected void onPause() {
@@ -1248,6 +1248,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (code == 74 && Here.precise(this)) { here.stop(); here.start(); notice("Precise location on. Tap Just ride again when the dot settles."); }
         else if (code == 74) notice("Riding needs precise location. Turn it on in Android’s app settings for Daanvia.");
         if (code == DashboardLink.PERMISSIONS) link.onPermissionsResult();
+        if (code == DashboardLink.BLUETOOTH_PERMISSIONS) {
+            if (BleClock.allowed(this)) link.askBluetoothIfNeeded();
+            else if (!getSharedPreferences("ui", 0).getBoolean("bt_clock_noticed", false)) { getSharedPreferences("ui", 0).edit().putBoolean("bt_clock_noticed", true).apply(); notice("Without Nearby devices, Daanvia can't set the bike's clock. You can allow it in Android's app settings."); }
+        }
     }
     private void notificationsNotice() {
         notice("Allow notifications so Reconnect and Exit show on your lock screen during rides", "Settings",
