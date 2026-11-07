@@ -62,9 +62,14 @@ public final class StreamService extends Service {
             if(!waitingNoted){waitingNoted=true;log("The bike is connected but showing its own screen; waiting for it to ask for directions.");}
             if(now-lastControlAt>20000){log("The bike went quiet for 20 s; reconnecting.");stopSelf();return;}
         }
-        // The bike can go back to its speedometer and stop asking for video while still holding the control connection open,
-        // so a quiet video link alone ends the session; auto-connect then brings the directions back.
-        if(frames>0&&now-lastFrameAt>12000){log("The bike stopped asking for video ("+(controlOpen()?"its control link was still open":"its control link had closed")+"). Reconnecting.");stopSelf();return;}
+        // The rider left the map on the bike (its own screen, with the turn arrows Daanvia keeps sending, see BikeHud). As
+        // long as the control link is alive the session stays, as Carbit Ride's does, and the map comes back when the bike
+        // asks for video again. It used to end the session here, which took the arrows away with it.
+        if(frames>0&&now-lastFrameAt>12000){
+            if(!controlOpen()){log("The bike stopped asking for video and its control link closed. Reconnecting.");stopSelf();return;}
+            if(now-lastControlAt>20000){log("The bike went quiet for 20 s; reconnecting.");stopSelf();return;}
+            if(!ownScreen){ownScreen=true;log("The bike left the map for its own screen; keeping the link so it shows the turn arrows.");}
+        }
         // A video send that never finishes (the Wi-Fi link stalled) can leave the control channel looking healthy, so it is
         // caught on its own; ending the session lets auto-connect start a fresh one.
         long w=writingSince;if(w>0&&now-w>15000){log("Sending video to the display has been stuck for 15 s; restarting the connection.");stopSelf();return;}
@@ -154,7 +159,7 @@ public final class StreamService extends Service {
             if(!s.getInetAddress().equals(target)||!connections.tryAcquire()){s.close();continue;}
             if(!track(s)){connections.release();continue;}s.setSoTimeout(control?0:12000);
             int channelId=channelIds.incrementAndGet();log("Opened "+(control?"control":"media")+" channel #"+channelId+" on local port "+s.getLocalPort());
-            workers.execute(()->{try(Socket connection=s){if(control)control(connection);else media(connection);}catch(Exception e){if(running)log((control?"Control":"Media")+" channel #"+channelId+" ended at "+(System.currentTimeMillis()-startedAt)+" ms: "+e.getClass().getSimpleName()+" "+e.getMessage());if(!control)stopSelf();}finally{connections.release();}});
+            workers.execute(()->{try(Socket connection=s){if(control)control(connection);else media(connection);}catch(Exception e){if(running)log((control?"Control":"Media")+" channel #"+channelId+" ended at "+(System.currentTimeMillis()-startedAt)+" ms: "+e.getClass().getSimpleName()+" "+e.getMessage());if(!control&&!controlOpen())stopSelf();}finally{connections.release();}});
         }catch(SocketTimeoutException ignored){}catch(Exception e){if(running)log("Callback listener ended: "+e.getClass().getSimpleName());break;}
     }
     private void control(Socket s)throws Exception {
@@ -277,6 +282,8 @@ public final class StreamService extends Service {
         return b.length+" bytes: "+t.replace('\n',' ').replace('\r',' ')+(b.length>max?"…":"");
     }
     private void media(Socket s)throws Exception {
+        // The bike asks for video again: it is back on the map.
+        if(ownScreen&&frames>0)log("The bike is back on the map.");ownScreen=false;lastFrameAt=System.currentTimeMillis();
         InputStream in=s.getInputStream();OutputStream out=s.getOutputStream();
         while(running) {
             MediaWire f=MediaWire.read(in);
