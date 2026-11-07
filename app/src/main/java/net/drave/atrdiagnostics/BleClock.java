@@ -153,19 +153,49 @@ final class BleClock {
         if (found == 0 && !closed) log("no dashboard Bluetooth found in " + SCAN_MS / 1000 + " s. Is the bike on, and Carbit Ride closed?");
     }
 
-    /** The clock test: the nearest devices heard (the bike is the one beside the phone) are connected to, strongest first. */
+    /**
+     * The clock test: only a device that looks like the dashboard (its name, or a dashboard Bluetooth service) is
+     * connected to. It used to try the nearest five whatever they were: other people's phones and watches, which
+     * Android then asked to pair with (0.9.26).
+     */
     private void tryNearest() {
         if (closed) return;
         List<ScanResult> all = new ArrayList<>(heard.values());
         all.sort((a, b) -> b.getRssi() - a.getRssi());
-        int n = Math.min(LAB_DEVICES, all.size());
-        if (n == 0) { log("nothing heard. Is Bluetooth on and the bike switched on?"); return; }
-        log("heard " + all.size() + " device" + (all.size() == 1 ? "" : "s") + ". Trying the nearest " + n + ". Watch the bike's clock.");
-        for (int i = 0; i < n; i++) {
-            BluetoothDevice d = all.get(i).getDevice();
-            Link l = new Link(d, "device " + (i + 1) + " (" + nameOf(all.get(i)) + ", " + all.get(i).getRssi() + " dBm)");
+        if (all.isEmpty()) { log("nothing heard. Is Bluetooth on and the bike switched on?"); return; }
+        List<ScanResult> bike = new ArrayList<>();
+        for (ScanResult r : all) if (looksLikeDashboard(r)) bike.add(r);
+        if (bike.isEmpty()) {
+            log("heard " + all.size() + " device" + (all.size() == 1 ? "" : "s") + ", none of them the dashboard. Nothing was connected to. The closest:");
+            for (int i = 0; i < Math.min(5, all.size()); i++) log("  " + nameOf(all.get(i)) + ", " + all.get(i).getRssi() + " dBm" + makers(all.get(i)) + ".");
+            log("finished. The dashboard isn't sharing its Bluetooth, so its clock can't be set this way. Share the report.");
+            close(); return;
+        }
+        log("heard the dashboard. Watch the bike's clock.");
+        for (int i = 0; i < Math.min(LAB_DEVICES, bike.size()); i++) {
+            BluetoothDevice d = bike.get(i).getDevice();
+            Link l = new Link(d, "dashboard " + (i + 1) + " (" + nameOf(bike.get(i)) + ", " + bike.get(i).getRssi() + " dBm)");
             links.put(d.getAddress(), l); l.open();
         }
+    }
+    /** A name like the bike's display (SSDQ01-0120, QJ…, EasyConn, Carbit) or one of the dashboard Bluetooth services. */
+    static boolean looksLikeDashboard(String name, List<UUID> services) {
+        if (name != null) { String n = name.toUpperCase(Locale.ROOT); for (String w : new String[]{"SSDQ", "QJ", "EASYCONN", "CARBIT", "TFT", "DASH"}) if (n.contains(w)) return true; }
+        if (services != null) for (UUID u : services) if (SERVICES.contains(u)) return true;
+        return false;
+    }
+    private static boolean looksLikeDashboard(ScanResult r) {
+        String name = nameOf(r); List<UUID> ids = new ArrayList<>();
+        if (r.getScanRecord() != null && r.getScanRecord().getServiceUuids() != null) for (ParcelUuid p : r.getScanRecord().getServiceUuids()) ids.add(p.getUuid());
+        return looksLikeDashboard("no name".equals(name) ? null : name, ids);
+    }
+    /** The maker codes a device advertises (which company made it), to tell the bike from phones and watches. */
+    private static String makers(ScanResult r) {
+        if (r.getScanRecord() == null || r.getScanRecord().getManufacturerSpecificData() == null || r.getScanRecord().getManufacturerSpecificData().size() == 0) return "";
+        StringBuilder b = new StringBuilder(", maker");
+        android.util.SparseArray<byte[]> m = r.getScanRecord().getManufacturerSpecificData();
+        for (int i = 0; i < m.size(); i++) b.append(i == 0 ? " " : ", ").append(String.format(Locale.US, "0x%04x", m.keyAt(i)));
+        return b.toString();
     }
 
     @SuppressLint("MissingPermission")

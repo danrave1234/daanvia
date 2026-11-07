@@ -6,6 +6,13 @@ import static org.junit.Assert.*;
 
 /** The privacy and safety checks added in the November audit. */
 public class AuditFixesTest {
+    /** The clock test connects only to the dashboard, never to phones or watches nearby (they asked to pair, 0.9.26). */
+    @Test public void clockTestLeavesOtherDevicesAlone() {
+        assertTrue(BleClock.looksLikeDashboard("SSDQ01-0120", null));
+        assertFalse(BleClock.looksLikeDashboard("Amazfit T-Rex Pro", null));
+        assertFalse(BleClock.looksLikeDashboard(null, java.util.Collections.singletonList(java.util.UUID.fromString("0000fee0-0000-1000-8000-00805f9b34fb"))));
+        assertTrue(BleClock.looksLikeDashboard(null, java.util.Collections.singletonList(java.util.UUID.fromString("00001c00-d102-11e1-9b23-000efb0000b2"))));
+    }
     /** "7/11" finds the 7-Eleven branches, closest first. */
     @Test public void sevenElevenAsRidersTypeIt() {
         for (String q : new String[]{"7/11", "711", "7 11", "seven eleven", "7-Eleven"}) assertEquals(q, "7-Eleven", SearchIndex.alias(q));
