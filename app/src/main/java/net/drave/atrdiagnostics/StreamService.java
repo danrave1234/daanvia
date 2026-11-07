@@ -114,7 +114,7 @@ public final class StreamService extends Service {
             target=InetAddress.getByName(intent.getStringExtra("host"));local=InetAddress.getByName(intent.getStringExtra("local"));
             long handle=intent.getLongExtra("network",0);if(handle!=0)network=Network.fromNetworkHandle(handle);
             int port=intent.getIntExtra("port",10930);
-            running=true;frames=0;bytes=0;startedAt=System.currentTimeMillis();
+            running=true;frames=0;bytes=0;startedAt=System.currentTimeMillis();current=this;ownScreen=false;dataOut=null;hudMaxIcon=19;
             event("started","Starting "+(navigation?"dedicated Daanvia scene":mirror?"screen mirroring":"animated color-pattern test")+". A successful socket write is not proof of visible video.");
             int duration=mirror?90000:45000;boolean keep=intent.getBooleanExtra("keep",false);
             // Support's tests stop on their own; mirroring the rider started from the map runs until they stop it.
@@ -178,6 +178,8 @@ public final class StreamService extends Service {
                 if(!track(keepalive))return;log("Enabled phone-originated keepalive every 2000 ms on "+channel);
             }
             if(f.command==0x10000||f.command==0x20000||f.command==0x10690||f.command==0x70000000)out.write(Pxc.encode(f.command+1,""));
+            // The data channel is where the phone sends its own messages to the bike (the turn arrows, below).
+            if(f.command==0x20000&&dataOut==null){dataOut=out;startHud(out);}
             else if(f.command==Pxc.CLIENT_INFO) {
                 JSONObject bike=new JSONObject(f.text());String huid=bike.optString("HUID",bike.optString("huid",""));
                 // The bike's own screen: its panel pixels and the video size it shows, so the scene can be drawn for it.
@@ -195,12 +197,11 @@ public final class StreamService extends Service {
                 JSONObject phone=new JSONObject().put("pxcVersion","1.0.2").put("phoneUUID",UUID.randomUUID().toString())
                     .put("phoneBrand",Build.BRAND).put("phoneModel",Build.MODEL).put("phoneOsVersion",String.valueOf(Build.VERSION.SDK_INT)).put("phoneOs","Android")
                     .put("package",PACKAGE).put("versionCode",6).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
-                    .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",0).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
+                    .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",bike.optLong("supportFunction",0)).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
                 log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
                 final PxcWriter clockOut=out;main.postDelayed(()->{if(running)workers.execute(()->pushClock(clockOut,huTime,seenAt));},DashClock.ASK_GRACE_MS);
-                // The Wi-Fi exchange leaves the QJ's clock at 0:00 whatever is answered; Carbit sets it over Bluetooth (see BleClock).
-                synchronized(this){if(bleClock==null&&running){bleClock=new BleClock(this,m->event("log",m));main.post(bleClock::start);}}
+                // No Bluetooth clock: Carbit Ride never uses Bluetooth; the bike takes its time over this link (0x10450, 0x10430).
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
@@ -217,7 +218,13 @@ public final class StreamService extends Service {
                 boolean kept=DashClock.keepsOwnTime(f.payload,System.currentTimeMillis());
                 if(!syncLogged||kept!=syncKept){syncLogged=true;syncKept=kept;log((kept?"The dashboard's clock is set; left as it is":"Set the dashboard's clock: "+clock())+". It said: "+DashClock.stampOf(f.payload)+".");}
             }
-            else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10040||f.command==0x10750||f.command==0x10430||f.command==0x10460) {
+            // The bike asks where the phone is; Carbit answers with the GPS fix and its time, and the bike's clock comes from it.
+            else if(f.command==0x10430){out.write(Pxc.encode(0x10431,locationNow()));if(!locationLogged){locationLogged=true;log("Told the dashboard where the phone is"+(NavSession.get(this).fixAt>0?", with the GPS time.":" (no GPS fix yet)."));}}
+            // The bike asks for turn arrows for its own screen (BikeHud).
+            else if(f.command==BikeHud.ASK){out.write(Pxc.encode(BikeHud.ASK+1,""));hudMaxIcon=BikeHud.maxIcon(f.text());log("The dashboard asked for turn arrows (it knows "+hudMaxIcon+").");}
+            // Replies to the phone's own messages on the data channel: nothing to do.
+            else if((f.command>>>16)==2&&(f.command&1)==1){}
+            else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10750||f.command==0x10460) {
                 out.write(Pxc.encode(f.command+1,""));
             } else if(f.command==0x10630||f.command==0x104a0) {
                 out.write(Pxc.encode(f.command+1,""));
@@ -309,8 +316,51 @@ public final class StreamService extends Service {
             out.flush();
         }
     }
+    // ---------------------------------------------------------------- the bike's own screen (BikeHud)
+    private static volatile StreamService current;
+    /** The bike shows its own screen with turn arrows instead of the phone's map (0x20170), until switched back. */
+    public static volatile boolean ownScreen;
+    private volatile PxcWriter dataOut;private volatile int hudMaxIcon=19;private boolean locationLogged;
+    /** The phone's last GPS fix for the bike's location question (0x10430), its time taken from when it was seen. */
+    private String locationNow(){
+        NavSession n=NavSession.get(this);boolean known=n.fixAt>0&&!n.simulation;
+        long fixTime=System.currentTimeMillis()-(SystemClock.elapsedRealtime()-n.fixAt);
+        return BikeHud.location(known,n.lat,n.lon,n.speedMetersPerSecond,0,n.bearing,known?fixTime:System.currentTimeMillis());
+    }
+    /** Every second while connected: navigation on or off, and the next turn when it changes (at least every 5 s). */
+    private void startHud(PxcWriter out){
+        workers.execute(()->{
+            Boolean wasNavigating=null;String last="";long sentAt=0;
+            try{
+                while(running&&dataOut==out){
+                    NavSession n=NavSession.get(this);
+                    boolean navigating=n.active&&!n.cruise&&n.maneuvers.length()>0;
+                    if(wasNavigating==null||navigating!=wasNavigating){
+                        out.write(Pxc.encode(BikeHud.NAVI_STATUS,new JSONObject().put("status",navigating).toString()));
+                        if(!navigating)out.write(Pxc.encode(BikeHud.INFO,"{\"status\":1}"));
+                        if(wasNavigating!=null||navigating)log("Told the dashboard navigation "+(navigating?"started":"ended")+".");
+                        wasNavigating=navigating;last="";
+                    }
+                    if(navigating){
+                        String info=BikeHud.info(n.maneuvers,n.maneuver,n.distanceToTurn,n.remaining,n.seconds,n.destination,hudMaxIcon,System.currentTimeMillis(),TimeZone.getDefault());
+                        long now=SystemClock.elapsedRealtime();
+                        if(!info.equals(last)||now-sentAt>5000){out.write(Pxc.encode(BikeHud.INFO,info));last=info;sentAt=now;}
+                    }
+                    Thread.sleep(1000);
+                }
+            }catch(InterruptedException ignored){}catch(Exception e){if(running)log("Turn arrows stopped: "+e.getClass().getSimpleName());}
+        });
+    }
+    /** Switch the bike between its own screen with the arrows ({@code own}) and the phone's map. False when not connected. */
+    public static boolean showOwnScreen(boolean own){
+        StreamService c=current;PxcWriter out=c==null?null:c.dataOut;if(out==null||!c.running)return false;
+        ownScreen=own;
+        c.workers.execute(()->{try{out.write(Pxc.encode(own?BikeHud.OWN_SCREEN:BikeHud.PHONE_SCREEN,""));c.log(own?"Showed the bike's own screen with turn arrows.":"Showed the phone's map on the bike again.");}catch(Exception e){c.log("Couldn't switch the bike's screen: "+e.getClass().getSimpleName());}});
+        return true;
+    }
+
     public void onDestroy() {
-        navigationActive=false;mirroring=false;
+        navigationActive=false;mirroring=false;ownScreen=false;if(current==this)current=null;dataOut=null;
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;main.removeCallbacksAndMessages(null);
         synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}

@@ -77,7 +77,14 @@ final class RideScreen {
         LinearLayout et = k.column(3);
         LinearLayout etTop = k.row(8); etaMin = k.num("", 25, 800, INK); etTop.addView(etaMin);
         simBadge = k.chip("DEMO", ACCENT_SOFT, ACCENT); simBadge.setTextSize(10.5f); simBadge.setLetterSpacing(0.08f); etTop.addView(simBadge);
-        tftBadge = k.chip("On bike", OK_SOFT, OK); tftBadge.setTextSize(10.5f); etTop.addView(tftBadge);
+        tftBadge = k.chip("On bike · Map", OK_SOFT, OK); tftBadge.setTextSize(10.5f); etTop.addView(tftBadge);
+        // Tap: the bike shows its own screen with the turn arrow and distance (like Carbit's closed map), or the map again.
+        tftBadge.setContentDescription("Switch the bike display between the map and turn arrows");
+        Gabi.press(tftBadge, () -> {
+            boolean own = !StreamService.ownScreen;
+            if (!StreamService.showOwnScreen(own)) { host.notice("Connect the bike display first"); return; }
+            paintBikeBadge(); host.notice(own ? "Bike shows turn arrows" : "Bike shows the map");
+        });
         et.addView(etTop);
         etaMeta = k.num("", 13, 600, MUTED); et.addView(etaMeta);
         bar.addView(et, new LinearLayout.LayoutParams(0, -2, 1));
@@ -95,6 +102,12 @@ final class RideScreen {
     void show(boolean riding) {
         Gabi.show(top, riding, -k.dp(24)); if (!riding) thenChip.setVisibility(View.GONE);
         Gabi.show(bar, riding, k.dp(24));
+    }
+    /** "On bike · Map" or "On bike · Arrows" while the bike display is connected. */
+    private void paintBikeBadge() {
+        tftBadge.setVisibility(StreamService.navigationActive ? View.VISIBLE : View.GONE);
+        String t = StreamService.ownScreen ? "On bike · Arrows" : "On bike · Map";
+        if (!t.contentEquals(tftBadge.getText())) tftBadge.setText(t);
     }
     /** The ride mode was just entered: follow the rider and pop the first turn in. */
     void enter() { follow = true; shownManeuver = -1; }
@@ -145,7 +158,7 @@ final class RideScreen {
         if (!endArmed) endBtn.setText(card.arriving ? "Finish" : "End");
         etaMeta.setText(Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
         simBadge.setVisibility(s.simulation ? View.VISIBLE : View.GONE);
-        tftBadge.setVisibility(StreamService.navigationActive ? View.VISIBLE : View.GONE);
+        paintBikeBadge();
     }
     /** The ride screen on a free ride: the road the rider is on and their speed, with End; no turns, no arrival time. */
     private void paintCruise() {
@@ -160,7 +173,7 @@ final class RideScreen {
         if (!endArmed) endBtn.setText("End");
         Gabi.show(blockBtn, false, 0);
         simBadge.setVisibility(View.GONE);
-        tftBadge.setVisibility(StreamService.navigationActive ? View.VISIBLE : View.GONE);
+        paintBikeBadge();
     }
     /** Show the icon, keeping the one already there when nothing about it changed: this runs on every GPS fix. */
     private static void icon(ImageView v, int type, int color, float stroke) {

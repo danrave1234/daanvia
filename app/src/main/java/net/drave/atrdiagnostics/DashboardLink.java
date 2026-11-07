@@ -41,6 +41,8 @@ public final class DashboardLink {
     }
 
     public static final int PERMISSIONS = 10, BLUETOOTH_PERMISSIONS = 11;
+    /** The Bluetooth clock (BleClock) on every connection. Off: the bike gets its time over Wi-Fi. */
+    static final boolean BLUETOOTH_CLOCK = false;
     public static final int MODE_NAVIGATION = 3, MODE_PATTERN = 1, MODE_MIRROR = 2;
 
     private final Context context;
@@ -416,6 +418,8 @@ public final class DashboardLink {
      * (0.9.21 logs: Nearby devices off on every connection).
      */
     public void askBluetoothIfNeeded() {
+        // Off: Carbit Ride sets the clock without Bluetooth (recordings of 7 Nov), so asking for it only added popups.
+        if (BLUETOOTH_CLOCK) {} else return;
         // Not while the Wi-Fi permissions are being asked: Android shows one question at a time and drops the other.
         if (!profileReady || !hasPermissions()) return;
         // Asked once each time Daanvia starts until allowed; Android itself stops showing it after two refusals. Once per
