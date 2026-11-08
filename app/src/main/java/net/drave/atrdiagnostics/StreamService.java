@@ -23,7 +23,12 @@ public final class StreamService extends Service {
     public static volatile boolean mirroring;
     private boolean userStop;
     public static final String EVENT="net.drave.atrdiagnostics.STREAM_EVENT";
-    private static final String PACKAGE="net.drave.atrdiagnostics";
+    /*
+     * The app the bike is told it is talking to. The QJ dashboard showed its own turn-arrow screen in Chinese and never kept
+     * the time Daanvia gave it, while for Carbit Ride (net.easyconn.easyride.wws, its worldwide edition, version 2.4 = 47)
+     * it does both. So Daanvia introduces itself the same way; only what the bike reads changes.
+     */
+    private static final String PACKAGE="net.easyconn.easyride.wws";private static final int PACKAGE_VERSION=47;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService workers=Executors.newCachedThreadPool();  // threads only while there is work; idle ones end after a minute
     private static java.security.KeyPair sharedIdentity;
@@ -202,7 +207,7 @@ public final class StreamService extends Service {
                 syncLogged=false;
                 JSONObject phone=new JSONObject().put("pxcVersion","1.0.2").put("phoneUUID",phoneId())
                     .put("phoneBrand",Build.BRAND).put("phoneModel",Build.MODEL).put("phoneOsVersion",String.valueOf(Build.VERSION.SDK_INT)).put("phoneOs","Android")
-                    .put("package",PACKAGE).put("versionCode",6).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
+                    .put("package",PACKAGE).put("versionCode",PACKAGE_VERSION).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
                     .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",bike.optLong("supportFunction",0)).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1")
                     // Carbit Ride adds the dashboard's voice engine back to it; it gave the bike the same id on every connection too.
                     .put("speechEngineType",bike.optInt("supportSpeechEngine",2));
