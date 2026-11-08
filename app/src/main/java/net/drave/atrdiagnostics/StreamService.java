@@ -182,9 +182,10 @@ public final class StreamService extends Service {
                 keepalive=new ControlKeepalive(out,2000,count->{if(running&&count==1)log("Sent proactive heartbeat #"+count+" on "+channel);},error->{if(running)log("Keepalive write failed on "+channel+": "+error.getClass().getSimpleName());try{s.close();}catch(IOException ignored){}});
                 if(!track(keepalive))return;log("Enabled phone-originated keepalive every 2000 ms on "+channel);
             }
-            if(f.command==0x10000||f.command==0x20000||f.command==0x10690||f.command==0x70000000)out.write(Pxc.encode(f.command+1,""));
-            // The data channel is where the phone sends its own messages to the bike (the turn arrows, below).
+            // The data channel is where the phone sends its own messages to the bike (the turn arrows, BikeHud). Before the
+            // reply chain below, so that chain's final "unimplemented" line isn't reached for messages answered here.
             if(f.command==0x20000&&dataOut==null){dataOut=out;startHud(out);}
+            if(f.command==0x10000||f.command==0x20000||f.command==0x10690||f.command==0x70000000)out.write(Pxc.encode(f.command+1,""));
             else if(f.command==Pxc.CLIENT_INFO) {
                 JSONObject bike=new JSONObject(f.text());String huid=bike.optString("HUID",bike.optString("huid",""));
                 // The bike's own screen: its panel pixels and the video size it shows, so the scene can be drawn for it.
@@ -199,10 +200,12 @@ public final class StreamService extends Service {
                 String signed=Base64.encodeToString(rsa.doFinal(huid.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
                 long huTime=bike.optLong("currentHUTime",0),seenAt=SystemClock.elapsedRealtime();
                 syncLogged=false;
-                JSONObject phone=new JSONObject().put("pxcVersion","1.0.2").put("phoneUUID",UUID.randomUUID().toString())
+                JSONObject phone=new JSONObject().put("pxcVersion","1.0.2").put("phoneUUID",phoneId())
                     .put("phoneBrand",Build.BRAND).put("phoneModel",Build.MODEL).put("phoneOsVersion",String.valueOf(Build.VERSION.SDK_INT)).put("phoneOs","Android")
                     .put("package",PACKAGE).put("versionCode",6).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
-                    .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",bike.optLong("supportFunction",0)).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1");
+                    .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",bike.optLong("supportFunction",0)).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1")
+                    // Carbit Ride adds the dashboard's voice engine back to it; it gave the bike the same id on every connection too.
+                    .put("speechEngineType",bike.optInt("supportSpeechEngine",2));
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
                 log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
                 final PxcWriter clockOut=out;main.postDelayed(()->{if(running)workers.execute(()->pushClock(clockOut,huTime,seenAt));},DashClock.ASK_GRACE_MS);
@@ -322,6 +325,12 @@ public final class StreamService extends Service {
             }
             out.flush();
         }
+    }
+    /** This phone's id for the bike, the same on every connection (it was a new random one each time). */
+    private String phoneId(){
+        SharedPreferences p=getSharedPreferences("saved-bike",0);String id=p.getString("phone_id",null);
+        if(id==null){id=UUID.randomUUID().toString();p.edit().putString("phone_id",id).apply();}
+        return id;
     }
     // ---------------------------------------------------------------- the bike's own screen (BikeHud)
     private static volatile StreamService current;
