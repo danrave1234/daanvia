@@ -88,15 +88,8 @@ final class BikeHud {
     }
 
     /**
-     * The reply to the dashboard's 0x10430 location question (0x10431), as Carbit answers it: where the phone is, its
-     * speed and heading, and the time of that fix. Daanvia used to answer with nothing.
+     * The reply to the dashboard's 0x10430 location question (0x10431), exactly as Carbit Ride sends it. Never a fix: a
+     * reply with a position and time (0.9.27 to 0.9.31), or an empty one (before), left the bike's clock wrong.
      */
-    static String location(boolean known, double lat, double lon, float speed, double altitude, float bearing, long fixTimeMs) {
-        try {
-            JSONObject j = new JSONObject();
-            if (!known) return j.put("status", false).toString();
-            return j.put("status", true).put("longitude", lon).put("latitude", lat).put("speed", speed).put("altitude", altitude).put("course", bearing)
-                .put("time", fixTimeMs).put("province", "").put("city", "").put("district", "").put("road", "").put("number", "").put("poiname", "").toString();
-        } catch (JSONException e) { return "{\"status\":false}"; }
-    }
+    static final String NO_LOCATION = "{\"status\":false}";
 }

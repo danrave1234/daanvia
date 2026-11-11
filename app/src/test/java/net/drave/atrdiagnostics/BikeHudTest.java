@@ -32,9 +32,8 @@ public class BikeHudTest {
         assertEquals(1, new JSONObject(BikeHud.info(new JSONArray(), 0, 0, 0, 0, "", 19, 0, TimeZone.getDefault())).getInt("status"));
         assertEquals(19, BikeHud.maxIcon("{\"supportFunction\":0}")); assertEquals(80, BikeHud.maxIcon("{\"maxNaviIcon\":80}"));
     }
-    @Test public void locationReplyCarriesTheFixTime() throws Exception {
-        JSONObject j = new JSONObject(BikeHud.location(true, 10.3, 123.9, 5f, 0, 90f, 1_700_000_000_000L));
-        assertTrue(j.getBoolean("status")); assertEquals(1_700_000_000_000L, j.getLong("time")); assertEquals(123.9, j.getDouble("longitude"), 1e-9);
-        assertFalse(new JSONObject(BikeHud.location(false, 0, 0, 0, 0, 0, 0)).getBoolean("status"));
+    @Test public void locationReplyIsCarbitsNoLocation() throws Exception {
+        JSONObject j = new JSONObject(BikeHud.NO_LOCATION);
+        assertFalse(j.getBoolean("status")); assertEquals(1, j.length());
     }
 }

@@ -244,8 +244,10 @@ public final class StreamService extends Service {
                 boolean kept=DashClock.keepsOwnTime(f.payload,System.currentTimeMillis());
                 if(!syncLogged||kept!=syncKept){syncLogged=true;syncKept=kept;log((kept?"The dashboard's clock is set; left as it is":"Set the dashboard's clock: "+clock())+". It said: "+DashClock.stampOf(f.payload)+".");}
             }
-            // The bike asks where the phone is; Carbit answers with the GPS fix and its time, and the bike's clock comes from it.
-            else if(f.command==0x10430){out.write(Pxc.encode(0x10431,locationNow()));if(!locationLogged){locationLogged=true;log("Told the dashboard where the phone is"+(NavSession.get(this).fixAt>0?", with the GPS time.":" (no GPS fix yet)."));}}
+            // The bike asks where the phone is, every 2 s. Carbit Ride answers "no location" every time (its own log of 11 Nov:
+            // 1,212 questions, 1,212 times {"status":false}), and the bike's clock stays right. Daanvia answered with nothing
+            // at first and then with a GPS fix and its time, and either way the clock went wrong: so it answers as Carbit does.
+            else if(f.command==0x10430){out.write(Pxc.encode(0x10431,BikeHud.NO_LOCATION));if(!locationLogged){locationLogged=true;log("Answered the dashboard's location question the way Carbit Ride does (no location).");}}
             // The bike asks for turn arrows for its own screen (BikeHud).
             else if(f.command==BikeHud.ASK){out.write(Pxc.encode(BikeHud.ASK+1,""));hudMaxIcon=BikeHud.maxIcon(f.text());log("The dashboard asked for turn arrows (it knows "+hudMaxIcon+").");}
             // Replies to the phone's own messages on the data channel: nothing to do.
@@ -355,12 +357,6 @@ public final class StreamService extends Service {
     /** The bike shows its own screen with turn arrows instead of the phone's map (0x20170), until switched back. */
     public static volatile boolean ownScreen;
     private volatile PxcWriter dataOut;private volatile int hudMaxIcon=19;private boolean locationLogged;
-    /** The phone's last GPS fix for the bike's location question (0x10430), its time taken from when it was seen. */
-    private String locationNow(){
-        NavSession n=NavSession.get(this);boolean known=n.fixAt>0&&!n.simulation;
-        long fixTime=System.currentTimeMillis()-(SystemClock.elapsedRealtime()-n.fixAt);
-        return BikeHud.location(known,n.lat,n.lon,n.speedMetersPerSecond,0,n.bearing,known?fixTime:System.currentTimeMillis());
-    }
     /** Every second while connected: navigation on or off, and the next turn when it changes (at least every 5 s). */
     private void startHud(PxcWriter out){
         workers.execute(()->{
