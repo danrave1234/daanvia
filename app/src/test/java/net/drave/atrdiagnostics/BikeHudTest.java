@@ -38,4 +38,9 @@ public class BikeHudTest {
         JSONObject j = new JSONObject(BikeHud.NO_LOCATION);
         assertFalse(j.getBoolean("status")); assertEquals(1, j.length());
     }
+    @Test public void appStatusIsCarbits() throws Exception {
+        JSONObject j = new JSONObject(BikeHud.appStatus(2412, 1080));
+        assertEquals(0, j.getInt("displayRotation")); assertEquals(1080, j.getInt("width")); assertEquals(2412, j.getInt("height"));
+        assertFalse(j.getBoolean("enableAccessibility")); assertTrue(j.getBoolean("enableAOAHid")); assertEquals(2, j.getInt("mode")); assertEquals(6, j.length());
+    }
 }

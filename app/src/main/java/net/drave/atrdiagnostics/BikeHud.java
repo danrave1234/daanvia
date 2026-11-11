@@ -20,6 +20,19 @@ final class BikeHud {
 
     static final int ASK = 0x10040, NAVI_STATUS = 0x201e0, INFO = 0x20110, OWN_SCREEN = 0x20170, PHONE_SCREEN = 0x201d0;
 
+    /**
+     * The app's state, which Carbit Ride sends twice a second for the whole connection (its log of 11 Nov: 5,000 of them):
+     * 0x20020 while the app is on the phone's screen, 0x20030 while it isn't, each with the phone's screen size.
+     */
+    static final int APP_ON_SCREEN = 0x20020, APP_IN_BACKGROUND = 0x20030;
+    /** Body of both: the phone's screen upright, and mode 2 (the app draws its own picture for the bike). */
+    static String appStatus(int screenW, int screenH) {
+        try {
+            return new JSONObject().put("displayRotation", 0).put("width", Math.min(screenW, screenH)).put("height", Math.max(screenW, screenH))
+                .put("enableAccessibility", false).put("enableAOAHid", true).put("mode", 2).toString();
+        } catch (JSONException e) { return "{}"; }
+    }
+
     /** The arrows every dashboard knows (up to 19), as Carbit numbers them. */
     static final int LEFT = 2, RIGHT = 3, SLIGHT_LEFT = 4, SLIGHT_RIGHT = 5, SHARP_LEFT = 6, SHARP_RIGHT = 7, UTURN = 8,
         STRAIGHT = 9, ROUNDABOUT = 11, ROUNDABOUT_EXIT = 12, ARRIVE = 15;

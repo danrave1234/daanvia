@@ -187,7 +187,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
 
     protected void onStart() {
-        super.onStart(); mapView.onStart(); started = true;
+        super.onStart(); mapView.onStart(); started = true; StreamService.appOnScreen = true;
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
@@ -204,7 +204,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             getSharedPreferences("ui", 0).edit().putFloat("cam_lat", (float)c.target.getLatitude()).putFloat("cam_lon", (float)c.target.getLongitude()).putFloat("cam_zoom", (float)c.zoom).apply(); }
         mapView.onPause(); super.onPause();
     }
-    protected void onStop() { ride.stop(); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; stoppedAt = SystemClock.elapsedRealtime(); ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    protected void onStop() { ride.stop(); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; StreamService.appOnScreen = false; stoppedAt = SystemClock.elapsedRealtime(); ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
     /** This launch only opened the move screen: nothing was set up, so there is nothing to tear down. */
     private boolean moving, offerUninstallOld;
     private final BroadcastReceiver closeScreens = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { finishAndRemoveTask(); } };

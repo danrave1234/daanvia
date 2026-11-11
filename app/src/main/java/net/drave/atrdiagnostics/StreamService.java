@@ -362,6 +362,8 @@ public final class StreamService extends Service {
     }
     // ---------------------------------------------------------------- the bike's own screen (BikeHud)
     private static volatile StreamService current;
+    /** Daanvia's map is on the phone's screen (HomeActivity started): what the app-state messages tell the bike. */
+    public static volatile boolean appOnScreen;
     /** The bike shows its own screen with turn arrows instead of the phone's map (0x20170), until switched back. */
     public static volatile boolean ownScreen;
     private volatile PxcWriter dataOut;private volatile int hudMaxIcon=19;private boolean locationLogged;
@@ -369,8 +371,17 @@ public final class StreamService extends Service {
     private void startHud(PxcWriter out){
         workers.execute(()->{
             Boolean wasNavigating=null;String last="";long sentAt=0;
+            android.graphics.Point screen=new android.graphics.Point();
+            try{((android.view.WindowManager)getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealSize(screen);}catch(Exception ignored){}
+            String status=BikeHud.appStatus(screen.x>0?screen.x:1080,screen.y>0?screen.y:2400);boolean statusLogged=false;
             try{
                 while(running&&dataOut==out){
+                    // Twice a second, as Carbit Ride does: whether the app is on the phone's screen (BikeHud.appStatus).
+                    for(int half=0;half<2;half++){
+                        out.write(Pxc.encode(appOnScreen?BikeHud.APP_ON_SCREEN:BikeHud.APP_IN_BACKGROUND,status));
+                        if(!statusLogged){statusLogged=true;log("Telling the dashboard the app's state twice a second, as Carbit Ride does: "+status);}
+                        if(half==0)Thread.sleep(500);
+                    }
                     NavSession n=NavSession.get(this);
                     boolean navigating=n.active&&!n.cruise&&n.maneuvers.length()>0;
                     if(wasNavigating==null||navigating!=wasNavigating){
@@ -384,7 +395,7 @@ public final class StreamService extends Service {
                         long now=SystemClock.elapsedRealtime();
                         if(!info.equals(last)||now-sentAt>5000){out.write(Pxc.encode(BikeHud.INFO,info));last=info;sentAt=now;}
                     }
-                    Thread.sleep(1000);
+                    Thread.sleep(500);
                 }
             }catch(InterruptedException ignored){}catch(Exception e){if(running)log("Turn arrows stopped: "+e.getClass().getSimpleName());}
         });
