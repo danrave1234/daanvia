@@ -231,7 +231,10 @@ public final class StreamService extends Service {
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
-                out.write(Pxc.encode(0x201c0,new JSONObject().put("isOk",true).put("errCode",0).put("errMsg","").put("id",request.optString("sn")).put("client_set",request.optString("client_set")).toString()));
+                out.write(Pxc.encode(0x201c0,new JSONObject().put("isOk",true).put("errCode",0).put("errMsg","").put("id",request.optString("sn"))
+                    // Carbit Ride puts its server's settings here, which come back empty for this bike (its log of 11 Nov); Daanvia
+                    // used to echo the bike's own "easy_conn" back as if it were settings.
+                    .put("client_set","").toString()));
             } else if(f.command==0x201c1)log("Dashboard acknowledged the client session check.");
             // The dashboard asks the phone for the time; an empty answer left its clock counting up from 00:00 (see DashClock).
             else if(f.command==DashClock.QUERY_TIME) {
