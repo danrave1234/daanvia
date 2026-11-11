@@ -257,9 +257,18 @@ public final class StreamService extends Service {
             else if((f.command>>>16)==2&&(f.command&1)==1){}
             else if(f.command==0x10780||f.command==0x103a0||f.command==0x10020||f.command==0x10750||f.command==0x10460) {
                 out.write(Pxc.encode(f.command+1,""));
-            } else if(f.command==0x10630||f.command==0x104a0) {
+            } else if(f.command==0x104a0) {
+                // The bike asks for the file server it checks for updates through (BikeFtp); the clock only came right after it.
+                out.write(Pxc.encode(0x104a1,""));
+                JSONObject want=new JSONObject(f.text());startBikeFtp(want.optInt("ctrlPort"),want.optInt("dataPort"));
+            } else if(f.command==BikeFtp.UPLOADED) {
+                // Its request file is in: answer as Carbit Ride does when there is nothing to update.
+                out.write(Pxc.encode(BikeFtp.UPLOADED+1,""));
+                workers.execute(()->{try{Thread.sleep(1500);PxcWriter d=dataOut;if(d!=null&&running){d.write(Pxc.encode(BikeFtp.RESULT,BikeFtp.NO_UPDATES));log("Told the dashboard there is no update, as Carbit Ride does.");}}catch(Exception ignored){}});
+            } else if(f.command==0x10630) {
+                // The bike's weather question, every 2 s: Carbit Ride answers with nothing, and so does Daanvia. Logged once.
                 out.write(Pxc.encode(f.command+1,""));
-                log("Acknowledged ATR-observed control request 0x"+Integer.toHexString(f.command)+" -> 0x"+Integer.toHexString(f.command+1)+"; payload length="+f.payload.length+". Disconnect relevance unverified.");
+                if(!weatherLogged){weatherLogged=true;log("Answering the dashboard's weather question with nothing, as Carbit Ride does (it asks every 2 s).");}
             } else log("Unimplemented control command 0x"+Integer.toHexString(f.command)+"; payload length="+f.payload.length+"; no guessed reply sent.");
             out.flush();
         }
@@ -360,6 +369,22 @@ public final class StreamService extends Service {
         if(id==null){id=UUID.randomUUID().toString();p.edit().putString("phone_id",id).apply();}
         return id;
     }
+    private boolean weatherLogged;
+    private BikeFtp bikeFtp;
+    /** Open the file server on the ports the bike named, then tell the bike it is ready (0x20280), once per connection. */
+    private synchronized void startBikeFtp(int ctrlPort,int dataPort){
+        if(bikeFtp!=null||!running)return;
+        try{
+            BikeFtp ftp=new BikeFtp(local,target,ctrlPort,dataPort,this::log);if(!track(ftp))return;bikeFtp=ftp;
+            workers.execute(ftp::serve);
+            workers.execute(()->{try{
+                // The reply goes on the data channel, which can open a moment after this request arrives.
+                for(int i=0;i<50&&dataOut==null&&running;i++)Thread.sleep(100);
+                PxcWriter d=dataOut;if(d==null||!running)return;
+                d.write(Pxc.encode(BikeFtp.READY,BikeFtp.ready(dataPort,ctrlPort)));log("Opened the file server the dashboard asked for (ports "+ctrlPort+"/"+dataPort+").");
+            }catch(Exception e){log("Couldn't tell the dashboard the file server is ready: "+e.getClass().getSimpleName());}});
+        }catch(Exception e){log("Couldn't open the file server the dashboard asked for: "+e.getClass().getSimpleName()+" "+e.getMessage());}
+    }
     // ---------------------------------------------------------------- the bike's own screen (BikeHud)
     private static volatile StreamService current;
     /** Daanvia's map is on the phone's screen (HomeActivity started): what the app-state messages tell the bike. */
@@ -409,7 +434,7 @@ public final class StreamService extends Service {
     }
 
     public void onDestroy() {
-        navigationActive=false;mirroring=false;ownScreen=false;if(current==this)current=null;dataOut=null;
+        navigationActive=false;mirroring=false;ownScreen=false;if(current==this)current=null;dataOut=null;synchronized(this){bikeFtp=null;}
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;main.removeCallbacksAndMessages(null);
         synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
