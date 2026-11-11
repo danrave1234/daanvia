@@ -29,7 +29,9 @@ public class BikeHudTest {
         assertEquals(0, j.getInt("status")); assertEquals(2, j.getInt("naviIcon")); assertEquals("Osmeña Blvd", j.getString("nextRoad"));
         assertEquals(200, j.getInt("roadRemainingDistance")); assertEquals(5000, j.getInt("destinationRemainingDistance"));
         assertEquals(600, j.getInt("destinationRemainingTime")); assertEquals(1_600_000L, j.getLong("arriveTime"));
-        assertEquals(1, new JSONObject(BikeHud.info(new JSONArray(), 0, 0, 0, 0, "", 19, 0, TimeZone.getDefault())).getInt("status"));
+        assertFalse(j.has("currentRoad")); assertFalse(j.has("naviDestination")); assertEquals(2, j.getInt("signalIntensity"));
+        JSONObject none = new JSONObject(BikeHud.info(new JSONArray(), 0, 0, 0, 0, "", 19, 0, TimeZone.getDefault()));
+        assertEquals(1, none.getInt("status")); assertEquals(0, none.getInt("naviIcon")); assertFalse(none.has("nextRoad")); assertEquals(0, none.getInt("destinationRemainingDistance"));
         assertEquals(19, BikeHud.maxIcon("{\"supportFunction\":0}")); assertEquals(80, BikeHud.maxIcon("{\"maxNaviIcon\":80}"));
     }
     @Test public void locationReplyIsCarbitsNoLocation() throws Exception {

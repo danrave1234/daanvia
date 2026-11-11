@@ -62,14 +62,15 @@ final class BikeHud {
         try {
             JSONObject j = new JSONObject();
             JSONObject m = maneuvers == null ? null : maneuvers.optJSONObject(at);
-            if (m == null) return j.put("status", 1).toString();
-            int sec = (int)Math.max(0, Math.round(seconds));
-            j.put("status", 0).put("currentRoad", "").put("carDirection", 0).put("cameraType", 0).put("cameraSpeed", 0).put("cameraDistance", 0)
-                .put("naviIcon", icon(m.optInt("type"), maxIcon)).put("nextRoad", road(m))
-                .put("roadRemainingDistance", toTurn(toTurn)).put("roadRemainingTime", 0)
-                .put("destinationRemainingDistance", (int)Math.max(0, remaining)).put("destinationRemainingTime", sec)
-                .put("arriveTimeZone", zone.getID()).put("arriveTime", nowMs + sec * 1000L).put("signalIntensity", 1)
-                .put("naviDestination", destination == null ? "" : destination);
+            // Field for field what Carbit Ride sends (its log of 11 Nov): no currentRoad or naviDestination, signal 2, and
+            // the "no route" message carries the same fields, zeroed and without a next road.
+            int sec = m == null ? 0 : (int)Math.max(0, Math.round(seconds));
+            j.put("status", m == null ? 1 : 0).put("carDirection", 0).put("cameraType", 0).put("cameraSpeed", 0).put("cameraDistance", 0)
+                .put("naviIcon", m == null ? 0 : icon(m.optInt("type"), maxIcon));
+            if (m != null) j.put("nextRoad", road(m));
+            j.put("roadRemainingDistance", m == null ? 0 : toTurn(toTurn)).put("roadRemainingTime", 0)
+                .put("destinationRemainingDistance", m == null ? 0 : (int)Math.max(0, remaining)).put("destinationRemainingTime", sec)
+                .put("arriveTimeZone", zone.getID()).put("arriveTime", nowMs + sec * 1000L).put("signalIntensity", 2);
             return j.toString();
         } catch (JSONException e) { return "{\"status\":1}"; }
     }

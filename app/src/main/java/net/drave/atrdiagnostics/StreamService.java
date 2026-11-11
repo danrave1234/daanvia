@@ -221,7 +221,7 @@ public final class StreamService extends Service {
                 JSONObject phone=new JSONObject().put("pxcVersion","1.0.2").put("phoneUUID",phoneId())
                     .put("phoneBrand",Build.BRAND).put("phoneModel",Build.MODEL).put("phoneOsVersion",String.valueOf(Build.VERSION.SDK_INT)).put("phoneOs","Android")
                     .put("package",PACKAGE).put("versionCode",PACKAGE_VERSION).put("token",0).put("pubkey",Base64.encodeToString(identity.getPublic().getEncoded(),Base64.NO_WRAP))
-                    .put("encryptedHUID",signed).put("bluetoothName","ATR QR Connect").put("supportH264IFrame",true).put("supportFunction",bike.optLong("supportFunction",0)).put("appVersionFingerPrint","DAANVIA-0.4.0-alpha1")
+                    .put("encryptedHUID",signed).put("bluetoothName",phoneName()).put("supportH264IFrame",true).put("supportFunction",bike.optLong("supportFunction",0)).put("appVersionFingerPrint","V:2.4(47)-eee8ab8d1-ONLINE")
                     // Carbit Ride adds the dashboard's voice engine back to it; it gave the bike the same id on every connection too.
                     .put("speechEngineType",bike.optInt("supportSpeechEngine",2));
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
@@ -346,6 +346,11 @@ public final class StreamService extends Service {
             out.flush();
         }
     }
+    /** The phone's own name (Settings > About), as Carbit Ride sends it; the model when Android doesn't give one. */
+    private String phoneName(){
+        String n=null;try{n=android.provider.Settings.Global.getString(getContentResolver(),android.provider.Settings.Global.DEVICE_NAME);}catch(Exception ignored){}
+        return n==null||n.trim().isEmpty()?Build.MODEL:n;
+    }
     /** This phone's id for the bike, the same on every connection (it was a new random one each time). */
     private String phoneId(){
         SharedPreferences p=getSharedPreferences("saved-bike",0);String id=p.getString("phone_id",null);
@@ -367,7 +372,7 @@ public final class StreamService extends Service {
                     boolean navigating=n.active&&!n.cruise&&n.maneuvers.length()>0;
                     if(wasNavigating==null||navigating!=wasNavigating){
                         out.write(Pxc.encode(BikeHud.NAVI_STATUS,new JSONObject().put("status",navigating).toString()));
-                        if(!navigating)out.write(Pxc.encode(BikeHud.INFO,"{\"status\":1}"));
+                        if(!navigating)out.write(Pxc.encode(BikeHud.INFO,BikeHud.info(null,0,0,0,0,"",hudMaxIcon,System.currentTimeMillis(),TimeZone.getDefault())));
                         if(wasNavigating!=null||navigating)log("Told the dashboard navigation "+(navigating?"started":"ended")+".");
                         wasNavigating=navigating;last="";
                     }
