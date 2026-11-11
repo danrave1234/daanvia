@@ -408,7 +408,7 @@ public final class DashboardLink {
      * once, while Daanvia is on screen. A rider who says no can turn it on later in Android's app settings.
      */
     private boolean askBluetooth() {
-        if (BleClock.allowed(context) || BleClock.permissions().length == 0) return false;
+        if (!BLUETOOTH_CLOCK || BleClock.allowed(context) || BleClock.permissions().length == 0) return false;
         if (context.getSharedPreferences("ui", 0).getBoolean("bt_clock_asked2", false)) return false;
         synchronized (hosts) { return !hosts.isEmpty(); }
     }
@@ -435,7 +435,9 @@ public final class DashboardLink {
     /** Bluetooth off: Android's own "turn on Bluetooth?" question, once each time Daanvia is opened, so the clock can be set. */
     @android.annotation.SuppressLint("MissingPermission")
     private void askBluetoothOn() {
-        if (askedBluetoothOn || !BleClock.allowed(context)) return;
+        // Nothing uses Bluetooth while the Bluetooth clock is off, so nothing asks for it: connecting used to bring up
+        // Android's "turn on Bluetooth?" although the bike display only needs Wi-Fi.
+        if (!BLUETOOTH_CLOCK || askedBluetoothOn || !BleClock.allowed(context)) return;
         synchronized (hosts) { if (hosts.isEmpty()) return; }
         android.bluetooth.BluetoothManager bm = context.getSystemService(android.bluetooth.BluetoothManager.class);
         android.bluetooth.BluetoothAdapter a = bm == null ? null : bm.getAdapter();
