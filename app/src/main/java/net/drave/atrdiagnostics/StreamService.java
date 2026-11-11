@@ -145,13 +145,26 @@ public final class StreamService extends Service {
             for(ServerSocket s:listeners)s.setSoTimeout(0);
             log("Callback ports ready with TCP session reuse enabled.");
             for(int i=0;i<listeners.size();i++){ServerSocket listener=listeners.get(i);boolean control=i==0;workers.execute(()->accept(listener,control));}
-            try(Socket probe=new Socket()) {
+            // A bike that has just paired takes up to 40 s to start answering (logs of 9 Nov: "connection refused" seven
+            // times over 40 s, each one a full restart and a false "keeps dropping"). So the first hello is tried again,
+            // once a second, on the same session.
+            long tryUntil=System.currentTimeMillis()+40000;boolean waited=false;
+            while(true)try(Socket probe=new Socket()) {
                 if(!track(probe))return;if(network!=null)network.bindSocket(probe);
-                probe.bind(new InetSocketAddress(local,0));probe.connect(new InetSocketAddress(target,port),3000);probe.setSoTimeout(4000);
+                probe.bind(new InetSocketAddress(local,0));
+                try{probe.connect(new InetSocketAddress(target,port),3000);}
+                catch(ConnectException|SocketTimeoutException|NoRouteToHostException notReady){
+                    sockets.remove(probe);
+                    if(!running||System.currentTimeMillis()>tryUntil)throw notReady;
+                    if(!waited){waited=true;log("The bike isn't answering yet; waiting for it to be ready.");}
+                    Thread.sleep(1000);continue;
+                }
+                probe.setSoTimeout(4000);
                 probe.getOutputStream().write(Pxc.encode(Pxc.PROBE,new JSONObject().put("phoneType","Android").put("packageName",PACKAGE).toString()));
                 Pxc reply=Pxc.read(probe.getInputStream());
                 if(reply.command!=Pxc.ACK||!new JSONObject(reply.text()).optBoolean("status",false))throw new IOException("Dashboard rejected this app’s session probe");
                 log("Stream session probe accepted. Waiting for capability/media negotiation.");
+                sockets.remove(probe);break;
             }
         }catch(Exception e){if(running){log("Stream setup failed: "+e.getClass().getSimpleName()+" "+e.getMessage());stopSelf();}}
     }

@@ -143,7 +143,7 @@ public final class DashboardLink {
     private Intent captureConsent;
     private final Map<String,String> visualEvidence = new LinkedHashMap<>();
     private final Map<String,Long> frameEvidence = new LinkedHashMap<>();
-    private volatile boolean running, active, connecting, extended;
+    private volatile boolean running, active, connecting, extended, extendedPaired;
     private boolean ownDiscovery;
     private volatile int generation;
     private Runnable deadline;
@@ -458,7 +458,7 @@ public final class DashboardLink {
     private void start(boolean mode) {
         // A search or test now would cut the live display off when it times out.
         if (serviceActive) { log("The bike display is already connected. Stop it first to run another test."); ui.onChanged(); return; }
-        cleanup(); running = true; active = mode; connecting = false; extended = false; tested.clear();
+        cleanup(); running = true; active = mode; connecting = false; extended = false; extendedPaired = false; tested.clear();
         if (pendingStream == 0) identificationAccepted = false;
         ui.onChanged();
         trustedInterface = null; trustedOwner = null;
@@ -483,7 +483,9 @@ public final class DashboardLink {
         }, 18000);
         deadline = () -> {
             // The bike was found and is pairing right now: give it the moment it needs instead of starting over.
+            // Paired and waiting for the bike's address counts too, and gets one more extension of its own.
             if (running && g == generation && connecting && !extended) { extended = true; main.postDelayed(deadline, 15000); return; }
+            if (running && g == generation && trustedInterface != null && tested.isEmpty() && !extendedPaired) { extendedPaired = true; main.postDelayed(deadline, 20000); return; }
             if (running && g == generation) {
                 if (tested.isEmpty() && !verbose()) { quietMisses++; log("Bike display not found (background search " + quietMisses + "); still looking."); cleanup(); label("Not connected"); ui.onChanged(); return; }
                 if (tested.isEmpty() && quiet) quietMisses++;
@@ -548,7 +550,10 @@ public final class DashboardLink {
                 connecting = false;
                 trustedInterface = grp.getInterface();
                 p2p.requestConnectionInfo(channel, info -> {
-                    if (!running || g != generation || info == null || !info.groupFormed) return;
+                    if (!running || g != generation) return;
+                    // Paired, but Android doesn't have the bike's address yet: ask again shortly. Asking once left a
+                    // paired bike unused until the search timed out (logs of 9 Nov, 14:17 and 14:20).
+                    if (info == null || !info.groupFormed || (!info.isGroupOwner && info.groupOwnerAddress == null)) { groupSoon(g); return; }
                     if (!info.isGroupOwner && info.groupOwnerAddress != null) {
                         trustedOwner = info.groupOwnerAddress.getHostAddress();
                         target(info.groupOwnerAddress, grp.getInterface(), null, "QR-matched Wi-Fi Direct group owner");
@@ -556,6 +561,10 @@ public final class DashboardLink {
                 });
             });
         } catch (SecurityException e) { log("Android blocked Wi-Fi Direct group access. Check permissions."); }
+    }
+    /** Look at the Wi-Fi Direct group again in a moment, while this search is still the current one and has no target. */
+    private void groupSoon(int g) {
+        main.postDelayed(() -> { if (running && g == generation && !serviceActive && tested.isEmpty()) group(); }, 1500);
     }
     private void peers() {
         if (!running || !active || p2p == null || channel == null) return;
@@ -679,7 +688,11 @@ public final class DashboardLink {
                             finishRun(Build.VERSION.SDK_INT >= 31 && e instanceof android.app.ForegroundServiceStartNotAllowedException ? "Open Daanvia to reconnect the bike display" : "Could not start stream test");
                         }
                     });
-                } catch (Exception e) { log("Cannot start video: " + e.getClass().getSimpleName()); testing.set(false); }
+                } catch (Exception e) {
+                    // Usually the phone's own address on the bike's network isn't assigned yet: forget this try and look again.
+                    detail("Not ready to start video yet (" + e.getClass().getSimpleName() + "); trying again.");
+                    main.post(() -> { tested.remove(key); testing.set(false); groupSoon(g); });
+                }
             });
         } else io.execute(() -> { try { identify(host, iface, network, port, g); } finally { if (g == generation) testing.set(false); } });
     }
