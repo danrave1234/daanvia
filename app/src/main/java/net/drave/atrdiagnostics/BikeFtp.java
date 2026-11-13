@@ -52,6 +52,8 @@ final class BikeFtp implements Closeable {
                 if (!near(s.getInetAddress())) { log.accept("Bike file server: refused a connection from outside the bike's network."); continue; }
                 log.accept("The dashboard connected to the file server.");
                 s.setSoTimeout(30000); session(s);
+            } catch (java.net.SocketTimeoutException idle) {
+                // The bike keeps its connection open after its upload and says nothing more: that is the end of the visit.
             } catch (IOException e) { if (!closed) log.accept("Bike file server: " + e.getClass().getSimpleName()); }
         }
     }

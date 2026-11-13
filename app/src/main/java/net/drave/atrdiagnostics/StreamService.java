@@ -437,7 +437,8 @@ public final class StreamService extends Service {
                     }
                     Thread.sleep(500);
                 }
-            }catch(InterruptedException ignored){}catch(Exception e){if(running)log("Turn arrows stopped: "+e.getClass().getSimpleName());}
+            }catch(InterruptedException ignored){}// When the bike closes the link (switched off, out of range) the write fails too: the link's own lines already say so.
+            catch(Exception e){if(running&&controlOpen())log("Turn arrows stopped: "+e.getClass().getSimpleName());}
         });
     }
     /** Switch the bike between its own screen with the arrows ({@code own}) and the phone's map. False when not connected. */
