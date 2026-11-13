@@ -423,7 +423,7 @@ public final class StreamService extends Service {
                         if(half==0)Thread.sleep(500);
                     }
                     NavSession n=NavSession.get(this);
-                    boolean navigating=n.active&&!n.cruise&&n.maneuvers.length()>0;
+                    boolean navigating=n.active&&n.maneuvers.length()>0;
                     if(wasNavigating==null||navigating!=wasNavigating){
                         out.write(Pxc.encode(BikeHud.NAVI_STATUS,new JSONObject().put("status",navigating).toString()));
                         if(!navigating)out.write(Pxc.encode(BikeHud.INFO,BikeHud.info(null,0,0,0,0,hudMaxIcon,System.currentTimeMillis(),TimeZone.getDefault())));

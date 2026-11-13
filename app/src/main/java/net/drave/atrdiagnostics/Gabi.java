@@ -67,7 +67,7 @@ public final class Gabi {
     /** Draw behind the system bars on every supported Android version. */
     public static void edgeToEdge(android.view.Window w) {
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false); w.setStatusBarColor(0); w.setNavigationBarColor(0);
-        if (android.os.Build.VERSION.SDK_INT >= 29) w.setNavigationBarContrastEnforced(false);
+        w.setNavigationBarContrastEnforced(false);
     }
     public static void barIcons(android.view.Window w, Palette p) {
         androidx.core.view.WindowInsetsControllerCompat c = androidx.core.view.WindowCompat.getInsetsController(w, w.getDecorView());

@@ -82,7 +82,7 @@ final class MapPainter {
         else if (ride && !host.rideFramesRunning()) paintRideRoute(shape, Math.min(s.progress, shape.size() - 1), s.viewLat, s.viewLon);
         // destination / pin
         GeoJsonSource dest = src(MapStyle.DEST), drop = src(MapStyle.DROP);
-        String destKey = routeMode && destName != null || ride && !s.cruise ? (ride ? s.destLat + "," + s.destLon : destLat + "," + destLon) : "";
+        String destKey = routeMode && destName != null || ride ? (ride ? s.destLat + "," + s.destLon : destLat + "," + destLon) : "";
         if (!destKey.equals(drawnDest)) { drawnDest = destKey; if (destKey.isEmpty()) dest.setGeoJson(MapStyle.empty()); else dest.setGeoJson(ride ? MapStyle.point(s.destLat, s.destLon) : MapStyle.point(destLat, destLon)); }
         String dropKey = pin == null ? "" : pin[0] + "," + pin[1];
         if (!dropKey.equals(drawnDrop)) { drawnDrop = dropKey; if (pin == null) drop.setGeoJson(MapStyle.empty()); else drop.setGeoJson(MapStyle.point(pin[0], pin[1])); }

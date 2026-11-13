@@ -88,14 +88,13 @@ public final class DashboardRenderer {
         if (s.calibration) { grid(target, vw, vh); target.restore(); return; }
         // Directions only (Settings › Bike display): the cards on a plain background, no moving map. About a third of the
         // work of the full picture (measured), and only a few frames a second are needed since little moves.
-        boolean simple = s.directionsOnly() && s.active && !s.cruise && !s.layoutEditing;
+        boolean simple = s.directionsOnly() && s.active && !s.layoutEditing;
         // With no map to keep clear, the cards fill the screen: a large turn card, and the trip along the bottom.
         RectF turn = simple ? new RectF(vw * 0.04f, vh * 0.04f, vw * 0.96f, vh * 0.68f) : card(s.turnCard, vw, vh);
         RectF trip = simple ? new RectF(vw * 0.04f, vh * 0.72f, vw * 0.96f, vh * 0.96f) : card(s.tripCard, vw, vh);
         if (simple) { target.drawColor(land()); pixelsPerSecond = 0; } else drawMap(target, vw, vh, turn, trip);
         boolean sample = s.layoutEditing && !s.active;
-        if (s.active && s.cruise && !sample) cruise(target, turn);
-        else if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
+        if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
         // No ride: connected is a free ride (the street, speed and roads ahead), unless a planned route waits to start.
         else if (!s.shape.isEmpty() && !s.destination.isEmpty()) idle(target, turn);
         else cruise(target, turn);
@@ -334,7 +333,7 @@ public final class DashboardRenderer {
         if (s.active && s.remaining < 400) z = Math.min(z, 0.85);
         return z;
     }
-    private float targetTilt() { return !riding() ? 0 : s.active && !s.cruise && s.remaining < 400 ? 58 : 48; }
+    private float targetTilt() { return !riding() ? 0 : s.active && s.remaining < 400 ? 58 : 48; }
     /**
      * The ride view (heading-up, tilted, zoom by speed): on a ride, and also riding around without one while the bike
      * display is on. Without a ride it holds for 20 s after slowing below about 7 km/h, so a red light doesn't flip the

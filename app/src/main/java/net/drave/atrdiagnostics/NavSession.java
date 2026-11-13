@@ -16,11 +16,6 @@ public final class NavSession {
     /** Reading an area's roads (a 60 MB file) runs here, so a route asked for meanwhile isn't queued behind it. */
     private final ExecutorService roads=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"daanvia-roads");t.setPriority(Thread.MIN_PRIORITY);return t;});
     public volatile boolean ready,active,simulation,calibration,routing,noMap;
-    /**
-     * A free ride: riding with no destination, for the bike display's map of the roads ahead (0.9.21 and older: Just ride; now connected without a ride is a free ride on its own, see DashboardRenderer). The ride's
-     * services run as for any ride (location, keep-alive, the bike display), with no route, turns or voice.
-     */
-    public volatile boolean cruise;
     /** The road the rider is on, named from the area's road lines; "" when unknown. Kept current outside routes. */
     public volatile String street="";
     public volatile String status="Preparing offline maps…",instruction="Choose a destination",destination="";
@@ -412,8 +407,6 @@ public final class NavSession {
     public void blockAhead(){
         double la,lo;
         synchronized(this){
-            // A free ride has no route ahead to block or change.
-            if(cruise){message("Free ride · no route to change");return;}
             if(!active||shape.size()<2){la=lat;lo=lon;}
             else{int i=Math.min(progress,shape.size()-1);double[] cum=cumulative;
                 if(cum.length==shape.size()){double want=cum[i]+25;while(i<shape.size()-1&&cum[i]<want)i++;}
@@ -516,10 +509,7 @@ public final class NavSession {
         return found.size()>max?new ArrayList<>(found.subList(0,max)):found;}
     /** No usable GPS fix right now (none yet, over 12 s old, or rougher than 50 m); never during a simulation. */
     public boolean gpsStale(){return !simulation&&(fixAt==0||SystemClock.elapsedRealtime()-fixAt>12000||accuracy>50);}
-    /** Starts a free ride: no destination, no route (see cruise). */
-    public synchronized void beginCruise(){nextVia=null;followVia=null;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();maneuvers=new JSONArray();maneuver=0;progress=0;
-        cumulative=new double[0];cumTime=new double[0];tripStops=Collections.emptyList();passedStops=0;destination="";remaining=0;seconds=0;distanceToTurn=0;arrived=false;cruise=true;instruction="Free ride";signal();}
-    public synchronized void stop(){cruise=false;nextVia=null;followVia=null;active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
+    public synchronized void stop(){nextVia=null;followVia=null;active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
     public void update(double a,double b,float acc,float direction,boolean demo){update(a,b,acc,direction,demo,SystemClock.elapsedRealtime());}
     /** {@code takenAt} is when the fix was taken (elapsedRealtime). Outside a ride any fix places the rider, however rough; during a ride only sharp ones count. */
     public synchronized void update(double a,double b,float acc,float direction,boolean demo,long takenAt){

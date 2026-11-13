@@ -137,7 +137,6 @@ final class RideScreen {
         s.stop(); a.stopService(new Intent(a, NavService.class)); host.refresh();
     }
     private void paintRide() {
-        if (s.cruise) { paintCruise(); return; }
         Gabi.show(blockBtn, true, 0);
         int idx = s.maneuver; TurnCard card = TurnCard.of(s.maneuvers, idx, s.instruction, s.destination);
         boolean stale = s.gpsStale(); Gabi.Palette p = k.t.palette;
@@ -158,21 +157,6 @@ final class RideScreen {
         if (!endArmed) endBtn.setText(card.arriving ? "Finish" : "End");
         etaMeta.setText(Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
         simBadge.setVisibility(s.simulation ? View.VISIBLE : View.GONE);
-        paintBikeBadge();
-    }
-    /** The ride screen on a free ride: the road the rider is on and their speed, with End; no turns, no arrival time. */
-    private void paintCruise() {
-        boolean stale = s.gpsStale(); Gabi.Palette p = k.t.palette;
-        icon(maneuverIcon, IconDrawable.STRAIGHT, p.onAccent, 2.6f);
-        maneuverDist.setText(stale ? "GPS weak" : s.street.isEmpty() ? "Free ride" : s.street);
-        maneuverDist.setTextColor(stale ? p.danger : p.ink);
-        maneuverStreet.setText(stale ? "Waiting for a clear GPS signal" : "No destination · the map follows you");
-        Gabi.show(thenChip, false, -k.dp(6));
-        etaMin.setText(stale ? "–" : Gabi.speed(s.speedMetersPerSecond));
-        etaMeta.setText(s.street.isEmpty() ? "Free ride · no destination" : "Free ride · " + s.street);
-        if (!endArmed) endBtn.setText("End");
-        Gabi.show(blockBtn, false, 0);
-        simBadge.setVisibility(View.GONE);
         paintBikeBadge();
     }
     /** Show the icon, keeping the one already there when nothing about it changed: this runs on every GPS fix. */
@@ -232,7 +216,7 @@ final class RideScreen {
     }
     private double followedLat, followedLon, followedZoom; private float followedBearing; private int followedH;
     private void follow() {
-        int h = mapView.getHeight(); double zoom = !s.cruise && s.remaining < 600 ? 17.4 : 16.8;
+        int h = mapView.getHeight(); double zoom = s.remaining < 600 ? 17.4 : 16.8;
         // Called every frame: while the rider is stopped the camera is already there, and moving it again would still cost a camera pass.
         if (shownLat == followedLat && shownLon == followedLon && shownBearing == followedBearing && zoom == followedZoom && h == followedH) return;
         followedLat = shownLat; followedLon = shownLon; followedBearing = shownBearing; followedZoom = zoom; followedH = h;
@@ -295,11 +279,6 @@ final class RideScreen {
     }
     private void paintBikeMode() {
         int onAccent = k.t.palette.onAccent;
-        if (s.cruise) {
-            icon(bikeIcon, IconDrawable.STRAIGHT, onAccent, 2.6f);
-            bikeDist.setText(s.gpsStale() ? "GPS weak" : Gabi.speed(s.speedMetersPerSecond)); bikeStreet.setText(s.street.isEmpty() ? "Free ride" : s.street); bikeEta.setText("Free ride · no destination");
-            if (!endArmed) bikeEnd.setText("End"); return;
-        }
         TurnCard card = TurnCard.of(s.maneuvers, s.maneuver, s.instruction, s.destination);
         icon(bikeIcon, card.icon, onAccent, 2.6f);
         bikeDist.setText(card.arriving ? "Arriving" : Gabi.distance(s.distanceToTurn));

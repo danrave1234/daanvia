@@ -18,7 +18,6 @@ public final class NavService extends Service {
             ensureVoice();if("repeat".equals(i.getAction()))speakCurrent();else voice.stop();return s.simulation?START_NOT_STICKY:START_STICKY;
         }
         try{
-            if(i.getBooleanExtra("cruise",false))s.beginCruise();else s.cruise=false;
             foreground(demo);
             ensureVoice();
             if(!demo)logStatus();
@@ -41,12 +40,12 @@ public final class NavService extends Service {
     private Notification build(boolean demo,String text){
         PendingIntent open=PendingIntent.getActivity(this,20,new Intent(this,HomeActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent commands=PendingIntent.getActivity(this,24,new Intent(this,VoiceCommandsActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this,NotifyChannels.RIDE).setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":s!=null&&s.cruise?"Daanvia · free ride":"Daanvia directions").setContentText(text).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PUBLIC)
+        return new Notification.Builder(this,NotifyChannels.RIDE).setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText(text).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PUBLIC)
             // Work from the lock screen: Reconnect bike and Exit run in the background; Commands opens over the lock screen.
             .addAction(new Notification.Action.Builder(null,"Reconnect bike",RideActions.intent(this,RideActions.RECONNECT,25)).build()).addAction(new Notification.Action.Builder(null,"Commands",commands).build()).addAction(new Notification.Action.Builder(null,"Exit",RideActions.intent(this,RideActions.EXIT,26)).build()).build();
     }
-    /** The notification's default line: a free ride has no directions to return to. */
-    private String back(){return s!=null&&s.cruise?"Tap to return to the map":"Tap to return to directions";}
+    /** The notification's default line. */
+    private String back(){return "Tap to return to directions";}
     private QuietAudio quiet;
     private static String stamp(){return new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+"  ";}
     /**
@@ -60,12 +59,11 @@ public final class NavService extends Service {
             if(raw==null)throw new IllegalStateException("no ride");
             org.json.JSONObject r=new org.json.JSONObject(raw);long seen=Math.max(r.optLong("at"),u.getLong("ride_alive",0));
             if(System.currentTimeMillis()-seen>30*60000L)throw new IllegalStateException("ride too old");
-            s=NavSession.get(this);boolean cruise=r.optBoolean("cruise");if(cruise)s.beginCruise();foreground(false);
+            // A free ride kept by 0.9.21 or older: there is nothing to pick up (the bike display follows along without a ride).
+            if(r.optBoolean("cruise"))throw new IllegalStateException("free ride");
+            s=NavSession.get(this);foreground(false);
             ensureVoice();
             subscribe();filter.reset();
-            // A free ride (no destination) just carries on: location, the bike display, the keep-alive.
-            if(cruise){logStatus();s.active=true;s.simulation=false;handler.removeCallbacks(measure);handler.post(measure);s.message("Picked up your free ride");s.signal();
-                DashboardLink.headless(this).allowAuto();searches=0;handler.removeCallbacks(bikeSearch);handler.post(bikeSearch);return true;}
             final double la=r.getDouble("lat"),lo=r.getDouble("lon");final String name=r.optString("name","your destination");
             resumeTries=0;if(resumer!=null)handler.removeCallbacks(resumer);
             resumer=new Runnable(){public void run(){
@@ -144,10 +142,10 @@ public final class NavService extends Service {
         finishing=this::stopSelf;handler.postDelayed(finishing,4000);
     }
     private void ensureVoice(){if(voice==null)voice=new VoiceOutput(this,message->{if(voice!=null&&!voice.ready())s.message(message);else s.signal();});}
-    private void speakCurrent(){if(voice!=null&&s.active&&!s.cruise)voice.speak(s.arrived?"Destination nearby":GuidancePrompts.distance(s.distanceToTurn)+". "+s.instruction);}
+    private void speakCurrent(){if(voice!=null&&s.active)voice.speak(s.arrived?"Destination nearby":GuidancePrompts.distance(s.distanceToTurn)+". "+s.instruction);}
     private void speak(){
         if(s.shape!=spokenRoute){spokenRoute=s.shape;prompts.reset();}
-        if(!s.active||s.cruise||voice==null||!voice.ready()||SystemClock.elapsedRealtime()<s.commandAudioUntil||!getSharedPreferences("ui",0).getBoolean("voice",true))return;
+        if(!s.active||voice==null||!voice.ready()||SystemClock.elapsedRealtime()<s.commandAudioUntil||!getSharedPreferences("ui",0).getBoolean("voice",true))return;
         long now=SystemClock.elapsedRealtime();int stage=prompts.next(s.maneuver,s.distanceToTurn,s.speedMetersPerSecond,s.accuracy,s.arrived,now);
         if(stage==GuidancePrompts.NONE)return;
         org.json.JSONObject maneuver=s.maneuvers.optJSONObject(s.maneuver);
@@ -170,5 +168,5 @@ public final class NavService extends Service {
         if(metrics!=null&&s!=null)metrics.flush(s);
         if(metrics!=null&&!demoRide)LogUpload.add(this,stamp()+"Ride diagnostics: "+RideMetrics.forReport(this).optJSONObject("latest")+"\n");
         LogUpload.now(this);
-        handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(quiet!=null){quiet.stop();quiet=null;}if(s!=null){s.active=false;s.simulation=false;s.cruise=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+        handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(quiet!=null){quiet.stop();quiet=null;}if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }

@@ -39,7 +39,6 @@ final class RoadBlocks {
         }
         return out;
     }
-    static int count(Context c) { return near(read(c), System.currentTimeMillis(), 0, 0, 1e6).length(); }
     static void clear(Context c) { c.getSharedPreferences("ui", 0).edit().remove("road_blocks").apply(); }
 
     private static JSONArray read(Context c) {
