@@ -10,15 +10,19 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
 /**
- * Calls and messages on the bike display: while Daanvia is on the dashboard, an incoming call or a new message (SMS,
- * Messenger, WhatsApp, Viber, Telegram and other chat apps) shows as a short card over the map, so the rider can read
- * who it is without taking out the phone. Needs Android's Notification access, which the rider turns on in Settings ›
- * Bike display. Nothing is stored or sent anywhere; the card is only drawn on the bike display (DashboardRenderer).
+ * Notifications on the bike display: while Daanvia is on the dashboard, an incoming call, a new message or a social
+ * app's notification shows as a short card over the map, so the rider can see who it is without taking out the phone.
+ * The rider picks how much in Settings > Bike display: calls, chats and social apps, or every app. Needs Android's
+ * Notification access. Nothing is stored or sent anywhere; the card is only drawn on the bike display (DashboardRenderer).
  */
 public final class RideNotifications extends NotificationListenerService {
     static final long SHOW_MS = 8000, CALL_MS = 30000;
 
+    /** What shows: calls, chats and social apps (the default once on), or every app's notifications. */
+    static final int SOCIAL = 0, EVERYTHING = 1;
     static boolean enabled(Context c) { return c.getSharedPreferences("ui", 0).getBoolean("tft_notifications", false); }
+    static int scope(Context c) { return c.getSharedPreferences("ui", 0).getInt("tft_notifications_scope", SOCIAL); }
+    static void setScope(Context c, int scope) { c.getSharedPreferences("ui", 0).edit().putInt("tft_notifications_scope", scope).apply(); }
     static void setEnabled(Context c, boolean on) {
         c.getSharedPreferences("ui", 0).edit().putBoolean("tft_notifications", on).apply();
         if (on) try { requestRebind(new ComponentName(c, RideNotifications.class)); } catch (Exception ignored) {}
@@ -43,17 +47,38 @@ public final class RideNotifications extends NotificationListenerService {
             if (sbn.getKey().equals(s.popupKey)) s.popupUntil = 0;
             return;
         }
-        if (!call && !(Notification.CATEGORY_MESSAGE.equals(n.category) || chat(sbn.getPackageName()))) return;
-        // An ongoing notification that isn't a call (music, navigation, a download) is never a message.
+        // An ongoing notification that isn't a call (music, navigation, a download) is never news.
         if (!call && (n.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
+        if (!call && !wanted(scope(this), Notification.CATEGORY_MESSAGE.equals(n.category), sbn.getPackageName(), n.category, importance(sbn))) return;
         String title = text(x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE));
         if (title.isEmpty()) title = text(x.getCharSequence(Notification.EXTRA_TITLE));
         String body = call ? "Incoming call" : lastMessage(x);
+        if (body.isEmpty()) body = text(x.getCharSequence(Notification.EXTRA_BIG_TEXT));
         if (body.isEmpty()) body = text(x.getCharSequence(Notification.EXTRA_TEXT));
         if (title.isEmpty() && body.isEmpty()) return;
         // Apps post the same notification again without anything new (read on another device, a sync): shown once.
         if (sbn.getKey().equals(s.popupKey) && body.equals(s.popupText) && title.equals(s.popupTitle)) return;
         s.popup(app(sbn.getPackageName()), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
+    }
+
+    /** How loudly Android would announce it (silent ones score below IMPORTANCE_DEFAULT). */
+    private int importance(StatusBarNotification sbn) {
+        try { Ranking r = new Ranking(); if (getCurrentRanking().getRanking(sbn.getKey(), r)) return r.getImportance(); } catch (Exception ignored) {}
+        return android.app.NotificationManager.IMPORTANCE_DEFAULT;
+    }
+    /**
+     * Whether a notification that isn't a call belongs on the bike. Calls, chats and social: a message, or anything from
+     * a chat or social app. Everything: any app, except what Android itself shows silently, and progress, music, system
+     * and navigation chatter, which would only take the rider's eyes for nothing.
+     */
+    static boolean wanted(int scope, boolean message, String pkg, String category, int importance) {
+        if (message || social(pkg)) return true;
+        if (scope != EVERYTHING) return false;
+        if (importance < android.app.NotificationManager.IMPORTANCE_DEFAULT) return false;
+        if (pkg.equals("android") || pkg.startsWith("com.android.systemui") || pkg.startsWith("com.android.providers")) return false;
+        return category == null || !(category.equals(Notification.CATEGORY_PROGRESS) || category.equals(Notification.CATEGORY_TRANSPORT)
+            || category.equals(Notification.CATEGORY_SERVICE) || category.equals(Notification.CATEGORY_SYSTEM) || category.equals(Notification.CATEGORY_NAVIGATION)
+            || category.equals(Notification.CATEGORY_STATUS) || category.equals(Notification.CATEGORY_STOPWATCH));
     }
 
     /** A call that is answered or ends takes its card away at once. */
@@ -72,14 +97,19 @@ public final class RideNotifications extends NotificationListenerService {
     }
     private static String text(CharSequence c) { return c == null ? "" : c.toString().trim(); }
 
+    /** Chat and social apps, by the name the card shows. "Phone" apps are only for naming a call's card. */
     private static final String[][] APPS = {
-        {"com.facebook.orca", "Messenger"}, {"com.facebook.mlite", "Messenger"}, {"com.whatsapp", "WhatsApp"}, {"com.whatsapp.w4b", "WhatsApp"},
-        {"com.viber.voip", "Viber"}, {"org.telegram.messenger", "Telegram"}, {"com.google.android.apps.messaging", "Messages"},
-        {"com.android.mms", "Messages"}, {"com.samsung.android.messaging", "Messages"}, {"com.discord", "Discord"},
-        {"com.instagram.android", "Instagram"}, {"com.google.android.dialer", "Phone"}, {"com.android.incallui", "Phone"},
+        {"com.facebook.orca", "Messenger"}, {"com.facebook.mlite", "Messenger"}, {"com.facebook.katana", "Facebook"}, {"com.facebook.lite", "Facebook"},
+        {"com.instagram.android", "Instagram"}, {"com.instagram.barcelona", "Threads"}, {"com.zhiliaoapp.musically", "TikTok"}, {"com.ss.android.ugc.trill", "TikTok"},
+        {"com.twitter.android", "X"}, {"com.snapchat.android", "Snapchat"}, {"com.whatsapp", "WhatsApp"}, {"com.whatsapp.w4b", "WhatsApp"},
+        {"com.viber.voip", "Viber"}, {"org.telegram.messenger", "Telegram"}, {"org.thunderdog.challegram", "Telegram"}, {"org.thoughtcrime.securesms", "Signal"},
+        {"jp.naver.line.android", "LINE"}, {"com.tencent.mm", "WeChat"}, {"com.discord", "Discord"}, {"com.linkedin.android", "LinkedIn"},
+        {"com.reddit.frontpage", "Reddit"}, {"com.google.android.apps.messaging", "Messages"}, {"com.android.mms", "Messages"},
+        {"com.samsung.android.messaging", "Messages"}, {"com.google.android.dialer", "Phone"}, {"com.android.incallui", "Phone"},
         {"com.samsung.android.incallui", "Phone"}, {"com.android.dialer", "Phone"},
     };
-    private static boolean chat(String pkg) { for (String[] a : APPS) if (a[0].equals(pkg)) return !"Phone".equals(a[1]); return pkg.contains("mms") || pkg.contains("messaging"); }
+    /** A chat or social app: one of the list, or any texting app by its package name. */
+    static boolean social(String pkg) { for (String[] a : APPS) if (a[0].equals(pkg)) return !"Phone".equals(a[1]); return pkg.contains("mms") || pkg.contains("messaging"); }
     private String app(String pkg) {
         for (String[] a : APPS) if (a[0].equals(pkg)) return a[1];
         try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString(); } catch (Exception e) { return ""; }

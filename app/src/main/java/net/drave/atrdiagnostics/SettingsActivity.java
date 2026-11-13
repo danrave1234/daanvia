@@ -109,15 +109,17 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         boolean simple = getSharedPreferences("ui", 0).getBoolean("directionsonly", false);
         tft.addView(k.segmented(new String[]{"Map and directions", "Directions only"}, simple ? 1 : 0, i -> { getSharedPreferences("ui", 0).edit().putBoolean("directionsonly", i == 1).apply(); s.signal(); }));
         tft.addView(k.text("Directions only shows the next turn and your trip on a plain screen, without the moving map. The phone does about a third of the work, so it runs cooler and the battery lasts longer on long rides.", 12.5f, 500, MUTED));
-        tft.addView(k.text("Calls and messages on the bike", 15, 650, INK));
-        tft.addView(k.segmented(new String[]{"On", "Off"}, RideNotifications.enabled(this) && RideNotifications.allowed(this) ? 0 : 1, i -> {
-            RideNotifications.setEnabled(this, i == 0);
-            if (i == 0 && !RideNotifications.allowed(this)) {
+        tft.addView(k.text("Notifications on the bike", 15, 650, INK));
+        boolean notifying = RideNotifications.enabled(this) && RideNotifications.allowed(this);
+        tft.addView(k.segmented(new String[]{"Off", "Calls & social", "Everything"}, !notifying ? 0 : RideNotifications.scope(this) == RideNotifications.EVERYTHING ? 2 : 1, i -> {
+            RideNotifications.setEnabled(this, i != 0);
+            if (i != 0) RideNotifications.setScope(this, i == 2 ? RideNotifications.EVERYTHING : RideNotifications.SOCIAL);
+            if (i != 0 && !RideNotifications.allowed(this)) {
                 android.widget.Toast.makeText(this, "Turn on Daanvia here, then come back", android.widget.Toast.LENGTH_LONG).show();
                 try { startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
             }
         }));
-        tft.addView(k.text("An incoming call or a new message (texts, Messenger, WhatsApp, Viber, Telegram and other chat apps) shows on the bike display for a few seconds: who it's from and the start of the message. Needs Android's Notification access. Nothing is saved or sent anywhere.", 12.5f, 500, MUTED));
+        tft.addView(k.text("While the bike display is connected, a card shows on it for a few seconds: who it’s from and the start of the message. Calls & social covers incoming calls, texts, Messenger, Facebook, Instagram, TikTok, WhatsApp, Viber, Telegram and other chat and social apps. Everything adds every other app, except silent ones, music and downloads. Needs Android’s Notification access. Nothing is saved or sent anywhere.", 12.5f, 500, MUTED));
         TextView layoutBtn = k.primary("Edit display layout", () -> { if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then edit the layout while parked.", android.widget.Toast.LENGTH_SHORT).show(); return; } startActivity(new Intent(this, TftLayoutActivity.class)); });
         tft.addView(layoutBtn);
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);

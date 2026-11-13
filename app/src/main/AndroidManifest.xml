@@ -42,7 +42,7 @@
         <service android:name=".NavService" android:exported="false" android:foregroundServiceType="location|connectedDevice" />
         <activity android:name=".ScanActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <receiver android:name=".RideActions" android:exported="false" />
-        <service android:name=".RideNotifications" android:exported="true" android:label="Calls and messages on the bike display"
+        <service android:name=".RideNotifications" android:exported="true" android:label="Notifications on the bike display"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
         </service>

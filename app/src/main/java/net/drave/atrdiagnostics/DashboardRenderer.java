@@ -109,7 +109,7 @@ public final class DashboardRenderer {
     private void popup(Canvas c, float vw, float vh) {
         if (s.calibration || SystemClock.elapsedRealtime() > s.popupUntil) return;
         float w = Math.min(vw * 0.88f, 640), pad = 18, tile = 56, x = (vw - w) / 2, y = vh * 0.04f, textX = x + pad + tile + 16, textW = w - pad * 2 - tile - 16;
-        String head = s.popupCall ? "INCOMING CALL" : (s.popupApp.isEmpty() ? "MESSAGE" : s.popupApp.toUpperCase(Locale.US));
+        String head = s.popupCall ? "INCOMING CALL" : (s.popupApp.isEmpty() ? "NOTIFICATION" : s.popupApp.toUpperCase(Locale.US));
         String from = s.popupTitle.isEmpty() ? (s.popupCall ? "Unknown caller" : s.popupApp) : s.popupTitle;
         List<String> lines = s.popupCall || s.popupText.isEmpty() ? Collections.emptyList() : wrap(s.popupText, textW, 24, semi, 2);
         RectF r = new RectF(x, y, x + w, y + pad * 2 + 20 + 36 + lines.size() * 31);
