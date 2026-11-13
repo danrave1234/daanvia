@@ -71,7 +71,7 @@ final class BikeHud {
     }
 
     /** The 0x20110 body for the ride as it stands, or the "no route" body when {@code maneuvers} is empty. */
-    static String info(JSONArray maneuvers, int at, double toTurn, double remaining, double seconds, String destination, int maxIcon, long nowMs, TimeZone zone) {
+    static String info(JSONArray maneuvers, int at, double toTurn, double remaining, double seconds, int maxIcon, long nowMs, TimeZone zone) {
         try {
             JSONObject j = new JSONObject();
             JSONObject m = maneuvers == null ? null : maneuvers.optJSONObject(at);

@@ -40,9 +40,7 @@ public final class DashboardLink {
         void onNavigationStarted();
     }
 
-    public static final int PERMISSIONS = 10, BLUETOOTH_PERMISSIONS = 11;
-    /** The Bluetooth clock (BleClock) on every connection. Off: the bike gets its time over Wi-Fi. */
-    static final boolean BLUETOOTH_CLOCK = false;
+    public static final int PERMISSIONS = 10;
     public static final int MODE_NAVIGATION = 3, MODE_PATTERN = 1, MODE_MIRROR = 2;
 
     private final Context context;
@@ -394,61 +392,16 @@ public final class DashboardLink {
 
     private void permissions(boolean mode) {
         requestedActive = mode;
-        boolean askBluetooth = askBluetooth();
-        if (!hasPermissions() || askBluetooth) {
+        if (!hasPermissions()) {
             ArrayList<String> p = new ArrayList<>();
             p.add(Manifest.permission.ACCESS_COARSE_LOCATION); p.add(Manifest.permission.ACCESS_FINE_LOCATION);
             if (Build.VERSION.SDK_INT >= 33) p.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-            if (askBluetooth) { p.addAll(java.util.Arrays.asList(BleClock.permissions())); context.getSharedPreferences("ui", 0).edit().putBoolean("bt_clock_asked2", true).apply(); }
             ui.askPermissions(p.toArray(new String[0]), PERMISSIONS);
-        } else { askBluetoothOn(); start(mode); }
-    }
-    /**
-     * Bluetooth (Nearby devices) is only for the bike's clock (see BleClock), so it never blocks the display: asked for
-     * once, while Daanvia is on screen. A rider who says no can turn it on later in Android's app settings.
-     */
-    private boolean askBluetooth() {
-        if (!BLUETOOTH_CLOCK || BleClock.allowed(context) || BleClock.permissions().length == 0) return false;
-        if (context.getSharedPreferences("ui", 0).getBoolean("bt_clock_asked2", false)) return false;
-        synchronized (hosts) { return !hosts.isEmpty(); }
-    }
-    /**
-     * When Daanvia opens with a bike paired: ask once for Nearby devices, or, once allowed, to turn Bluetooth on. The
-     * bike usually reconnects by itself, which never asks for anything, so without this the clock was never set
-     * (0.9.21 logs: Nearby devices off on every connection).
-     */
-    public void askBluetoothIfNeeded() {
-        // Off: Carbit Ride sets the clock without Bluetooth (recordings of 7 Nov), so asking for it only added popups.
-        if (BLUETOOTH_CLOCK) {} else return;
-        // Not while the Wi-Fi permissions are being asked: Android shows one question at a time and drops the other.
-        if (!profileReady || !hasPermissions()) return;
-        // Asked once each time Daanvia starts until allowed; Android itself stops showing it after two refusals. Once per
-        // start, not per screen: coming back from the question shows the screen again, and must not ask again.
-        if (!BleClock.allowed(context) && BleClock.permissions().length > 0) {
-            if (askedBluetoothPermission) return;
-            synchronized (hosts) { if (hosts.isEmpty()) return; }
-            askedBluetoothPermission = true; ui.askPermissions(BleClock.permissions(), BLUETOOTH_PERMISSIONS);
-        } else askBluetoothOn();
-    }
-    private boolean askedBluetoothPermission;
-    private boolean askedBluetoothOn;
-    /** Bluetooth off: Android's own "turn on Bluetooth?" question, once each time Daanvia is opened, so the clock can be set. */
-    @android.annotation.SuppressLint("MissingPermission")
-    private void askBluetoothOn() {
-        // Nothing uses Bluetooth while the Bluetooth clock is off, so nothing asks for it: connecting used to bring up
-        // Android's "turn on Bluetooth?" although the bike display only needs Wi-Fi.
-        if (!BLUETOOTH_CLOCK || askedBluetoothOn || !BleClock.allowed(context)) return;
-        synchronized (hosts) { if (hosts.isEmpty()) return; }
-        android.bluetooth.BluetoothManager bm = context.getSystemService(android.bluetooth.BluetoothManager.class);
-        android.bluetooth.BluetoothAdapter a = bm == null ? null : bm.getAdapter();
-        if (a == null || a.isEnabled()) return;
-        askedBluetoothOn = true;
-        try { context.startActivity(new android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)); log("Asked to turn on Bluetooth, so Daanvia can set the bike's clock."); }
-        catch (Exception e) { log("Bluetooth is off. Turn it on so Daanvia can set the bike's clock."); }
+        } else start(mode);
     }
     /** Forward the screen's onRequestPermissionsResult for {@link #PERMISSIONS}. */
     public void onPermissionsResult() {
-        if (hasPermissions()) { askBluetoothOn(); start(requestedActive); }
+        if (hasPermissions()) start(requestedActive);
         else {
             log("Permissions missing. Allow Nearby devices and Precise location in app settings, then retry. No GPS positions are collected.");
             ui.onPermissionsMissing();

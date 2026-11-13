@@ -6,13 +6,6 @@ import static org.junit.Assert.*;
 
 /** The privacy and safety checks added in the November audit. */
 public class AuditFixesTest {
-    /** The clock test connects only to the dashboard, never to phones or watches nearby (they asked to pair, 0.9.26). */
-    @Test public void clockTestLeavesOtherDevicesAlone() {
-        assertTrue(BleClock.looksLikeDashboard("SSDQ01-0120", null));
-        assertFalse(BleClock.looksLikeDashboard("Amazfit T-Rex Pro", null));
-        assertFalse(BleClock.looksLikeDashboard(null, java.util.Collections.singletonList(java.util.UUID.fromString("0000fee0-0000-1000-8000-00805f9b34fb"))));
-        assertTrue(BleClock.looksLikeDashboard(null, java.util.Collections.singletonList(java.util.UUID.fromString("00001c00-d102-11e1-9b23-000efb0000b2"))));
-    }
     /** "7/11" finds the 7-Eleven branches, closest first. */
     @Test public void sevenElevenAsRidersTypeIt() {
         for (String q : new String[]{"7/11", "711", "7 11", "seven eleven", "7-Eleven"}) assertEquals(q, "7-Eleven", SearchIndex.alias(q));
@@ -81,16 +74,5 @@ public class AuditFixesTest {
         byte[] t = "2000-01-01 00:00:34.000000000".getBytes(StandardCharsets.US_ASCII); System.arraycopy(t, 0, req, 16, t.length);
         assertEquals("2000-01-01 00:00:34.000000000", DashClock.stampOf(req));
         assertEquals("(no time)", DashClock.stampOf(new byte[16]));
-    }
-
-    @Test public void clockTestSkipsBluetoothsStandardServicesAndSendsCarbitsFrame() {
-        assertTrue(BleClock.standard(java.util.UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb")));   // battery
-        assertFalse(BleClock.standard(java.util.UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")));  // vendor serial
-        assertFalse(BleClock.standard(java.util.UUID.fromString("5fe695f1-fd7b-4f9b-98cc-ee6cf57a776e")));
-        EcBtp.Frame f = EcBtp.parse(EcBtp.syncTime(0x0102030405060708L));
-        assertEquals(EcBtp.SYNC_TIME, f.command);
-        assertEquals(8, f.payload.length);
-        assertEquals(0x08, f.payload[0]);
-        assertEquals(0x01, f.payload[7]);
     }
 }

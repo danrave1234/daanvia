@@ -60,15 +60,6 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         steps.addView(r2);
         c.addView(steps);
 
-        // ---- Bike clock: the Bluetooth clock test (BleClock's test mode)
-        LinearLayout clockCard = GabiPage.card(k);
-        LinearLayout ch = k.row(4); ch.addView(k.label("Bike clock"), new LinearLayout.LayoutParams(0, -2, 1));
-        ch.addView(k.info("Connecting the phone puts the bike's clock at 0:00. This test sends the time over Bluetooth in each way Carbit Ride might, one every 6 seconds, and logs which device got which. Watch the clock, and note the step when it shows the right time."));
-        clockCard.addView(ch);
-        clockCard.addView(k.text("Bike on, Carbit Ride closed, phone next to the dashboard. Connecting the bike display first is fine.", 12.5f, 500, MUTED));
-        clockBtn = k.ghost("Test the bike clock over Bluetooth", this::clockTest); clockCard.addView(clockBtn);
-        c.addView(clockCard);
-
         // ---- GPS check: live accuracy and satellites from the phone, to confirm a good fix on the bike
         LinearLayout gpsCard = GabiPage.card(k);
         LinearLayout gh = k.row(4); gh.addView(k.label("GPS check"), new LinearLayout.LayoutParams(0, -2, 1));
@@ -91,7 +82,7 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         link = DashboardLink.attach(this, this);
         status.setText(link.status()); onLog(); onChanged();
     }
-    protected void onDestroy() { if (clockTest != null) clockTest.close(); stopGps(); tick.removeCallbacks(paintLog); link.detach(this); super.onDestroy(); }
+    protected void onDestroy() { stopGps(); tick.removeCallbacks(paintLog); link.detach(this); super.onDestroy(); }
     protected void onPause() { stopGps(); super.onPause(); }
 
     // ---- GPS check
@@ -190,30 +181,13 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
     private void scanPhoto() { link.resetForScan(); startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE), 31); }
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        if (request == 41) { if (result == RESULT_OK) clockTest(); else link.note("Clock test needs Bluetooth on."); return; }
         if (request == 40) { if (result == RESULT_OK && data != null) link.requestStream(DashboardLink.MODE_MIRROR, data); else link.note("Screen sharing declined. Nothing was captured."); return; }
         if (result != RESULT_OK || data == null) return;
         if (request == 30) link.acceptQr(data.getStringExtra("qr"));
         if (request == 31 && data.getData() != null) link.decodePhoto(data.getData());
     }
-    private android.widget.TextView clockBtn;
-    private BleClock clockTest;
-    /** Runs the Bluetooth clock test: asks for Nearby devices and to turn Bluetooth on first when needed. */
-    @android.annotation.SuppressLint("MissingPermission")
-    private void clockTest() {
-        if (clockTest != null) { clockTest.close(); return; }
-        if (!BleClock.allowed(this)) { requestPermissions(BleClock.permissions(), 76); return; }
-        android.bluetooth.BluetoothManager bm = getSystemService(android.bluetooth.BluetoothManager.class);
-        android.bluetooth.BluetoothAdapter a = bm == null ? null : bm.getAdapter();
-        if (a == null) { link.note("Clock test: this phone has no Bluetooth."); return; }
-        if (!a.isEnabled()) { try { startActivityForResult(new Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE), 41); } catch (Exception e) { link.note("Clock test: turn Bluetooth on, then try again."); } return; }
-        clockTest = new BleClock(this, link::note, true, () -> { clockTest = null; clockBtn.setText("Test the bike clock over Bluetooth"); });
-        clockBtn.setText("Stop the clock test");
-        clockTest.start();
-    }
     public void onRequestPermissionsResult(int r, String[] p, int[] results) {
         super.onRequestPermissionsResult(r, p, results);
-        if (r == 76) { if (BleClock.allowed(this)) clockTest(); else link.note("Clock test needs Nearby devices. Allow it in Android's app settings for Daanvia."); }
         if (r == 20) { if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) scanCamera(); else link.note("Camera access denied. You can choose a QR photo instead."); }
         if (r == DashboardLink.PERMISSIONS) { permissionBanner.setVisibility(View.GONE); link.onPermissionsResult(); }
         if (r == 74 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) toggleGps();

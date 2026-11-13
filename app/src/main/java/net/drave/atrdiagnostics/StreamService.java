@@ -227,7 +227,6 @@ public final class StreamService extends Service {
                 out.write(Pxc.encode(0x10011,phone.toString()));log("Exchanged client capabilities using this app’s own generated session identity.");
                 log(DashClock.describe(huTime,System.currentTimeMillis(),TimeZone.getDefault()));
                 final PxcWriter clockOut=out;main.postDelayed(()->{if(running)workers.execute(()->pushClock(clockOut,huTime,seenAt));},DashClock.ASK_GRACE_MS);
-                // No Bluetooth clock: Carbit Ride never uses Bluetooth; the bike takes its time over this link (0x10450, 0x10430).
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
@@ -238,11 +237,7 @@ public final class StreamService extends Service {
                     // Carbit Ride puts its server's settings here, which come back empty for this bike (its log of 11 Nov); Daanvia
                     // used to echo the bike's own "easy_conn" back as if it were settings.
                     .put("client_set","").toString();
-                workers.execute(()->{try{
-                    for(int i=0;i<50&&dataOut==null&&running;i++)Thread.sleep(100);
-                    PxcWriter d=dataOut;if(d==null||!running){log("Couldn't answer the dashboard's licence check: its data channel never opened.");return;}
-                    d.write(Pxc.encode(0x201c0,approved));log("Answered the dashboard's licence check on its data channel.");
-                }catch(Exception e){log("Couldn't answer the dashboard's licence check: "+e.getClass().getSimpleName());}});
+                sendOnData(0x201c0,approved,0,"the answer to the dashboard's licence check");
             } else if(f.command==0x201c1)log("Dashboard acknowledged the client session check.");
             // The dashboard asks the phone for the time; an empty answer left its clock counting up from 00:00 (see DashClock).
             else if(f.command==DashClock.QUERY_TIME) {
@@ -272,7 +267,7 @@ public final class StreamService extends Service {
             } else if(f.command==BikeFtp.UPLOADED) {
                 // Its request file is in: answer as Carbit Ride does when there is nothing to update.
                 out.write(Pxc.encode(BikeFtp.UPLOADED+1,""));
-                workers.execute(()->{try{Thread.sleep(1500);PxcWriter d=dataOut;if(d!=null&&running){d.write(Pxc.encode(BikeFtp.RESULT,BikeFtp.NO_UPDATES));log("Told the dashboard there is no update, as Carbit Ride does.");}}catch(Exception ignored){}});
+                sendOnData(BikeFtp.RESULT,BikeFtp.NO_UPDATES,1500,"\"no update\" to the dashboard, as Carbit Ride does");
             } else if(f.command==0x10630) {
                 // The bike's weather question, every 2 s: Carbit Ride answers with nothing, and so does Daanvia. Logged once.
                 out.write(Pxc.encode(f.command+1,""));
@@ -303,7 +298,7 @@ public final class StreamService extends Service {
     }
     /** The phone's time, as the answer to the dashboard's 0x10450 (see DashClock). */
     private void sendTime(PxcWriter out)throws IOException{out.write(Pxc.encode(DashClock.QUERY_TIME+1,DashClock.queryTimeReply(System.currentTimeMillis(),TimeZone.getDefault(),clockWithDate,clockChannel)));}
-    private BleClock bleClock;private Here freeRide;private QuietAudio quiet;
+    private Here freeRide;private QuietAudio quiet;
     private static String clock(){return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date())+" "+TimeZone.getDefault().getID();}
     /** A request's contents for the log: text when it reads as text, else the first bytes in hex. Identity fields redacted. */
     static String preview(byte[] b){return preview(b,600);}
@@ -378,6 +373,20 @@ public final class StreamService extends Service {
         return id;
     }
     private boolean weatherLogged;
+    /**
+     * Send one of the phone's own messages to the bike, on its data channel (the bike ignores them on the control channel).
+     * That channel can open a moment after the request that calls for the message, so this waits up to 5 s for it, off the
+     * caller's thread. {@code what} finishes the log line: "Sent ...".
+     */
+    private void sendOnData(int command,String body,long afterMs,String what){
+        workers.execute(()->{try{
+            if(afterMs>0)Thread.sleep(afterMs);
+            for(int i=0;i<50&&dataOut==null&&running;i++)Thread.sleep(100);
+            PxcWriter d=dataOut;if(!running)return;
+            if(d==null){log("Couldn't send "+what+": the dashboard's data channel never opened.");return;}
+            d.write(Pxc.encode(command,body));log("Sent "+what+".");
+        }catch(InterruptedException ignored){}catch(Exception e){if(running)log("Couldn't send "+what+": "+e.getClass().getSimpleName());}});
+    }
     private BikeFtp bikeFtp;
     /** Open the file server on the ports the bike named, then tell the bike it is ready (0x20280), once per connection. */
     private synchronized void startBikeFtp(int ctrlPort,int dataPort){
@@ -385,14 +394,8 @@ public final class StreamService extends Service {
         try{
             BikeFtp ftp=new BikeFtp(local,target,ctrlPort,dataPort,this::log);if(!track(ftp))return;bikeFtp=ftp;
             workers.execute(ftp::serve);
-            workers.execute(()->{try{
-                // The reply goes on the data channel, which can open a moment after this request arrives.
-                for(int i=0;i<50&&dataOut==null&&running;i++)Thread.sleep(100);
-                PxcWriter d=dataOut;if(d==null||!running)return;
-                d.write(Pxc.encode(BikeFtp.READY,BikeFtp.ready(dataPort,ctrlPort)));log("Opened the file server the dashboard asked for (ports "+ctrlPort+"/"+dataPort+").");
-                Thread.sleep(15000);
-                if(running&&!ftp.loggedIn)log("The dashboard didn't connect to the file server within 15 s.");
-            }catch(Exception e){log("Couldn't tell the dashboard the file server is ready: "+e.getClass().getSimpleName());}});
+            sendOnData(BikeFtp.READY,BikeFtp.ready(dataPort,ctrlPort),0,"that the file server is open (ports "+ctrlPort+"/"+dataPort+")");
+            main.postDelayed(()->{if(running&&!ftp.loggedIn)log("The dashboard didn't connect to the file server within 15 s.");},15000);
         }catch(Exception e){log("Couldn't open the file server the dashboard asked for: "+e.getClass().getSimpleName()+" "+e.getMessage());}
     }
     // ---------------------------------------------------------------- the bike's own screen (BikeHud)
@@ -408,12 +411,14 @@ public final class StreamService extends Service {
             Boolean wasNavigating=null;String last="";long sentAt=0;
             android.graphics.Point screen=new android.graphics.Point();
             try{((android.view.WindowManager)getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealSize(screen);}catch(Exception ignored){}
+            // The two frames are the same all session, so they are built once, not twice a second.
             String status=BikeHud.appStatus(screen.x>0?screen.x:1080,screen.y>0?screen.y:2400);boolean statusLogged=false;
+            byte[] onScreen=Pxc.encode(BikeHud.APP_ON_SCREEN,status),inBackground=Pxc.encode(BikeHud.APP_IN_BACKGROUND,status);
             try{
                 while(running&&dataOut==out){
                     // Twice a second, as Carbit Ride does: whether the app is on the phone's screen (BikeHud.appStatus).
                     for(int half=0;half<2;half++){
-                        out.write(Pxc.encode(appOnScreen?BikeHud.APP_ON_SCREEN:BikeHud.APP_IN_BACKGROUND,status));
+                        out.write(appOnScreen?onScreen:inBackground);
                         if(!statusLogged){statusLogged=true;log("Telling the dashboard the app's state twice a second, as Carbit Ride does: "+status);}
                         if(half==0)Thread.sleep(500);
                     }
@@ -421,12 +426,12 @@ public final class StreamService extends Service {
                     boolean navigating=n.active&&!n.cruise&&n.maneuvers.length()>0;
                     if(wasNavigating==null||navigating!=wasNavigating){
                         out.write(Pxc.encode(BikeHud.NAVI_STATUS,new JSONObject().put("status",navigating).toString()));
-                        if(!navigating)out.write(Pxc.encode(BikeHud.INFO,BikeHud.info(null,0,0,0,0,"",hudMaxIcon,System.currentTimeMillis(),TimeZone.getDefault())));
+                        if(!navigating)out.write(Pxc.encode(BikeHud.INFO,BikeHud.info(null,0,0,0,0,hudMaxIcon,System.currentTimeMillis(),TimeZone.getDefault())));
                         if(wasNavigating!=null||navigating)log("Told the dashboard navigation "+(navigating?"started":"ended")+".");
                         wasNavigating=navigating;last="";
                     }
                     if(navigating){
-                        String info=BikeHud.info(n.maneuvers,n.maneuver,n.distanceToTurn,n.remaining,n.seconds,n.destination,hudMaxIcon,System.currentTimeMillis(),TimeZone.getDefault());
+                        String info=BikeHud.info(n.maneuvers,n.maneuver,n.distanceToTurn,n.remaining,n.seconds,hudMaxIcon,System.currentTimeMillis(),TimeZone.getDefault());
                         long now=SystemClock.elapsedRealtime();
                         if(!info.equals(last)||now-sentAt>5000){out.write(Pxc.encode(BikeHud.INFO,info));last=info;sentAt=now;}
                     }
@@ -439,7 +444,7 @@ public final class StreamService extends Service {
     public static boolean showOwnScreen(boolean own){
         StreamService c=current;PxcWriter out=c==null?null:c.dataOut;if(out==null||!c.running)return false;
         ownScreen=own;
-        c.workers.execute(()->{try{out.write(Pxc.encode(own?BikeHud.OWN_SCREEN:BikeHud.PHONE_SCREEN,""));c.log(own?"Showed the bike's own screen with turn arrows.":"Showed the phone's map on the bike again.");}catch(Exception e){c.log("Couldn't switch the bike's screen: "+e.getClass().getSimpleName());}});
+        c.sendOnData(own?BikeHud.OWN_SCREEN:BikeHud.PHONE_SCREEN,"",0,own?"the switch to the bike's own screen with turn arrows":"the switch back to the phone's map");
         return true;
     }
 
@@ -447,7 +452,6 @@ public final class StreamService extends Service {
         navigationActive=false;mirroring=false;ownScreen=false;if(current==this)current=null;dataOut=null;synchronized(this){bikeFtp=null;}
         if(navigationWake!=null&&navigationWake.isHeld())navigationWake.release();
         running=false;main.removeCallbacksAndMessages(null);
-        synchronized(this){if(bleClock!=null){bleClock.close();bleClock=null;}}
         if(freeRide!=null){freeRide.stop();freeRide=null;}
         if(quiet!=null){quiet.stop();quiet=null;}
         synchronized(sockets){for(Closeable s:sockets)try{s.close();}catch(IOException ignored){}sockets.clear();}

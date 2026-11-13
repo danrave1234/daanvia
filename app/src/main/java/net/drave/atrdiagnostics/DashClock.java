@@ -11,15 +11,18 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * The dashboard's clock. The TFT has no clock source of its own: when the phone connects it asks what time it is, and
- * if the answer is empty it counts up from 00:00 (the "12 AM, now 0:40" a rider saw after every Daanvia ride). Carbit
- * Ride answers both of the dashboard's time questions; these are the same answers, worked out from the formats that
- * open projects documented after reading Carbit Ride (MOTO-HUB and ridedaemon-lib notes).
+ * The dashboard's clock. The TFT keeps time only through short power-offs: after a long one it starts from 00:00 and
+ * reports a count since switch-on (currentHUTime in its hello) until a phone sets it. It asks the phone for the time
+ * on every connection, and these are the answers Carbit Ride gives (the first read from Carbit Ride 2.4 and seen in
+ * its own log, byte for byte; the second from open projects' notes, as this bike has never asked it):
  *
  *  - PXC 0x10450 ("query time") is answered with 0x10451 and JSON: epoch milliseconds, local time as milliseconds,
  *    the zone id, and, only for a dashboard that says it supports it, a formatted date.
  *  - PXC 0x10600 ("time sync") is answered with 0x10601 and 45 bytes: the request's first 16 bytes echoed back, then a
  *    29-byte timestamp. A dashboard that already sent a real time of its own gets it handed back untouched.
+ *
+ * The answer alone has not set this bike's clock: it takes the time only from a phone it has approved (the licence
+ * check, answered in StreamService).
  */
 final class DashClock {
     private DashClock() {}
