@@ -80,7 +80,7 @@ final class BikeHud {
             int sec = m == null ? 0 : (int)Math.max(0, Math.round(seconds));
             j.put("status", m == null ? 1 : 0).put("carDirection", 0).put("cameraType", 0).put("cameraSpeed", 0).put("cameraDistance", 0)
                 .put("naviIcon", m == null ? 0 : icon(m.optInt("type"), maxIcon));
-            if (m != null) j.put("nextRoad", road(m));
+            if (m != null) j.put("nextRoad", Maneuvers.road(m));
             j.put("roadRemainingDistance", m == null ? 0 : toTurn(toTurn)).put("roadRemainingTime", 0)
                 .put("destinationRemainingDistance", m == null ? 0 : (int)Math.max(0, remaining)).put("destinationRemainingTime", sec)
                 .put("arriveTimeZone", zone.getID()).put("arriveTime", nowMs + sec * 1000L).put("signalIntensity", 2);
@@ -88,12 +88,6 @@ final class BikeHud {
         } catch (JSONException e) { return "{\"status\":1}"; }
     }
 
-    private static String road(JSONObject m) {
-        JSONArray n = m.optJSONArray("street_names");
-        if (n != null && n.length() > 0) return n.optString(0);
-        n = m.optJSONArray("begin_street_names");
-        return n != null && n.length() > 0 ? n.optString(0) : "";
-    }
 
     /** The dashboard's 0x10040 request: how many arrows it knows (19 when it doesn't say). */
     static int maxIcon(String body) {

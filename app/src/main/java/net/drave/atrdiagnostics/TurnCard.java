@@ -19,18 +19,12 @@ final class TurnCard {
         JSONObject m = maneuvers.optJSONObject(index);
         boolean arriving = "Destination nearby".equals(instruction);
         int type = arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
-        String street = arriving ? (destination.isEmpty() ? "Destination" : destination) : Maneuvers.label(m, streetOf(m, instruction));
+        String street = arriving ? (destination.isEmpty() ? "Destination" : destination) : Maneuvers.label(m, Maneuvers.streetOf(m, instruction));
         return new TurnCard(arriving, type, street, arriving ? null : maneuvers.optJSONObject(index + 1));
     }
     /** The "Then" chip's words: the place when the next turn is the arrival, else that turn's street. */
     static String thenLabel(JSONObject next, String destination) {
         int t = next.optInt("type");
-        return t >= 4 && t <= 6 ? (destination.isEmpty() ? "Arrive" : destination) : Maneuvers.label(next, streetOf(next, next.optString("instruction", "")));
-    }
-    static String streetOf(JSONObject m, String fallback) {
-        if (m == null) return fallback;
-        JSONArray n = m.optJSONArray("street_names"); if (n != null && n.length() > 0) return n.optString(0);
-        n = m.optJSONArray("begin_street_names"); if (n != null && n.length() > 0) return n.optString(0);
-        return m.optString("instruction", fallback);
+        return t >= 4 && t <= 6 ? (destination.isEmpty() ? "Arrive" : destination) : Maneuvers.label(next, Maneuvers.streetOf(next, next.optString("instruction", "")));
     }
 }

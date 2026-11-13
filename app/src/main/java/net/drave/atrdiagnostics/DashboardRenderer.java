@@ -175,9 +175,9 @@ public final class DashboardRenderer {
         boolean stale = !sample && s.gpsStale();
         int type = sample ? 10 : arriving ? 4 : m == null ? 8 : m.optInt("type", 8);
         String dist = sample ? "200 m" : stale ? "GPS weak" : arriving ? "Arriving" : distance(s.distanceToTurn);
-        String street = sample ? "Sample Street" : arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : Maneuvers.label(m, streetOf(m, s.instruction));
+        String street = sample ? "Sample Street" : arriving ? (s.destination.isEmpty() ? "Destination" : s.destination) : Maneuvers.label(m, Maneuvers.streetOf(m, s.instruction));
         JSONObject next = sample || arriving ? null : s.maneuvers.optJSONObject(s.maneuver + 1);
-        String then = sample ? "Turn left" : next == null ? null : (next.optInt("type") >= 4 && next.optInt("type") <= 6 ? "Arrive" : Maneuvers.label(next, streetOf(next, next.optString("instruction", ""))));
+        String then = sample ? "Turn left" : next == null ? null : (next.optInt("type") >= 4 && next.optInt("type") <= 6 ? "Arrive" : Maneuvers.label(next, Maneuvers.streetOf(next, next.optString("instruction", ""))));
         int thenIcon = sample ? 15 : next == null ? 8 : next.optInt("type", 8);
         boolean wide = r.width() > r.height() * 1.55f;
         float k = unit(r, wide ? 420 : 280, wide ? 150 : 270), pad = 16 * k;
@@ -288,12 +288,6 @@ public final class DashboardRenderer {
     }
 
     private static String distance(double m) { return m < 1000 ? Math.max(0, Math.round(m / 10) * 10) + " m" : String.format(Locale.US, "%.1f km", m / 1000); }
-    private static String streetOf(JSONObject m, String fallback) {
-        if (m == null) return fallback;
-        JSONArray n = m.optJSONArray("street_names"); if (n != null && n.length() > 0) return n.optString(0);
-        n = m.optJSONArray("begin_street_names"); if (n != null && n.length() > 0) return n.optString(0);
-        return m.optString("instruction", fallback);
-    }
 
     // ---------------------------------------------------------------- map
     private final Path[] layers = {new Path(), new Path(), new Path(), new Path()};

@@ -23,6 +23,17 @@ public final class Maneuvers {
         String structure = m.optString("structure", "");
         return command + (structure.isEmpty() ? "" : " · " + structure) + (street == null || street.isEmpty() ? "" : " · " + street);
     }
+    /** The road a maneuver leads onto (its first name, or the one it begins on); empty when the map has none. */
+    public static String road(org.json.JSONObject m) {
+        if (m == null) return "";
+        org.json.JSONArray n = m.optJSONArray("street_names"); if (n != null && n.length() > 0) return n.optString(0);
+        n = m.optJSONArray("begin_street_names"); return n != null && n.length() > 0 ? n.optString(0) : "";
+    }
+    /** That road, or the maneuver's own instruction when it has no name; {@code fallback} for no maneuver at all. */
+    public static String streetOf(org.json.JSONObject m, String fallback) {
+        if (m == null) return fallback;
+        String road = road(m); return road.isEmpty() ? m.optString("instruction", fallback) : road;
+    }
     public static int icon(int valhallaType) {
         switch (valhallaType) {
             case 4: case 5: case 6: return IconDrawable.FLAG;                       // destination
