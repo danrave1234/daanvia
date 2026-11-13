@@ -22,7 +22,7 @@ public final class TftLayoutActivity extends Activity {
         s = NavSession.get(this);
         // The sample notification card is from a chat or social app this phone has, with its real icon.
         String[] app = RideNotifications.sampleApp(getPackageManager());
-        if (app != null) { s.sampleApp = app[1]; s.sampleIcon = RideNotifications.iconOf(getPackageManager(), app[0]); }
+        if (app != null) { s.sampleApp = app[1]; s.sampleIcon = RideNotifications.iconOf(getPackageManager(), app[0]); s.sampleColor = RideNotifications.color(app[0], 0); }
         Gabi.Kit k = new Gabi.Kit(this, new Gabi.Themer(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)));
         Window w = getWindow(); Gabi.edgeToEdge(w); Gabi.barIcons(w, Gabi.NIGHT); w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         LinearLayout root = k.column(12); root.setBackgroundColor(0xFF0A0F14);

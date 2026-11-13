@@ -111,31 +111,45 @@ public final class DashboardRenderer {
         boolean sample = s.layoutEditing;
         if (s.calibration || !sample && SystemClock.elapsedRealtime() > s.popupUntil) return;
         boolean call = !sample && s.popupCall; String app = sample ? s.sampleApp : s.popupApp, title = sample ? "Maria Santos" : s.popupTitle, body = sample ? "On my way, see you at 5" : s.popupText;
-        float w = Math.min(vw * 0.6f, 560), pad = 18, tile = 56, textW = w - pad * 2 - tile - 16;
-        String head = call ? "INCOMING CALL" : (app.isEmpty() ? "NOTIFICATION" : app.toUpperCase(Locale.US));
+        android.graphics.Bitmap icon = sample ? s.sampleIcon : s.popupIcon, avatar = sample ? null : s.popupAvatar;
+        // The app's own colour, lifted where it would be too dark to read on a night card (and the other way by day).
+        int brand = readable(sample ? s.sampleColor : s.popupColor);
+        float w = Math.min(vw * 0.6f, 560), pad = 18, face = 64, textW = w - pad * 2 - face - 16;
         String from = title.isEmpty() ? (call ? "Unknown caller" : app) : title;
         List<String> lines = call || body.isEmpty() ? Collections.emptyList() : wrap(body, textW, 24, semi, 2);
-        float h = pad * 2 + 20 + 36 + lines.size() * 31;
+        float h = pad * 2 + 20 + 36 + Math.max(lines.size(), call ? 1 : 0) * 31;
         // Where the rider placed it (Settings > Edit display layout), kept wholly on the screen.
-        float x = Math.max(0, Math.min(vw - w, s.noteX * vw - w / 2)), y = Math.max(0, Math.min(vh - h - 4, s.noteY * vh)), textX = x + pad + tile + 16;
+        float x = Math.max(0, Math.min(vw - w, s.noteX * vw - w / 2)), y = Math.max(0, Math.min(vh - h - 4, s.noteY * vh)), textX = x + pad + face + 16;
         RectF r = new RectF(x, y, x + w, y + h);
         noteBox = new float[]{x / vw, y / vh, w / vw, h / vh};
         p.setStyle(Paint.Style.FILL); p.setColor(0x55000000); c.drawRoundRect(r.left, r.top + 4, r.right, r.bottom + 4, 18, 18, p);
         cardBackground(c, r);
-        RectF t = new RectF(x + pad, y + pad, x + pad + tile, y + pad + tile);
-        // The app's own icon, as on the phone's home screen; the sender's initial when there is none.
-        android.graphics.Bitmap icon = sample ? s.sampleIcon : s.popupIcon;
-        if (icon != null && !icon.isRecycled()) {
-            c.save(); notePath.rewind(); notePath.addRoundRect(t, tile * 0.24f, tile * 0.24f, Path.Direction.CW); c.clipPath(notePath);
-            p.setFilterBitmap(true); c.drawBitmap(icon, null, t, p); p.setFilterBitmap(false); c.restore();
+        // Laid out like the notification on the phone: the sender's photo in a circle with the app's icon pinned to its
+        // corner, the app's name in its own colour, then who and what. No photo: the sender's initial on the app's colour.
+        float cx = x + pad + face / 2, cy = y + pad + face / 2;
+        if (avatar != null && !avatar.isRecycled()) {
+            c.save(); notePath.rewind(); notePath.addCircle(cx, cy, face / 2, Path.Direction.CW); c.clipPath(notePath);
+            noteRect.set(cx - face / 2, cy - face / 2, cx + face / 2, cy + face / 2);
+            p.setFilterBitmap(true); c.drawBitmap(avatar, null, noteRect, p); p.setFilterBitmap(false); c.restore();
         } else {
-            p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(t, tile * 0.3f, tile * 0.3f, p);
+            p.setStyle(Paint.Style.FILL); p.setColor(brand); c.drawCircle(cx, cy, face / 2, p);
             String initial = from.isEmpty() ? "?" : from.substring(0, from.offsetByCodePoints(0, 1)).toUpperCase(Locale.ROOT);
-            p.setTypeface(black); p.setTextSize(28); float iw = p.measureText(initial);
-            text(c, initial, t.centerX() - iw / 2, t.centerY() + 10, 28, 0xFF1A1203, black);
+            p.setTypeface(black); p.setTextSize(30); float iw = p.measureText(initial);
+            text(c, initial, cx - iw / 2, cy + 11, 30, luminance(brand) > 0.55f ? 0xFF10151B : 0xFFFFFFFF, black);
         }
-        text(c, head, textX, y + pad + 16, 15, call ? pal.accent : muted(), black);
+        if (icon != null && !icon.isRecycled()) {
+            float badge = 30, bx = cx + face / 2 - badge + 6, by = cy + face / 2 - badge + 6;
+            p.setStyle(Paint.Style.FILL); p.setColor(panel()); c.drawCircle(bx + badge / 2, by + badge / 2, badge / 2 + 3, p);
+            c.save(); notePath.rewind(); notePath.addCircle(bx + badge / 2, by + badge / 2, badge / 2, Path.Direction.CW); c.clipPath(notePath);
+            noteRect.set(bx, by, bx + badge, by + badge);
+            p.setFilterBitmap(true); c.drawBitmap(icon, null, noteRect, p); p.setFilterBitmap(false); c.restore();
+        }
+        String head = app.isEmpty() ? (call ? "Phone" : "Notification") : app;
+        p.setTypeface(black); p.setTextSize(16); float headW = p.measureText(head);
+        text(c, head, textX, y + pad + 16, 16, brand, black);
+        text(c, "  ·  now", textX + headW, y + pad + 16, 15, muted(), semi);
         text(c, fit(from, textW, 30, bold), textX, y + pad + 20 + 32, 30, ink(), bold);
+        if (call) text(c, "Incoming call", textX, y + pad + 20 + 36 + 26, 24, brand, semi);
         for (int i = 0; i < lines.size(); i++) text(c, lines.get(i), textX, y + pad + 20 + 36 + 26 + i * 31, 24, soft(), semi);
         if (sample) {
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3); p.setColor(pal.accent); p.setPathEffect(new DashPathEffect(new float[]{12, 8}, 0));
@@ -143,6 +157,17 @@ public final class DashboardRenderer {
             label(c, "NOTIFICATION", r.right - 130, r.top + (r.top < 26 ? r.height() + 28 : -6));
         }
     }
+    private final RectF noteRect = new RectF();
+    private static float luminance(int color) { return (0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color)) / 255f; }
+    /** An app's colour made readable on the card: no colour is the theme's accent; too close to the card is pulled away from it. */
+    private int readable(int color) {
+        if (color == 0) return pal.accent;
+        float l = luminance(color);
+        if (pal.night && l < 0.35f) return Color.rgb(mix(Color.red(color), 255), mix(Color.green(color), 255), mix(Color.blue(color), 255));
+        if (!pal.night && l > 0.7f) return Color.rgb(mix(Color.red(color), 0), mix(Color.green(color), 0), mix(Color.blue(color), 0));
+        return color;
+    }
+    private static int mix(int channel, int toward) { return Math.round(channel * 0.5f + toward * 0.5f); }
     /** The notification card as last drawn: left, top, width and height as fractions of the scene (for the layout editor). */
     private final Path notePath = new Path();
     volatile float[] noteBox = {0.06f, 0.04f, 0.88f, 0.3f};

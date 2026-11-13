@@ -34,4 +34,10 @@ public class RideNotificationsTest {
         assertTrue(RideNotifications.social("com.google.android.apps.messaging"));
         assertTrue(RideNotifications.social("com.instagram.android"));
     }
+    @Test public void cardsCarryTheAppsColour() {
+        assertEquals(0xFF0084FF, RideNotifications.color("com.facebook.orca", 0));          // Messenger's blue, whatever the notification says
+        assertEquals(0xFF25D366, RideNotifications.color("com.whatsapp", 0xFF000000));
+        assertEquals(0xFF123456, RideNotifications.color("com.some.app", 0x00123456));        // another app: its notification's colour, made opaque
+        assertEquals(0, RideNotifications.color("com.some.app", 0));                           // none: the card falls back to Daanvia's accent
+    }
 }

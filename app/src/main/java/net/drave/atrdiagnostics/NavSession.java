@@ -62,9 +62,11 @@ public final class NavSession {
     public volatile String popupApp="",popupTitle="",popupText="",popupKey="";public volatile boolean popupCall;public volatile long popupUntil;
     /** The icon of the app the card is from; null shows the sender's initial instead. */
     public volatile android.graphics.Bitmap popupIcon;
+    /** The sender's photo when the notification carries one (chat apps do), and the app's own colour (0: none). */
+    public volatile android.graphics.Bitmap popupAvatar;public volatile int popupColor;
     /** The layout editor's sample card: an app that is on this phone, so the sample shows a real icon. */
-    public volatile String sampleApp="Messenger";public volatile android.graphics.Bitmap sampleIcon;
-    void popup(String app,android.graphics.Bitmap icon,String title,String text,boolean call,String key,long until){popupIcon=icon;popupApp=app;popupTitle=title;popupText=text;popupCall=call;popupKey=key;popupUntil=until;signal();}
+    public volatile String sampleApp="Messenger";public volatile android.graphics.Bitmap sampleIcon;public volatile int sampleColor=0xFF0084FF;
+    void popup(String app,android.graphics.Bitmap icon,android.graphics.Bitmap avatar,int color,String title,String text,boolean call,String key,long until){popupIcon=icon;popupAvatar=avatar;popupColor=color;popupApp=app;popupTitle=title;popupText=text;popupCall=call;popupKey=key;popupUntil=until;signal();}
     /** Set when a ride ended on its own at the destination (see NavService.checkArrival); the map screen says so once. */
     public volatile String finished;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */

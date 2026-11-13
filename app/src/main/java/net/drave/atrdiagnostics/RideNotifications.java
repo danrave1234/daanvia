@@ -58,7 +58,7 @@ public final class RideNotifications extends NotificationListenerService {
         if (title.isEmpty() && body.isEmpty()) return;
         // Apps post the same notification again without anything new (read on another device, a sync): shown once.
         if (sbn.getKey().equals(s.popupKey) && body.equals(s.popupText) && title.equals(s.popupTitle)) return;
-        s.popup(app(sbn.getPackageName()), icon(sbn.getPackageName()), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
+        s.popup(app(sbn.getPackageName()), icon(sbn.getPackageName()), avatar(n), color(sbn.getPackageName(), n.color), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
     }
 
     /** How loudly Android would announce it (silent ones score below IMPORTANCE_DEFAULT). */
@@ -115,6 +115,27 @@ public final class RideNotifications extends NotificationListenerService {
     private android.graphics.Bitmap icon(String pkg) {
         if (!pkg.equals(iconFor)) { iconFor = pkg; iconKept = iconOf(getPackageManager(), pkg); }
         return iconKept;
+    }
+    /** The sender's photo: chat apps put it on the notification as its large icon. Null when there is none. */
+    private android.graphics.Bitmap avatar(Notification n) {
+        try {
+            android.graphics.drawable.Icon large = n.getLargeIcon(); if (large == null) return null;
+            android.graphics.drawable.Drawable d = large.loadDrawable(this); if (d == null) return null;
+            android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(112, 112, android.graphics.Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, 112, 112); d.draw(new android.graphics.Canvas(b)); return b;
+        } catch (Exception | OutOfMemoryError e) { return null; }
+    }
+    /** The colours these apps are known by; others use the colour their notification asks for. */
+    private static final Object[][] COLORS = {
+        {"Messenger", 0xFF0084FF}, {"Facebook", 0xFF1877F2}, {"Instagram", 0xFFE4405F}, {"Threads", 0xFFFFFFFF}, {"TikTok", 0xFFFE2C55},
+        {"X", 0xFFFFFFFF}, {"Snapchat", 0xFFFFFC00}, {"WhatsApp", 0xFF25D366}, {"Viber", 0xFF7360F2}, {"Telegram", 0xFF26A5E4},
+        {"Signal", 0xFF3A76F0}, {"LINE", 0xFF06C755}, {"WeChat", 0xFF07C160}, {"Discord", 0xFF5865F2}, {"LinkedIn", 0xFF0A66C2},
+        {"Reddit", 0xFFFF4500}, {"Messages", 0xFF1A73E8}, {"Phone", 0xFF34A853},
+    };
+    /** The app's colour for its card: its known brand colour, else the one its notification carries, else 0 (none). */
+    static int color(String pkg, int notificationColor) {
+        for (String[] a : APPS) if (a[0].equals(pkg)) for (Object[] c : COLORS) if (c[0].equals(a[1])) return (Integer) c[1];
+        return notificationColor == 0 ? 0 : notificationColor | 0xFF000000;
     }
     /** An app's own icon (the one on the home screen) for its card, 112 px square; null if Android won't give it. */
     static android.graphics.Bitmap iconOf(android.content.pm.PackageManager pm, String pkg) {
