@@ -73,12 +73,14 @@ public final class NavSession {
     public float insetLeft,insetTop,insetRight,insetBottom,textScale=1;public String layout="Map focus";
     /** The bike display's cards and arrow, as fractions of its visible area (x, y, width, height), saved per bike so they can sit clear of that bike's own gauges. */
     public static final float[] DEFAULT_TURN={0.02f,0.03f,0.34f,0.57f},DEFAULT_TRIP={0.02f,0.63f,0.34f,0.33f};public static final float DEFAULT_ARROW_X=0.68f,DEFAULT_ARROW_Y=0.72f;
+    /** Where the notification card (RideNotifications) shows: its middle across the screen and its top edge, as fractions. */
+    public static final float DEFAULT_NOTE_X=0.67f,DEFAULT_NOTE_Y=0.04f;public volatile float noteX=DEFAULT_NOTE_X,noteY=DEFAULT_NOTE_Y;
     public volatile float[] turnCard=DEFAULT_TURN.clone(),tripCard=DEFAULT_TRIP.clone();public volatile float arrowX=DEFAULT_ARROW_X,arrowY=DEFAULT_ARROW_Y;
     /** True while the layout editor is open: the display shows sample directions and outlines its cards. */
     public volatile boolean layoutEditing;
-    public void resetLayout(){turnCard=DEFAULT_TURN.clone();tripCard=DEFAULT_TRIP.clone();arrowX=DEFAULT_ARROW_X;arrowY=DEFAULT_ARROW_Y;}
-    static String cards(float[] t,float[] r,float ax,float ay){StringBuilder b=new StringBuilder();for(float v:t)b.append(v).append(',');for(float v:r)b.append(v).append(',');return b.append(ax).append(',').append(ay).toString();}
-    void cards(String saved){resetLayout();if(saved==null||saved.isEmpty())return;try{String[] v=saved.split(",");if(v.length!=10)return;float[] n=new float[10];for(int i=0;i<10;i++)n[i]=Float.parseFloat(v[i]);turnCard=new float[]{n[0],n[1],n[2],n[3]};tripCard=new float[]{n[4],n[5],n[6],n[7]};arrowX=n[8];arrowY=n[9];}catch(NumberFormatException e){resetLayout();}}
+    public void resetLayout(){turnCard=DEFAULT_TURN.clone();tripCard=DEFAULT_TRIP.clone();arrowX=DEFAULT_ARROW_X;arrowY=DEFAULT_ARROW_Y;noteX=DEFAULT_NOTE_X;noteY=DEFAULT_NOTE_Y;}
+    static String cards(float[] t,float[] r,float ax,float ay,float nx,float ny){StringBuilder b=new StringBuilder();for(float v:t)b.append(v).append(',');for(float v:r)b.append(v).append(',');return b.append(ax).append(',').append(ay).append(',').append(nx).append(',').append(ny).toString();}
+    void cards(String saved){resetLayout();if(saved==null||saved.isEmpty())return;try{String[] v=saved.split(",");if(v.length!=10&&v.length!=12)return;float[] n=new float[v.length];for(int i=0;i<v.length;i++)n[i]=Float.parseFloat(v[i]);turnCard=new float[]{n[0],n[1],n[2],n[3]};tripCard=new float[]{n[4],n[5],n[6],n[7]};arrowX=n[8];arrowY=n[9];if(n.length==12){noteX=n[10];noteY=n[11];}}catch(NumberFormatException e){resetLayout();}}
     /** A road line for the bike display, its points packed as lat,lon floats (about 1 m precision) to keep a large area in memory. Bridge / tunnel / layer come from the map data (package schema 4) and draw overpasses above the roads they cross. */
     public static final class Road {private final float[] xy;public final String name,kind;public final boolean bridge,tunnel;public final int layer;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
         Road(float[] xy,String n,String k){this(xy,n,k,false,false,0);}
@@ -597,5 +599,5 @@ public final class NavSession {
         String[] v=p.getString("screen","").split(",",-1);if(v.length<6)return;
         try{panelW=Integer.parseInt(v[0]);panelH=Integer.parseInt(v[1]);videoW=Integer.parseInt(v[2]);videoH=Integer.parseInt(v[3]);bikeFps=Integer.parseInt(v[4]);screenType=v[5];}catch(NumberFormatException ignored){}}
     public void loadFit(){android.content.SharedPreferences p=context.getSharedPreferences(fitStore(),0);insetLeft=p.getFloat("left",0);insetTop=p.getFloat("top",0);insetRight=p.getFloat("right",0);insetBottom=p.getFloat("bottom",0);textScale=p.getFloat("text",1);layout=p.getString("layout","Map focus");cards(p.getString("cards",""));loadScreen(p);}
-    public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).putString("cards",cards(turnCard,tripCard,arrowX,arrowY)).apply();signal();}
+    public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).putString("cards",cards(turnCard,tripCard,arrowX,arrowY,noteX,noteY)).apply();signal();}
 }

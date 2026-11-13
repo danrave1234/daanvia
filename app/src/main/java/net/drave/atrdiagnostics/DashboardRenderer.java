@@ -107,12 +107,19 @@ public final class DashboardRenderer {
      * Who it's from in large type, a call or the app's name above it, and up to two lines of the message.
      */
     private void popup(Canvas c, float vw, float vh) {
-        if (s.calibration || SystemClock.elapsedRealtime() > s.popupUntil) return;
-        float w = Math.min(vw * 0.88f, 640), pad = 18, tile = 56, x = (vw - w) / 2, y = vh * 0.04f, textX = x + pad + tile + 16, textW = w - pad * 2 - tile - 16;
-        String head = s.popupCall ? "INCOMING CALL" : (s.popupApp.isEmpty() ? "NOTIFICATION" : s.popupApp.toUpperCase(Locale.US));
-        String from = s.popupTitle.isEmpty() ? (s.popupCall ? "Unknown caller" : s.popupApp) : s.popupTitle;
-        List<String> lines = s.popupCall || s.popupText.isEmpty() ? Collections.emptyList() : wrap(s.popupText, textW, 24, semi, 2);
-        RectF r = new RectF(x, y, x + w, y + pad * 2 + 20 + 36 + lines.size() * 31);
+        // While the layout is edited a sample card stands in, so the rider can see it and drag it where it fits.
+        boolean sample = s.layoutEditing;
+        if (s.calibration || !sample && SystemClock.elapsedRealtime() > s.popupUntil) return;
+        boolean call = !sample && s.popupCall; String app = sample ? "Messenger" : s.popupApp, title = sample ? "Maria Santos" : s.popupTitle, body = sample ? "On my way, see you at 5" : s.popupText;
+        float w = Math.min(vw * 0.6f, 560), pad = 18, tile = 56, textW = w - pad * 2 - tile - 16;
+        String head = call ? "INCOMING CALL" : (app.isEmpty() ? "NOTIFICATION" : app.toUpperCase(Locale.US));
+        String from = title.isEmpty() ? (call ? "Unknown caller" : app) : title;
+        List<String> lines = call || body.isEmpty() ? Collections.emptyList() : wrap(body, textW, 24, semi, 2);
+        float h = pad * 2 + 20 + 36 + lines.size() * 31;
+        // Where the rider placed it (Settings > Edit display layout), kept wholly on the screen.
+        float x = Math.max(0, Math.min(vw - w, s.noteX * vw - w / 2)), y = Math.max(0, Math.min(vh - h - 4, s.noteY * vh)), textX = x + pad + tile + 16;
+        RectF r = new RectF(x, y, x + w, y + h);
+        noteBox = new float[]{x / vw, y / vh, w / vw, h / vh};
         p.setStyle(Paint.Style.FILL); p.setColor(0x55000000); c.drawRoundRect(r.left, r.top + 4, r.right, r.bottom + 4, 18, 18, p);
         cardBackground(c, r);
         RectF t = new RectF(x + pad, y + pad, x + pad + tile, y + pad + tile);
@@ -120,10 +127,17 @@ public final class DashboardRenderer {
         String initial = from.isEmpty() ? "?" : from.substring(0, from.offsetByCodePoints(0, 1)).toUpperCase(Locale.ROOT);
         p.setTypeface(black); p.setTextSize(28); float iw = p.measureText(initial);
         text(c, initial, t.centerX() - iw / 2, t.centerY() + 10, 28, 0xFF1A1203, black);
-        text(c, head, textX, y + pad + 16, 15, s.popupCall ? pal.accent : muted(), black);
+        text(c, head, textX, y + pad + 16, 15, call ? pal.accent : muted(), black);
         text(c, fit(from, textW, 30, bold), textX, y + pad + 20 + 32, 30, ink(), bold);
         for (int i = 0; i < lines.size(); i++) text(c, lines.get(i), textX, y + pad + 20 + 36 + 26 + i * 31, 24, soft(), semi);
+        if (sample) {
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3); p.setColor(pal.accent); p.setPathEffect(new DashPathEffect(new float[]{12, 8}, 0));
+            c.drawRoundRect(r, 18, 18, p); p.setPathEffect(null);
+            label(c, "NOTIFICATION", r.right - 130, r.top + (r.top < 26 ? r.height() + 28 : -6));
+        }
     }
+    /** The notification card as last drawn: left, top, width and height as fractions of the scene (for the layout editor). */
+    volatile float[] noteBox = {0.06f, 0.04f, 0.88f, 0.3f};
     // ---- Cards recorded once and replayed ----
     // The turn and trip cards change far less often than the map moves: the distance to the turn about once a second,
     // the trip numbers about once a minute. Each card is recorded once and that recording is replayed every frame until

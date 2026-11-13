@@ -10,7 +10,7 @@ import android.widget.*;
 import static net.drave.atrdiagnostics.Gabi.Role.*;
 
 /**
- * Place the bike display's turn card, trip card and arrow so nothing hides behind the bike's own speedometer and
+ * Place the bike display's turn card, trip card, notification card and arrow so nothing hides behind the bike's own speedometer and
  * gauges. The phone shows the same scene the bike gets; while this screen is open the bike shows sample directions
  * with outlines and follows every drag. Saved for the paired bike.
  */
@@ -30,7 +30,7 @@ public final class TftLayoutActivity extends Activity {
         root.addView(bar);
         editor = new Editor(this, s);
         root.addView(editor, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView hint = k.text("Drag the Turn and Trip cards and the arrow where your bike’s speedometer and gauges don’t cover them. Drag a card’s corner dot to resize it. Your bike display follows along while it’s connected.", 13.5f, 500, MUTED);
+        TextView hint = k.text("Drag the Turn, Trip and Notification cards and the arrow where your bike’s speedometer and gauges don’t cover them. Drag a corner dot to resize the Turn or Trip card. Your bike display follows along while it’s connected.", 13.5f, 500, MUTED);
         hint.setGravity(Gravity.CENTER); root.addView(hint);
         Gabi.insets(root, (l, t, r, b, ime) -> root.setPadding(l + k.dp(16), t + k.dp(10), r + k.dp(16), b + k.dp(14)));
         setContentView(root);
@@ -42,7 +42,7 @@ public final class TftLayoutActivity extends Activity {
     static final class Editor extends View {
         private final NavSession s; private final DashboardRenderer renderer; private final float d;
         private int mode; private float[] grabbed; private float downX, downY, startX, startY, startW, startH;
-        private static final int NONE = 0, MOVE = 1, RESIZE = 2, ARROW = 3;
+        private static final int NONE = 0, MOVE = 1, RESIZE = 2, ARROW = 3, NOTE = 4;
         Editor(Context c, NavSession s) { super(c); this.s = s; renderer = new DashboardRenderer(s); d = c.getResources().getDisplayMetrics().density; }
 
         private RectF box() {
@@ -67,6 +67,9 @@ public final class TftLayoutActivity extends Activity {
                     downX = fx; downY = fy; mode = NONE; grabbed = null;
                     float ax = sc.left + s.arrowX * sc.width(), ay = sc.top + s.arrowY * sc.height();
                     if (Math.hypot(e.getX() - ax, e.getY() - ay) < 40 * d) { mode = ARROW; startX = s.arrowX; startY = s.arrowY; return true; }
+                    // The notification card is drawn over the others, so it is picked first where they overlap.
+                    float[] note = renderer.noteBox;
+                    if (fx >= note[0] && fx <= note[0] + note[2] && fy >= note[1] && fy <= note[1] + note[3]) { mode = NOTE; startX = s.noteX; startY = s.noteY; performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); return true; }
                     for (float[] card : new float[][]{s.tripCard, s.turnCard}) {
                         float cx = sc.left + (card[0] + card[2]) * sc.width(), cy = sc.top + (card[1] + card[3]) * sc.height();
                         if (Math.hypot(e.getX() - cx, e.getY() - cy) < 30 * d) { mode = RESIZE; grabbed = card; break; }
@@ -78,6 +81,7 @@ public final class TftLayoutActivity extends Activity {
                 case MotionEvent.ACTION_MOVE: {
                     float dx = fx - downX, dy = fy - downY;
                     if (mode == ARROW) { s.arrowX = clamp(startX + dx, 0.06f, 0.94f); s.arrowY = clamp(startY + dy, 0.08f, 0.94f); }
+                    else if (mode == NOTE) { float[] note = renderer.noteBox; s.noteX = clamp(startX + dx, note[2] / 2, 1 - note[2] / 2); s.noteY = clamp(startY + dy, 0, 1 - note[3]); }
                     else if (mode == MOVE || mode == RESIZE) {
                         float[] n = grabbed.clone();
                         if (mode == MOVE) { n[0] = clamp(startX + dx, 0, 1 - n[2]); n[1] = clamp(startY + dy, 0, 1 - n[3]); }
