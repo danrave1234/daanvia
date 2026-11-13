@@ -231,10 +231,18 @@ public final class StreamService extends Service {
             } else if(f.command==0x103e0) {
                 JSONObject request=new JSONObject(f.text());
                 out.write(Pxc.encode(0x103e1,""));
-                out.write(Pxc.encode(0x201c0,new JSONObject().put("isOk",true).put("errCode",0).put("errMsg","").put("id",request.optString("sn"))
+                // The answer goes on the data channel, where Carbit Ride sends it. Daanvia sent it on this control channel, and
+                // the bike never acknowledged it (no 0x201c1 in any log): to the bike, the phone was never approved, which
+                // fits it ignoring Daanvia's time and never starting its update check.
+                final String approved=new JSONObject().put("isOk",true).put("errCode",0).put("errMsg","").put("id",request.optString("sn"))
                     // Carbit Ride puts its server's settings here, which come back empty for this bike (its log of 11 Nov); Daanvia
                     // used to echo the bike's own "easy_conn" back as if it were settings.
-                    .put("client_set","").toString()));
+                    .put("client_set","").toString();
+                workers.execute(()->{try{
+                    for(int i=0;i<50&&dataOut==null&&running;i++)Thread.sleep(100);
+                    PxcWriter d=dataOut;if(d==null||!running){log("Couldn't answer the dashboard's licence check: its data channel never opened.");return;}
+                    d.write(Pxc.encode(0x201c0,approved));log("Answered the dashboard's licence check on its data channel.");
+                }catch(Exception e){log("Couldn't answer the dashboard's licence check: "+e.getClass().getSimpleName());}});
             } else if(f.command==0x201c1)log("Dashboard acknowledged the client session check.");
             // The dashboard asks the phone for the time; an empty answer left its clock counting up from 00:00 (see DashClock).
             else if(f.command==DashClock.QUERY_TIME) {
