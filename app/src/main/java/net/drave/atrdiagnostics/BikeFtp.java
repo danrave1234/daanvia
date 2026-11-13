@@ -36,9 +36,11 @@ final class BikeFtp implements Closeable {
     BikeFtp(InetAddress local, InetAddress bike, int ctrlPort, int dataPort, Consumer<String> log) throws IOException {
         if (ctrlPort < 1024 || ctrlPort > 65535 || dataPort < 1024 || dataPort > 65535 || ctrlPort == dataPort) throw new IOException("Unusable ports " + ctrlPort + "/" + dataPort);
         this.local = local; this.bike = bike; this.log = log;
-        ServerSocket c = new ServerSocket(); c.setReuseAddress(true); c.bind(new InetSocketAddress(local, ctrlPort), 2);
+        // On every address, as Carbit Ride's server listens (0.0.0.0): bound to the Wi-Fi Direct address alone, the bike
+        // never logged in (Daanvia's log of 13 Nov). Who may connect is still checked below.
+        ServerSocket c = new ServerSocket(); c.setReuseAddress(true); c.bind(new InetSocketAddress(ctrlPort), 2);
         ServerSocket d = new ServerSocket();
-        try { d.setReuseAddress(true); d.bind(new InetSocketAddress(local, dataPort), 2); d.setSoTimeout(10000); } catch (IOException e) { c.close(); d.close(); throw e; }
+        try { d.setReuseAddress(true); d.bind(new InetSocketAddress(dataPort), 2); d.setSoTimeout(10000); } catch (IOException e) { c.close(); d.close(); throw e; }
         control = c; data = d;
     }
 
@@ -46,7 +48,9 @@ final class BikeFtp implements Closeable {
     void serve() {
         while (!closed) {
             try (Socket s = control.accept()) {
-                if (!s.getInetAddress().equals(bike)) continue;
+                loggedIn = true;
+                if (!near(s.getInetAddress())) { log.accept("Bike file server: refused a connection from outside the bike's network."); continue; }
+                log.accept("The dashboard connected to the file server.");
                 s.setSoTimeout(30000); session(s);
             } catch (IOException e) { if (!closed) log.accept("Bike file server: " + e.getClass().getSimpleName()); }
         }
@@ -64,7 +68,7 @@ final class BikeFtp implements Closeable {
             say(out, "150 File status okay; about to open data connection.");
             int got = 0;
             try (Socket d = data.accept()) {
-                if (!d.getInetAddress().equals(bike)) { say(out, "425 Can't open data connection."); continue; }
+                if (!near(d.getInetAddress())) { say(out, "425 Can't open data connection."); continue; }
                 d.setSoTimeout(10000); InputStream up = d.getInputStream(); byte[] buf = new byte[4096]; int n;
                 while ((n = up.read(buf)) > 0) { got += n; if (got > MAX_UPLOAD) throw new IOException("Upload too large"); }
             } catch (IOException e) { say(out, "426 Data connection error."); continue; }
@@ -92,6 +96,14 @@ final class BikeFtp implements Closeable {
             default: return "502 Command " + clean(verb) + " not implemented.";
         }
     }
+    /** The bike, or another address on its Wi-Fi Direct network (same /24 as the phone's address there). */
+    private boolean near(InetAddress a) {
+        if (a == null) return false; if (a.equals(bike)) return true;
+        byte[] x = a.getAddress(), y = local.getAddress();
+        return x.length == 4 && y.length == 4 && x[0] == y[0] && x[1] == y[1] && x[2] == y[2] && !a.equals(local);
+    }
+    /** Something connected to the server at all. */
+    volatile boolean loggedIn;
     private static String clean(String s) { String c = s.replaceAll("[^A-Za-z0-9._-]", "?"); return c.length() > 60 ? c.substring(0, 60) : c; }
     private static void say(OutputStream out, String line) throws IOException { out.write((line + "\r\n").getBytes(StandardCharsets.UTF_8)); out.flush(); }
 

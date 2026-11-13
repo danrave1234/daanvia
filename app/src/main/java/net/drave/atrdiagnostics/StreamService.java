@@ -382,6 +382,8 @@ public final class StreamService extends Service {
                 for(int i=0;i<50&&dataOut==null&&running;i++)Thread.sleep(100);
                 PxcWriter d=dataOut;if(d==null||!running)return;
                 d.write(Pxc.encode(BikeFtp.READY,BikeFtp.ready(dataPort,ctrlPort)));log("Opened the file server the dashboard asked for (ports "+ctrlPort+"/"+dataPort+").");
+                Thread.sleep(15000);
+                if(running&&!ftp.loggedIn)log("The dashboard didn't connect to the file server within 15 s.");
             }catch(Exception e){log("Couldn't tell the dashboard the file server is ready: "+e.getClass().getSimpleName());}});
         }catch(Exception e){log("Couldn't open the file server the dashboard asked for: "+e.getClass().getSimpleName()+" "+e.getMessage());}
     }
