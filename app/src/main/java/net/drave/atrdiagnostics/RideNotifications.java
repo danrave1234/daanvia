@@ -58,7 +58,7 @@ public final class RideNotifications extends NotificationListenerService {
         if (title.isEmpty() && body.isEmpty()) return;
         // Apps post the same notification again without anything new (read on another device, a sync): shown once.
         if (sbn.getKey().equals(s.popupKey) && body.equals(s.popupText) && title.equals(s.popupTitle)) return;
-        s.popup(app(sbn.getPackageName()), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
+        s.popup(app(sbn.getPackageName()), icon(sbn.getPackageName()), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
     }
 
     /** How loudly Android would announce it (silent ones score below IMPORTANCE_DEFAULT). */
@@ -110,6 +110,25 @@ public final class RideNotifications extends NotificationListenerService {
     };
     /** A chat or social app: one of the list, or any texting app by its package name. */
     static boolean social(String pkg) { for (String[] a : APPS) if (a[0].equals(pkg)) return !"Phone".equals(a[1]); return pkg.contains("mms") || pkg.contains("messaging"); }
+    /** The last app's icon, kept: a chat sends many messages in a row, and drawing an icon into a bitmap isn't free. */
+    private String iconFor; private android.graphics.Bitmap iconKept;
+    private android.graphics.Bitmap icon(String pkg) {
+        if (!pkg.equals(iconFor)) { iconFor = pkg; iconKept = iconOf(getPackageManager(), pkg); }
+        return iconKept;
+    }
+    /** An app's own icon (the one on the home screen) for its card, 112 px square; null if Android won't give it. */
+    static android.graphics.Bitmap iconOf(android.content.pm.PackageManager pm, String pkg) {
+        try {
+            android.graphics.drawable.Drawable d = pm.getApplicationIcon(pkg);
+            android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(112, 112, android.graphics.Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, 112, 112); d.draw(new android.graphics.Canvas(b)); return b;
+        } catch (Exception | OutOfMemoryError e) { return null; }
+    }
+    /** For the layout editor's sample card: the first chat or social app on this phone, as {package, name}; null if none. */
+    static String[] sampleApp(android.content.pm.PackageManager pm) {
+        for (String[] a : APPS) if (!"Phone".equals(a[1])) try { pm.getApplicationInfo(a[0], 0); return a; } catch (Exception notInstalled) { /* next */ }
+        return null;
+    }
     private String app(String pkg) {
         for (String[] a : APPS) if (a[0].equals(pkg)) return a[1];
         try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString(); } catch (Exception e) { return ""; }

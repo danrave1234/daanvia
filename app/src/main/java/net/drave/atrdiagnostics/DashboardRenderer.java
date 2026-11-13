@@ -110,7 +110,7 @@ public final class DashboardRenderer {
         // While the layout is edited a sample card stands in, so the rider can see it and drag it where it fits.
         boolean sample = s.layoutEditing;
         if (s.calibration || !sample && SystemClock.elapsedRealtime() > s.popupUntil) return;
-        boolean call = !sample && s.popupCall; String app = sample ? "Messenger" : s.popupApp, title = sample ? "Maria Santos" : s.popupTitle, body = sample ? "On my way, see you at 5" : s.popupText;
+        boolean call = !sample && s.popupCall; String app = sample ? s.sampleApp : s.popupApp, title = sample ? "Maria Santos" : s.popupTitle, body = sample ? "On my way, see you at 5" : s.popupText;
         float w = Math.min(vw * 0.6f, 560), pad = 18, tile = 56, textW = w - pad * 2 - tile - 16;
         String head = call ? "INCOMING CALL" : (app.isEmpty() ? "NOTIFICATION" : app.toUpperCase(Locale.US));
         String from = title.isEmpty() ? (call ? "Unknown caller" : app) : title;
@@ -123,10 +123,17 @@ public final class DashboardRenderer {
         p.setStyle(Paint.Style.FILL); p.setColor(0x55000000); c.drawRoundRect(r.left, r.top + 4, r.right, r.bottom + 4, 18, 18, p);
         cardBackground(c, r);
         RectF t = new RectF(x + pad, y + pad, x + pad + tile, y + pad + tile);
-        p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(t, tile * 0.3f, tile * 0.3f, p);
-        String initial = from.isEmpty() ? "?" : from.substring(0, from.offsetByCodePoints(0, 1)).toUpperCase(Locale.ROOT);
-        p.setTypeface(black); p.setTextSize(28); float iw = p.measureText(initial);
-        text(c, initial, t.centerX() - iw / 2, t.centerY() + 10, 28, 0xFF1A1203, black);
+        // The app's own icon, as on the phone's home screen; the sender's initial when there is none.
+        android.graphics.Bitmap icon = sample ? s.sampleIcon : s.popupIcon;
+        if (icon != null && !icon.isRecycled()) {
+            c.save(); notePath.rewind(); notePath.addRoundRect(t, tile * 0.24f, tile * 0.24f, Path.Direction.CW); c.clipPath(notePath);
+            p.setFilterBitmap(true); c.drawBitmap(icon, null, t, p); p.setFilterBitmap(false); c.restore();
+        } else {
+            p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawRoundRect(t, tile * 0.3f, tile * 0.3f, p);
+            String initial = from.isEmpty() ? "?" : from.substring(0, from.offsetByCodePoints(0, 1)).toUpperCase(Locale.ROOT);
+            p.setTypeface(black); p.setTextSize(28); float iw = p.measureText(initial);
+            text(c, initial, t.centerX() - iw / 2, t.centerY() + 10, 28, 0xFF1A1203, black);
+        }
         text(c, head, textX, y + pad + 16, 15, call ? pal.accent : muted(), black);
         text(c, fit(from, textW, 30, bold), textX, y + pad + 20 + 32, 30, ink(), bold);
         for (int i = 0; i < lines.size(); i++) text(c, lines.get(i), textX, y + pad + 20 + 36 + 26 + i * 31, 24, soft(), semi);
@@ -137,6 +144,7 @@ public final class DashboardRenderer {
         }
     }
     /** The notification card as last drawn: left, top, width and height as fractions of the scene (for the layout editor). */
+    private final Path notePath = new Path();
     volatile float[] noteBox = {0.06f, 0.04f, 0.88f, 0.3f};
     // ---- Cards recorded once and replayed ----
     // The turn and trip cards change far less often than the map moves: the distance to the turn about once a second,

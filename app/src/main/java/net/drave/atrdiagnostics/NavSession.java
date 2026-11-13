@@ -60,7 +60,11 @@ public final class NavSession {
     public volatile boolean arrived;
     /** A call or message shown on the bike display until popupUntil (elapsedRealtime), see RideNotifications. */
     public volatile String popupApp="",popupTitle="",popupText="",popupKey="";public volatile boolean popupCall;public volatile long popupUntil;
-    void popup(String app,String title,String text,boolean call,String key,long until){popupApp=app;popupTitle=title;popupText=text;popupCall=call;popupKey=key;popupUntil=until;signal();}
+    /** The icon of the app the card is from; null shows the sender's initial instead. */
+    public volatile android.graphics.Bitmap popupIcon;
+    /** The layout editor's sample card: an app that is on this phone, so the sample shows a real icon. */
+    public volatile String sampleApp="Messenger";public volatile android.graphics.Bitmap sampleIcon;
+    void popup(String app,android.graphics.Bitmap icon,String title,String text,boolean call,String key,long until){popupIcon=icon;popupApp=app;popupTitle=title;popupText=text;popupCall=call;popupKey=key;popupUntil=until;signal();}
     /** Set when a ride ended on its own at the destination (see NavService.checkArrival); the map screen says so once. */
     public volatile String finished;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */

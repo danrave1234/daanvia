@@ -24,7 +24,9 @@
     <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <!-- The old Daanvia (net.drave.atrdiagnostics): its data moves here on first launch (MoveActivity). -->
-    <queries><package android:name="net.drave.atrdiagnostics" /><provider android:authorities="net.drave.atrdiagnostics.transfer" /><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
+    <queries><package android:name="net.drave.atrdiagnostics" />
+        <!-- Apps with a launcher icon, so a notification's card on the bike display can show its app's icon (RideNotifications). -->
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent><provider android:authorities="net.drave.atrdiagnostics.transfer" /><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
     <application android:label="Daanvia Beta" android:icon="@mipmap/ic_launcher" android:dataExtractionRules="@xml/data_extraction_rules" android:fullBackupContent="false" android:theme="@style/AppTheme" android:allowBackup="false" android:usesCleartextTraffic="false" android:networkSecurityConfig="@xml/network_security_config">
         <activity android:name=".HomeActivity" android:exported="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode" android:launchMode="singleTop" android:windowSoftInputMode="adjustNothing">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
