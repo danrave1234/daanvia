@@ -120,7 +120,7 @@ public final class VideoEncoder implements Closeable {
             int a=GLES20.glGetAttribLocation(program,"position"),b=GLES20.glGetAttribLocation(program,"uv");GLES20.glEnableVertexAttribArray(a);GLES20.glEnableVertexAttribArray(b);GLES20.glVertexAttribPointer(a,2,GLES20.GL_FLOAT,false,0,vertices);GLES20.glVertexAttribPointer(b,2,GLES20.GL_FLOAT,false,0,uv);
             int[] texture=new int[1];GLES20.glGenTextures(1,texture,0);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,texture[0]);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_CLAMP_TO_EDGE);GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE);
             bitmap=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888);android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);GLES20.glViewport(0,0,width,height);
-            while(running){long frameStart=android.os.SystemClock.uptimeMillis();navigation.draw(canvas,width,height);android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);EGLExt.eglPresentationTimeANDROID(egl,window,System.nanoTime());if(!EGL14.eglSwapBuffers(egl,window))throw new IOException("Frame submit failed");long spare=interval()-(android.os.SystemClock.uptimeMillis()-frameStart);if(spare>0)Thread.sleep(spare);}
+            while(running){waitForPull();long frameStart=android.os.SystemClock.uptimeMillis();navigation.draw(canvas,width,height);android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D,0,bitmap,0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);EGLExt.eglPresentationTimeANDROID(egl,window,System.nanoTime());if(!EGL14.eglSwapBuffers(egl,window))throw new IOException("Frame submit failed");long spare=interval()-(android.os.SystemClock.uptimeMillis()-frameStart);if(spare>0)Thread.sleep(spare);}
         }catch(Exception e){if(running)log.accept("Navigation renderer stopped: "+e.getClass().getSimpleName());running=false;}
         finally{if(bitmap!=null)bitmap.recycle();if(egl!=EGL14.EGL_NO_DISPLAY){EGL14.eglMakeCurrent(egl,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);if(window!=EGL14.EGL_NO_SURFACE)EGL14.eglDestroySurface(egl,window);if(context!=EGL14.EGL_NO_CONTEXT)EGL14.eglDestroyContext(egl,context);EGL14.eglTerminate(egl);}}
     }
@@ -134,6 +134,7 @@ public final class VideoEncoder implements Closeable {
         try{
             long next=android.os.SystemClock.uptimeMillis();
             while(running){
+                if(waitForPull())next=android.os.SystemClock.uptimeMillis();  // no burst of catch-up frames after a pause
                 android.graphics.Canvas c=surface.lockHardwareCanvas();
                 try{navigation.draw(c,width,height);}finally{surface.unlockCanvasAndPost(c);}
                 drew=true;drawn++;
@@ -146,6 +147,30 @@ public final class VideoEncoder implements Closeable {
         }
     }
     volatile int drawn;
+    /*
+     * The bike pulls every frame it shows (StreamService, media command 114). When it stops pulling (the rider switched it
+     * to its own screen with the turn arrows, the bike left the map on its own, or the Wi-Fi link stalled) every frame
+     * drawn and encoded was thrown away unseen: the whole scene and the encoder kept running at 10-24 a second for
+     * nothing. So after 2 s without a pull the drawing waits, and the next pull starts it again. Safe because nothing
+     * else reads these frames: the pull that wakes it gets a fresh key frame (with the stream headers) within a frame
+     * or two, well inside next()'s 6 s, and the frames left from before the pause are dropped as stale, as when the
+     * queue fills up (restart). Pulls, not frames sent, drive StreamService's watchdog, so it sees no difference.
+     */
+    private static final long IDLE_MS=2000;
+    private final Object pullLock=new Object();private volatile long pulledAt=android.os.SystemClock.uptimeMillis();private volatile boolean idle;
+    /** Before each frame: wait while the bike isn't pulling. True when drawing was paused and has just started again. */
+    private boolean waitForPull()throws InterruptedException{
+        if(navigation==null||android.os.SystemClock.uptimeMillis()-pulledAt<IDLE_MS)return false;
+        long since=android.os.SystemClock.uptimeMillis();
+        synchronized(pullLock){
+            idle=true;
+            try{while(running&&android.os.SystemClock.uptimeMillis()-pulledAt>=IDLE_MS)pullLock.wait(1000);}finally{idle=false;}
+        }
+        if(!running)return true;
+        synchronized(queueLock){restart();}
+        log.accept("The bike asked for video again after "+(android.os.SystemClock.uptimeMillis()-since+IDLE_MS)/1000+" s; drawing it again (paused meanwhile to save battery).");
+        return true;
+    }
     /**
      * Time to the next frame. Frames are drawn only as often as the picture visibly moves, about 1.5 px a frame: the bike's
      * full rate through turns and zooms, fewer on a straight road at an even speed. Never fewer than 10 a second, since
@@ -170,6 +195,9 @@ public final class VideoEncoder implements Closeable {
         if(!frames.offer(bytes)){if(key){frames.clear();frames.offer(bytes);}else restart();}}}
     private void restart(){frames.clear();waitKey=true;try{android.os.Bundle b=new android.os.Bundle();b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME,0);codec.setParameters(b);}catch(Exception ignored){}}
     public byte[] next()throws Exception {
+        // Wakes paused drawing (waitForPull). What waited in the queue meanwhile is stale: dropped, so this pull gets the
+        // fresh key frame that waitForPull asks for rather than an old picture.
+        pulledAt=android.os.SystemClock.uptimeMillis();if(idle){synchronized(queueLock){frames.clear();waitKey=true;}synchronized(pullLock){pullLock.notifyAll();}}
         synchronized(queueLock){if(frames.size()>3)restart();}
         int waiting=frames.size();long asked=System.nanoTime();
         byte[] data=frames.poll(6,TimeUnit.SECONDS);if(data==null)throw new IOException("No encoded frame available within six seconds");
