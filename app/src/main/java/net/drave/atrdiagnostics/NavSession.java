@@ -23,6 +23,15 @@ public final class NavSession {
     public volatile float accuracy=999,bearing,speedMetersPerSecond;
     /** Where to draw the rider: on the route line while following it (snapped, heading along the road), else the raw fix. Routing always uses the raw fix. */
     public volatile double viewLat=10.3157,viewLon=123.8854;public volatile float viewBearing;public volatile boolean snapped;
+    /**
+     * Off the route line during a ride (a pump, a car park, a service road beside it): the point where the rider joins
+     * the route, and how far that is (0 while on the line). The phone and the bike display draw a dotted line to it.
+     */
+    public volatile double joinLat,joinLon,joinGap;
+    /** The route segment (from point joinIndex to the next) the join point lies on. */
+    public volatile int joinIndex;
+    /** {@link #bearing} is the course from this fix's movement; false when it is kept from before a stop (callers set it with each fix). */
+    public volatile boolean headingLive;
     public volatile long fixAt;
     /** Briefly yield turn announcements to a local command's microphone or reply. */
     public volatile long commandAudioUntil;
@@ -35,8 +44,18 @@ public final class NavSession {
     /** The area's street squares for the map (see RoadTiles); null until built. Bumps roadsVersion when they change. */
     public volatile File roadTiles;public volatile int roadsVersion;
     public volatile List<JSONObject> nearbyParking=Collections.emptyList();
+    /**
+     * The turns the screens, voice and bike show: the route's own, with the way onto the route (see RouteSnap.joinType)
+     * put in front of the next turn while the rider is off it. {@link #maneuver} indexes this array.
+     */
     public volatile JSONArray maneuvers=new JSONArray();
     public volatile int maneuver,progress;
+    /** The route's own turns from the router, which guidance follows. */
+    private JSONArray routeTurns=new JSONArray();
+    /** Arrow on the route line or at the real position (RouteSnap); how far the rider was from the route when it was made. */
+    private final RouteSnap snap=new RouteSnap();private double startGap;
+    /** The turns shown with the way onto the route, kept while it doesn't change so the screens don't redraw for nothing. */
+    private JSONArray joinTurns;private String joinKey="";private int joinType;
     public volatile double[] cumulative=new double[0];private double routeMeters,routeSeconds;
     /** Seconds from the route's start to each of its points, from the router's time for each stretch (see sectionTimes). */
     private volatile double[] cumTime=new double[0];
@@ -433,9 +452,11 @@ public final class NavSession {
         selectedRoute=index;int[] counts=routeGates;applyRoute(routeChoices.get(index),index<counts.length?counts[index]:0);signal();
     }
     private void applyRoute(RoutePlan plan,int gateCount){
-        shape=plan.shape;maneuvers=plan.maneuvers;cumulative=plan.cumulative;
+        shape=plan.shape;maneuvers=plan.maneuvers;routeTurns=plan.maneuvers;joinTurns=null;joinKey="";joinGap=0;cumulative=plan.cumulative;
         legEnds=plan.legEnds;
         cumTime=sectionTimes(cumulative,maneuvers,plan.seconds);maneuver=0;progress=0;arrived=false;offRoute=0;matched=false;
+        // A route from a pump or a parking space starts on the road beside it: waiting there is not leaving the route.
+        startGap=RouteSnap.gapTo(shape,cumulative,lat,lon,300);if(!active)snap.reset();
         routeMeters=plan.meters;remaining=routeMeters;routeSeconds=plan.seconds;seconds=routeSeconds*OFFLINE_TIME_ALLOWANCE;
         instruction="Route ready";gates=gateCount;privateRoad=lastPrivate;
         double[] first=shape.get(0),end=shape.get(shape.size()-1);
@@ -517,7 +538,7 @@ public final class NavSession {
         return found.size()>max?new ArrayList<>(found.subList(0,max)):found;}
     /** No usable GPS fix right now (none yet, over 12 s old, or rougher than 50 m); never during a simulation. */
     public boolean gpsStale(){return !simulation&&(fixAt==0||SystemClock.elapsedRealtime()-fixAt>12000||accuracy>50);}
-    public synchronized void stop(){nextVia=null;followVia=null;active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
+    public synchronized void stop(){nextVia=null;followVia=null;snap.reset();joinGap=0;active=false;simulation=false;arrived=false;fixAt=0;accuracy=999;requestId++;routing=false;shape=Collections.emptyList();routeChoices=Collections.emptyList();context.getSharedPreferences("ui",0).edit().remove("ride").apply();instruction="Choose a destination";message("Ride ended · tracking stopped");if(reloadAfterRide){reloadAfterRide=false;reload();}}
     public void update(double a,double b,float acc,float direction,boolean demo){update(a,b,acc,direction,demo,SystemClock.elapsedRealtime());}
     /** {@code takenAt} is when the fix was taken (elapsedRealtime). Outside a ride any fix places the rider, however rough; during a ride only sharp ones count. */
     public synchronized void update(double a,double b,float acc,float direction,boolean demo,long takenAt){
@@ -536,19 +557,26 @@ public final class NavSession {
         double reach=measured?cum[Math.min(progress,cum.length-1)]+400:Double.MAX_VALUE;
         for(int i=Math.max(0,progress-8);i<route.size()-1;i++){if(measured&&cum[i]>reach)break;double[] p=route.get(i),q=route.get(i+1);double distance=GeoMath.segmentDistance(a,b,p,q);
             double sc=distance+(GeoMath.angleBetween(GeoMath.bearing(p,q),direction)>100?25:0);if(sc<score){score=sc;best=distance;nearest=i;bestBearing=GeoMath.bearing(p,q);}}
-        // Turned off the route: heading clearly away from the road the route follows, already a little off it. Found in two
-        // fixes, about 25 m into the side street, where waiting to be 65 m away took half a block or more.
-        // Only once the rider has been on this route: a fallback route that starts behind them would otherwise reroute every 5 s.
-        boolean turnedOff=matched&&!demo&&speedMetersPerSecond>=4&&acc<30&&best>22&&GeoMath.angleBetween(bestBearing,direction)>55;
-        if(best<Math.max(45,acc)&&!turnedOff){progress=Math.max(progress,nearest);offRoute=0;matched=true;}
+        // The rider's course against the route there; unknown (NaN) when stopped, where the bearing is kept from before.
+        float speed=demo?8:speedMetersPerSecond;double diff=demo||headingLive?GeoMath.angleBetween(bestBearing,direction):Double.NaN;
+        // Off the route (RouteSnap.offRouteFixes): turned into a side street (2 fixes, about 25 m in), riding it the wrong
+        // way (4), or far off (3). Waiting at a pump or in a lot doesn't count, nor the gap the route started with.
+        int off=demo?0:RouteSnap.offRouteFixes(best,diff,acc,speed,matched,startGap);boolean turnedOff=off==2;
+        if(best<Math.max(45,acc)&&!turnedOff){progress=Math.max(progress,nearest);matched=true;}
+        if(off==0)offRoute=0;
         // A stop is passed once the rider reaches its point on the road (the end of its leg), however far the pin sits
         // from the road (inside a mall or a big lot).
         while(passedStops<tripStops.size()-1&&passedStops<legEnds.length&&progress>=legEnds[passedStops]-1){
             int end=Math.min(legEnds[passedStops],route.size()-1);double[] at=route.get(end);
             if(progress<legEnds[passedStops]&&GeoMath.distance(a,b,at[0],at[1])>45)break;passedStops++;
         }
-        // Draw the rider on the road being followed, pointing along it, like car navigation does; GPS scatter stays hidden.
-        if(!turnedOff&&best<Math.min(45,Math.max(25,acc))){double[] p1=route.get(nearest),p2=route.get(Math.min(nearest+1,route.size()-1));double[] on=GeoMath.project(a,b,p1,p2);viewLat=on[0];viewLon=on[1];if(p1!=p2)viewBearing=GeoMath.bearing(p1,p2);snapped=true;}else if(acc<35&&(best>65||turnedOff)&&!arrived&&GeoMath.distance(a,b,destLat,destLon)>150){offRoute++;if(!demo&&offRoute>=(turnedOff?2:3)&&!routing&&SystemClock.elapsedRealtime()-lastReroute>(turnedOff?5000:12000)){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
+        // Draw the rider on the road being followed, pointing along it, like car navigation does, only while the fix is on
+        // it (RouteSnap: close, and heading its way when moving). At a pump or in a lot the arrow shows the real spot, with
+        // a dotted line to where the rider joins the route.
+        double[] p1=route.get(nearest),p2=route.get(Math.min(nearest+1,route.size()-1));double[] onRoute=GeoMath.project(a,b,p1,p2);
+        if(!turnedOff&&snap.update(best,diff,acc,speed)){viewLat=onRoute[0];viewLon=onRoute[1];if(p1!=p2)viewBearing=GeoMath.bearing(p1,p2);snapped=true;joinGap=0;}
+        else{if(turnedOff)snap.reset();joinIndex=nearest;joinLat=onRoute[0];joinLon=onRoute[1];joinGap=best;}
+        if(off>0&&!arrived&&GeoMath.distance(a,b,destLat,destLon)>150){offRoute++;if(offRoute>=off&&!routing&&SystemClock.elapsedRealtime()-lastReroute>(turnedOff?5000:12000)){lastReroute=SystemClock.elapsedRealtime();offRoute=0;route();}}
         // Distance and time left: to the next route point, then the rest from the running totals. The time left adds up
         // the router's own times for the stretches still ahead, so a slow city stretch near the end counts as slow.
         int nxt=Math.min(progress+1,route.size()-1);double toNext=GeoMath.distance(a,b,route.get(nxt)[0],route.get(nxt)[1]);double[] ct=cumTime;double rem,remSecs;
@@ -557,8 +585,9 @@ public final class NavSession {
         else{rem=toNext;for(int i=nxt;i<route.size()-1;i++)rem+=GeoMath.distance(route.get(i)[0],route.get(i)[1],route.get(i+1)[0],route.get(i+1)[1]);remSecs=routeMeters>0?routeSeconds*rem/routeMeters:0;}
         remaining=rem;seconds=remSecs*OFFLINE_TIME_ALLOWANCE;
         try{
-            int next=0;for(int i=0;i<maneuvers.length();i++)if(maneuvers.getJSONObject(i).optInt("begin_shape_index")>progress){next=i;break;}
-            if(next==0)next=Math.max(0,maneuvers.length()-1);maneuver=next;JSONObject m=maneuvers.optJSONObject(next);/* null for a route without maneuvers: arrival below still counts */int at=m==null?route.size()-1:Math.min(route.size()-1,m.optInt("begin_shape_index"));double[] prefix=cumulative;int ahead=Math.min(progress+1,route.size()-1);distanceToTurn=at>=ahead&&prefix.length==route.size()?GeoMath.distance(a,b,route.get(ahead)[0],route.get(ahead)[1])+prefix[at]-prefix[ahead]:0;instruction=m==null?"Continue":m.optString("instruction","Continue");
+            JSONArray turns=routeTurns;
+            int next=0;for(int i=0;i<turns.length();i++)if(turns.getJSONObject(i).optInt("begin_shape_index")>progress){next=i;break;}
+            if(next==0)next=Math.max(0,turns.length()-1);JSONObject m=turns.optJSONObject(next);/* null for a route without maneuvers: arrival below still counts */int at=m==null?route.size()-1:Math.min(route.size()-1,m.optInt("begin_shape_index"));double[] prefix=cumulative;int ahead=Math.min(progress+1,route.size()-1);distanceToTurn=at>=ahead&&prefix.length==route.size()?GeoMath.distance(a,b,route.get(ahead)[0],route.get(ahead)[1])+prefix[at]-prefix[ahead]:0;instruction=m==null?"Continue":m.optString("instruction","Continue");
             // Near the picked point, or at the route's end where the road stops short of a pin inside a campus or mall.
             double[] end=route.get(route.size()-1);
             // Also when the route's last stretch is being ridden past its end at the matcher's own tolerance: on a divided
@@ -566,6 +595,17 @@ public final class NavSession {
             boolean atEnd=progress>=route.size()-2&&best<Math.max(45,acc)&&(GeoMath.distance(a,b,end[0],end[1])<Math.max(50,acc)||GeoMath.distance(a,b,destLat,destLon)<60);
             if(arrived||atEnd||rem<35&&(GeoMath.distance(a,b,destLat,destLon)<45||GeoMath.distance(a,b,end[0],end[1])<30)){instruction="Destination nearby";
                 if(!arrived){arrived=true;context.getSharedPreferences("ui",0).edit().remove("ride").apply();message((demo?"SIMULATION · ":"")+"Destination nearby");}}
+            // Off the road (a pump, a car park): the first thing to do is get onto the route, so that is the turn shown, said
+            // and sent to the bike, worked out from where the rider is ("Turn left onto D.M. Cortes Avenue"), with the
+            // route's next turn after it. The router's own start ("Drive southwest") never says which way to turn out.
+            double[] here={a,b};double toJoin=demo||headingLive?GeoMath.angleBetween(direction,GeoMath.bearing(here,onRoute)):Double.NaN;
+            if(!arrived&&RouteSnap.joining(snapped,best,diff,toJoin,acc,speed)){
+                int type=joinType=RouteSnap.joinType(GeoMath.bearing(here,onRoute),RouteSnap.roadBearing(route,nearest,onRoute),joinType);
+                String street=RouteSnap.street(turns.optJSONObject(RouteSnap.turnAt(turns,nearest)));
+                String key=type+"|"+street+"|"+next+"|"+System.identityHashCode(turns);
+                if(!key.equals(joinKey)||joinTurns==null){joinKey=key;joinTurns=RouteSnap.withJoin(turns,next,type,street,nearest);}
+                maneuvers=joinTurns;maneuver=next;distanceToTurn=best;instruction=RouteSnap.joinText(type,street);
+            }else{maneuvers=turns;maneuver=next;joinType=0;}
         }catch(JSONException ignored){}signal();
     }
     private long streetAt,streetFound;

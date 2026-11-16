@@ -1,7 +1,7 @@
 package net.drave.atrdiagnostics;
 import android.*;import android.app.*;import android.content.*;import android.content.pm.*;import android.location.*;import android.os.*;import java.util.*;
 public final class NavService extends Service {
-    private NavSession s;private LocationFeed gps;private VoiceOutput voice;private final Handler handler=new Handler(Looper.getMainLooper());private final GuidancePrompts prompts=new GuidancePrompts();private final FixFilter filter=new FixFilter();private int demoIndex;private List<double[]> spokenRoute;private Runnable simulator;
+    private NavSession s;private LocationFeed gps;private VoiceOutput voice;private final Handler handler=new Handler(Looper.getMainLooper());private final GuidancePrompts prompts=new GuidancePrompts();private final FixFilter filter=new FixFilter();private int demoIndex;private List<double[]> spokenRoute;private org.json.JSONArray spokenTurns;private Runnable simulator;
     public IBinder onBind(Intent i){return null;}
     private RideMetrics metrics;
     private final Runnable measure=new Runnable(){public void run(){if(s==null||!s.active)return;if(metrics==null)metrics=new RideMetrics(NavService.this);metrics.sample(s);handler.postDelayed(this,30000);}};
@@ -117,7 +117,7 @@ public final class NavService extends Service {
         long now=SystemClock.elapsedRealtime(),at=l.getElapsedRealtimeNanos()>0?l.getElapsedRealtimeNanos()/1000000L:now;if(!filter.accept(l.getLatitude(),l.getLongitude(),l.getAccuracy(),at,now))return;
         // Heading from GPS is noise below walking speed; keep the last good one instead of snapping to north.
         boolean moving=l.hasBearing()&&(!l.hasSpeed()||l.getSpeed()>1.4f);
-        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():s.bearing,false);speak();checkArrival(l);}
+        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.headingLive=moving;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():s.bearing,false);speak();checkArrival(l);}
     /**
      * Arriving ends the ride on its own, so nobody has to tap End: once the rider has stopped near the arrival spot for
      * 20 s (parked), has ridden 250 m past it, or 5 minutes after arriving. Measured from where the arrival was noticed,
@@ -144,7 +144,8 @@ public final class NavService extends Service {
     private void ensureVoice(){if(voice==null)voice=new VoiceOutput(this,message->{if(voice!=null&&!voice.ready())s.message(message);else s.signal();});}
     private void speakCurrent(){if(voice!=null&&s.active)voice.speak(s.arrived?"Destination nearby":GuidancePrompts.distance(s.distanceToTurn)+". "+s.instruction);}
     private void speak(){
-        if(s.shape!=spokenRoute){spokenRoute=s.shape;prompts.reset();}
+        // A new route, or the way onto the route shown or dropped in front of the next turn (NavSession.maneuvers): count again.
+        if(s.shape!=spokenRoute||s.maneuvers!=spokenTurns){spokenRoute=s.shape;spokenTurns=s.maneuvers;prompts.reset();}
         if(!s.active||voice==null||!voice.ready()||SystemClock.elapsedRealtime()<s.commandAudioUntil||!getSharedPreferences("ui",0).getBoolean("voice",true))return;
         long now=SystemClock.elapsedRealtime();int stage=prompts.next(s.maneuver,s.distanceToTurn,s.speedMetersPerSecond,s.accuracy,s.arrived,now);
         if(stage==GuidancePrompts.NONE)return;
