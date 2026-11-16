@@ -305,8 +305,9 @@ public final class NavSession {
     private synchronized void route(){route(true);}
     /** {@code headed}: a reroute may start in the rider's heading; false where turning back may be the way (a blocked road). */
     private synchronized void route(boolean headed){if(routing)return;final int token=++requestId;routing=true;message("Calculating on this phone…");final double a=lat,b=lon,c=destLat,d=destLon;
-        // Mid-ride, moving: the new route leaves the way the rider is heading, instead of turning them back to the old one.
-        headedFrom=headed&&active&&!simulation&&speedMetersPerSecond>=3&&accuracy<35?new double[]{a,b,bearing}:null;final Region region=routeRegion;final List<TripStop> stops=remainingStops();
+        // Moving (a reroute mid-ride, or a destination picked on the go): the route leaves the way the rider is heading, from
+        // the carriageway they're on, instead of turning them back. Stopped (a pump), the router's closest road is right.
+        headedFrom=headed&&!simulation&&headingLive&&speedMetersPerSecond>=3&&accuracy<35&&SystemClock.elapsedRealtime()-fixAt<5000?new double[]{a,b,bearing,accuracy,speedMetersPerSecond}:null;final Region region=routeRegion;final List<TripStop> stops=remainingStops();
         final double[] via=nextVia;nextVia=null;
         worker.execute(()->{boolean again=false;try{
             // A spot the router can't reach (a parking lot behind a private or customers-only road, the rider inside a gated
@@ -418,7 +419,7 @@ public final class NavSession {
      */
     private JSONObject avoiding(Region region,JSONObject req,double a,double b)throws Exception{
         double[] h=headedFrom;JSONObject headed=null;
-        if(h!=null&&h[0]==a&&h[1]==b){headed=new JSONObject(req.toString());headed.getJSONArray("locations").getJSONObject(0).put("heading",(int)Math.round(GeoMath.normalise(h[2]))).put("heading_tolerance",50);}
+        if(h!=null&&h[0]==a&&h[1]==b){headed=new JSONObject(req.toString());RouteRequest.headed(headed.getJSONArray("locations").getJSONObject(0),h[2],(float)h[3],(float)h[4]);}
         JSONArray blocks=RoadBlocks.near(context,a,b,80);ArrayList<JSONObject> tries=new ArrayList<>();
         if(blocks.length()>0){if(headed!=null)tries.add(new JSONObject(headed.toString()).put("exclude_locations",blocks));tries.add(new JSONObject(req.toString()).put("exclude_locations",blocks));}
         if(headed!=null)tries.add(headed);

@@ -173,4 +173,14 @@ public class RouteSnapTest {
         double gap = RouteSnap.gapTo(route, new double[]{0, 111}, 10.3005, 123.9002, 300);
         assertEquals(21.9, gap, 1);
     }
+
+    // ---------------------------------------------------------------- the router's start
+    @Test public void movingStartSendsHeadingAndARadiusFromTheGpsError() throws Exception {
+        JSONObject loc = RouteRequest.headed(new JSONObject().put("lat", 10.3).put("lon", 123.9), 410, 6, 9);
+        assertEquals(50, loc.getInt("heading"));
+        assertEquals(45, loc.getInt("heading_tolerance"));
+        assertEquals(14, loc.getInt("radius"));
+        assertEquals("never wider than a block", 35, RouteRequest.headed(new JSONObject(), 0, 30, 3).getInt("radius"));
+        assertEquals("slow: wider tolerance", 60, RouteRequest.headed(new JSONObject(), 0, 5, 3).getInt("heading_tolerance"));
+    }
 }
