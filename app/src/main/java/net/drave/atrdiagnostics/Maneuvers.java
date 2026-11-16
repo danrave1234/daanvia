@@ -23,12 +23,23 @@ public final class Maneuvers {
         String structure = m.optString("structure", "");
         return command + (structure.isEmpty() ? "" : " · " + structure) + (street == null || street.isEmpty() ? "" : " · " + street);
     }
-    /** The road a maneuver leads onto (its first name, or the one it begins on); empty when the map has none. */
+    /**
+     * The road a maneuver leads onto (else the one it begins on), as a rider reads it on a sign: the first of its names
+     * with a word in it, so a road the router lists as "840 / Don Andres Soriano Avenue" is Don Andres Soriano Avenue,
+     * not the national route number. A road known only by its number keeps it; empty when the map has no name at all.
+     */
     public static String road(org.json.JSONObject m) {
         if (m == null) return "";
-        org.json.JSONArray n = m.optJSONArray("street_names"); if (n != null && n.length() > 0) return n.optString(0);
-        n = m.optJSONArray("begin_street_names"); return n != null && n.length() > 0 ? n.optString(0) : "";
+        String name = named(m.optJSONArray("street_names"));
+        return name.isEmpty() ? named(m.optJSONArray("begin_street_names")) : name;
     }
+    /** The first name with a word of three letters or more ("N8", "840" and "C-3" have none), else the first name. */
+    private static String named(org.json.JSONArray names) {
+        if (names == null || names.length() == 0) return "";
+        for (int i = 0; i < names.length(); i++) { String n = names.optString(i, "").trim(); if (WORD.matcher(n).find()) return n; }
+        return names.optString(0, "").trim();
+    }
+    private static final java.util.regex.Pattern WORD = java.util.regex.Pattern.compile("\\p{L}{3,}");
     /** That road, or the maneuver's own instruction when it has no name; {@code fallback} for no maneuver at all. */
     public static String streetOf(org.json.JSONObject m, String fallback) {
         if (m == null) return fallback;

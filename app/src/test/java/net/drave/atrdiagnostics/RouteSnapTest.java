@@ -125,7 +125,7 @@ public class RouteSnapTest {
             .put(new JSONObject().put("type", 3).put("begin_shape_index", 0).put("street_names", new JSONArray().put("840").put("D.M. Cortes Avenue")))
             .put(new JSONObject().put("type", 10).put("begin_shape_index", 4).put("instruction", "Turn right onto Don Andres Soriano Avenue."))
             .put(new JSONObject().put("type", 4).put("begin_shape_index", 9));
-        String street = RouteSnap.street(turns.getJSONObject(RouteSnap.turnAt(turns, 2)));
+        String street = Maneuvers.road(turns.getJSONObject(RouteSnap.turnAt(turns, 2)));
         assertEquals("the name, not the route number", "D.M. Cortes Avenue", street);
         JSONArray shown = RouteSnap.withJoin(turns, 1, 15, street, 0);
         assertEquals(4, shown.length());

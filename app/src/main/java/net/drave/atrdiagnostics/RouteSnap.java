@@ -152,17 +152,6 @@ final class RouteSnap {
         for (int i = 0; i < turns.length(); i++) { JSONObject m = turns.optJSONObject(i); if (m != null && m.optInt("begin_shape_index", 0) <= index) at = i; else if (m != null) break; }
         return at;
     }
-    /**
-     * The road's name as a rider reads it on a sign: the first of the turn's names with words in it, so "840 / D.M. Cortes
-     * Avenue" says D.M. Cortes Avenue rather than the route number. Empty when the road has no name.
-     */
-    static String street(JSONObject m) {
-        if (m == null) return "";
-        JSONArray names = m.optJSONArray("street_names"); if (names == null || names.length() == 0) names = m.optJSONArray("begin_street_names");
-        if (names == null || names.length() == 0) return "";
-        for (int i = 0; i < names.length(); i++) { String n = names.optString(i, ""); if (n.matches(".*\\p{L}\\p{L}.*")) return n; }
-        return names.optString(0, "");
-    }
     /** The route's bearing at {@code at} (a point on segment {@code i}), over the next 15 m so a tiny kink doesn't decide. */
     static double roadBearing(List<double[]> route, int i, double[] at) {
         int n = route.size(); if (n < 2) return 0;

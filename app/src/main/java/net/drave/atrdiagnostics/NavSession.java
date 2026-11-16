@@ -602,7 +602,7 @@ public final class NavSession {
             double[] here={a,b};double toJoin=demo||headingLive?GeoMath.angleBetween(direction,GeoMath.bearing(here,onRoute)):Double.NaN;
             if(!arrived&&RouteSnap.joining(snapped,best,diff,toJoin,acc,speed)){
                 int type=joinType=RouteSnap.joinType(GeoMath.bearing(here,onRoute),RouteSnap.roadBearing(route,nearest,onRoute),joinType);
-                String street=RouteSnap.street(turns.optJSONObject(RouteSnap.turnAt(turns,nearest)));
+                String street=Maneuvers.road(turns.optJSONObject(RouteSnap.turnAt(turns,nearest)));
                 String key=type+"|"+street+"|"+next+"|"+System.identityHashCode(turns);
                 if(!key.equals(joinKey)||joinTurns==null){joinKey=key;joinTurns=RouteSnap.withJoin(turns,next,type,street,nearest);}
                 maneuvers=joinTurns;maneuver=next;distanceToTurn=best;instruction=RouteSnap.joinText(type,street);
