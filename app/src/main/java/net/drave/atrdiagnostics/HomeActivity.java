@@ -1295,14 +1295,19 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
                 for (String id : ids.split(",")) { Layer l = style.getLayer(id); if (l != null) l.setProperties(org.maplibre.android.style.layers.PropertyFactory.visibility(key.equals("hide") ? org.maplibre.android.style.layers.Property.NONE : org.maplibre.android.style.layers.Property.VISIBLE)); } }
             if (i.hasExtra("puck")) painter.showLocationPuck(i.getBooleanExtra("puck", true));
             // Encode the bike scene for a few seconds as if a bike pulled frames at the given rate, and log the result.
-            if (i.hasExtra("encode")) { int want = i.getIntExtra("encode", 30), secs = i.getIntExtra("secs", 5); new Thread(() -> {
+            // With --ei idle N it then stops pulling for N s, as a bike does on its own screen, and logs what was drawn meanwhile.
+            if (i.hasExtra("encode")) { int want = i.getIntExtra("encode", 30), secs = i.getIntExtra("secs", 5), idle = i.getIntExtra("idle", 0); new Thread(() -> {
                 VideoEncoder e = new VideoEncoder(m -> android.util.Log.d("DaanviaEncode", m)); e.setNavigation(s); e.pace(want, null);
-                try { e.start(800, 480, null, 160); long t0 = SystemClock.uptimeMillis(), until = t0 + secs * 1000L; int got = 0; long bytes = 0;
-                    while (SystemClock.uptimeMillis() < until) { byte[] f = e.next(); got++; bytes += f.length; Thread.sleep(Math.max(0, 1000 / want - 2)); }
-                    android.util.Log.d("DaanviaEncode", "pulled " + got + " frames in " + secs + " s (" + (got / secs) + "/s), drawn " + e.drawn + ", rate now " + e.fps() + ", " + (bytes / Math.max(1, got)) + " bytes/frame");
+                try { e.start(800, 480, null, 160); long t0 = SystemClock.uptimeMillis(), until = t0 + secs * 1000L; int got = 0, keys = 0; long bytes = 0, keyBytes = 0;
+                    while (SystemClock.uptimeMillis() < until) { byte[] f = e.next(); got++; bytes += f.length; if (keyFrame(f)) { keys++; keyBytes += f.length; } Thread.sleep(Math.max(0, 1000 / want - 2)); }
+                    android.util.Log.d("DaanviaEncode", "pulled " + got + " frames in " + secs + " s (" + (got / secs) + "/s), drawn " + e.drawn + ", rate now " + e.fps() + ", " + (bytes / Math.max(1, got)) + " bytes/frame, " + keys + " key frames (" + (100 * keyBytes / Math.max(1, bytes)) + "% of bytes)");
+                    if (idle > 0) { int before = e.drawn; Thread.sleep(idle * 1000L); int during = e.drawn - before; long asked = SystemClock.uptimeMillis(); byte[] f = e.next();
+                        android.util.Log.d("DaanviaEncode", "not pulled for " + idle + " s: drawn " + during + " meanwhile; the next pull got a " + (keyFrame(f) ? "key" : "delta") + " frame in " + (SystemClock.uptimeMillis() - asked) + " ms"); }
                 } catch (Exception x) { android.util.Log.e("DaanviaEncode", "encode test", x); } finally { e.close(); } }, "encode-test").start(); }
         } }, new IntentFilter("net.drave.atrdiagnostics.DEBUG_MAP"), androidx.core.content.ContextCompat.RECEIVER_EXPORTED);
     }
+    /** For the encode test: whether an Annex B frame opens with the stream headers or a key slice (NAL type 7 or 5). */
+    private static boolean keyFrame(byte[] f) { int at = f.length > 3 && f[2] == 1 ? 3 : 4; int type = f.length > at ? f[at] & 0x1f : 0; return type == 7 || type == 5; }
 
     public void onUserInteraction() { super.onUserInteraction(); ride.onUserInteraction(mode == Mode.RIDE); }
 
