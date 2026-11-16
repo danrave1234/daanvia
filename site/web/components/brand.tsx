@@ -133,6 +133,30 @@ const paths: Record<string, React.ReactNode> = {
       <path d="M14 14h2v2h-2zM18 14h2M14 18v2M17.5 17.5H20V20h-2.5z" />
     </>
   ),
+  bell: (
+    <>
+      <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z" />
+      <path d="M10 20.5a2 2 0 0 0 4 0" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 7.5V12l3 2" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="m4.5 7 1.5 1.5L9 5.5M4.5 13l1.5 1.5L9 11.5M4.5 19l1.5 1.5L9 17.5" />
+      <path d="M12 7h7.5M12 13h7.5M12 19h7.5" />
+    </>
+  ),
+  leaf: (
+    <>
+      <path d="M5 19c0-8 5-13 14-14 0 9-5 14-13 14z" />
+      <path d="M5 19 13 11" />
+    </>
+  ),
   voice: (
     <>
       <path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" />

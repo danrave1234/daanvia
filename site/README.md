@@ -31,7 +31,7 @@ short link to share.
 `web/` environment variables (Vercel project settings):
 
 - `NEXT_PUBLIC_DOWNLOAD_URL`: the Worker's URL, for example `https://daanvia-download.<subdomain>.workers.dev/`
-- `NEXT_PUBLIC_SITE_URL`: the site's own address, used for social previews
+- `NEXT_PUBLIC_SITE_URL`: the site's own address (your domain, once it is set up; see below), used for the canonical link, social previews, robots.txt and the sitemap
 - `GITHUB_TOKEN` (optional): a read-only token for a higher GitHub API limit
 
 The Worker takes an optional `GITHUB_TOKEN` secret (`npx wrangler secret put GITHUB_TOKEN`).
@@ -47,6 +47,29 @@ The Worker takes an optional `GITHUB_TOKEN` secret (`npx wrangler secret put GIT
     cd web && vercel deploy --prod
 
 The Vercel project's root directory is `site/web`.
+
+## Your own domain
+
+Nothing in the code needs to change: the site reads its address from `NEXT_PUBLIC_SITE_URL` (`web/lib/site.ts`), which
+feeds the canonical link, social previews, `robots.txt` and `sitemap.xml`. Until it is set, the site uses
+`https://daanvia-app.vercel.app`. The app itself never links to the site, so it needs no update either.
+
+1. Buy the domain. Cloudflare Registrar sells at cost and keeps the DNS on Cloudflare, which step 4 needs; `.com` and
+   `.app` are available there (`.ph` is not).
+2. Vercel › project `daanvia-app` › Settings › Domains: add the domain and its `www`, and let `www` redirect to the bare
+   domain. Vercel then lists the DNS records to create (an A record for the bare domain, a CNAME for `www`); add exactly
+   those at the DNS host. On Cloudflare, set both to **DNS only** (grey cloud) so Vercel can issue the HTTPS certificate.
+   The old `daanvia-app.vercel.app` keeps working; in the same list it can be set to redirect to the new domain.
+3. Vercel › Settings › Environment Variables: `NEXT_PUBLIC_SITE_URL=https://<domain>` for Production, then redeploy
+   (`cd web && vercel deploy --prod`).
+4. Optional, a short download link like `https://get.<domain>/`: Cloudflare › Workers › `daanvia-download` › Settings ›
+   Domains & Routes › Add › Custom domain `get.<domain>`. Then set `NEXT_PUBLIC_DOWNLOAD_URL=https://get.<domain>/` in
+   Vercel and redeploy. Keep the `workers.dev` address on, since links already shared point to it.
+5. Check: the site opens on the domain with a padlock, `https://<domain>/sitemap.xml` lists the domain, and the
+   Download button still downloads the APK.
+
+The privacy page (`/privacy`) is what Google Play asks for as the app's privacy policy URL. Keep it current when the
+app starts sending anything new.
 
 ## Videos
 

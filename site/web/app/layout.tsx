@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import { Figtree } from 'next/font/google';
 import './globals.css';
+import { SITE_URL } from '@/lib/site';
 
 const figtree = Figtree({ subsets: ['latin'], weight: ['400', '500', '600', '700', '800'], display: 'swap', variable: '--font-figtree' });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://daanvia-app.vercel.app';
 const description =
-  'Offline motorcycle navigation for the Philippines. Routes without signal, branch-level search, parking near arrival, and directions on your QJ Motor / ATR 160 dashboard. Free Android app.';
+  'Offline motorcycle navigation for the Philippines. Routes without signal, branch-level search, parking near arrival, and directions and message alerts on your QJ Motor / ATR 160 dashboard. Free Android app.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

@@ -37,7 +37,7 @@ const features: Feature[] = [
       'Map areas cover the whole country, from Luzon to Mindanao.',
       <>Find your town first: 1,650 towns are built in, even before any download.</>,
       <>When new map data is out you get “New map data for your area · Update”.</>,
-      <>Settings › Maps shows what uses space, with Free up space.</>,
+      <>Settings › Downloaded maps shows what uses space, with Free up space.</>,
     ],
     shot: { kind: 'clip', src: media('/media/area.mp4'), poster: media('/media/area.webp'), alt: 'Framing a map area and seeing its size before downloading' },
     frame: 'phone',
@@ -122,21 +122,45 @@ const bike: Feature[] = [
   {
     id: 'tft',
     icon: 'bike',
-    eyebrow: 'On your dashboard',
+    eyebrow: 'On your bike display',
     title: 'Directions on your bike’s TFT',
     body: (
       <>
-        Daanvia draws its own landscape navigation screen and sends it to the dashboard as video over Wi-Fi Direct: a tilted map,
-        the next turn with its street, and MIN / KM / ARRIVE. Made for QJ Motor / ATR 160 dashboards with the Android QR screen.
+        Daanvia draws its own navigation screen and sends it to the bike display as video over Wi-Fi Direct: a tilted map, the next
+        turn with its street and the one after it, and MIN / KM / ARRIVE. Made for QJ Motor / ATR 160 dashboards with the Android QR
+        screen.
       </>
     ),
     points: [
-      <>Pair once: open the dashboard’s Android QR screen and tap <q>Scan dashboard QR</q>.</>,
-      'Drawn on the phone’s GPU at the rate your dashboard takes, up to 30 frames a second.',
+      <>Pair once: open the Android QR screen on the bike display and tap <q>Scan your bike’s QR</q>.</>,
+      <>After that it connects by itself, or tap <q>Connect bike</q> on the ride screen.</>,
+      'Drawn on the phone’s GPU at the rate your bike display takes, up to 30 frames a second.',
       'Daanvia learns each bike’s screen size and shape, and remembers it.',
       'Parking pins near your destination show on the bike too.',
     ],
     shot: { kind: 'clip', src: media('/media/tft.mp4'), poster: media('/media/tft.webp'), alt: 'The navigation screen Daanvia sends to the bike display' },
+    frame: 'tft',
+  },
+  {
+    id: 'notify',
+    icon: 'bell',
+    eyebrow: 'Notifications on the bike',
+    title: 'See who’s calling or texting without touching the phone',
+    body: (
+      <>
+        While the bike display is on, calls and messages show on it for a few seconds as a card: the app, who it’s from and the start
+        of the message, in the app’s own colour.
+      </>
+    ),
+    points: [
+      <>
+        <q>Calls &amp; social</q> covers calls, texts, Messenger, WhatsApp, Viber, Telegram, Instagram, TikTok and other chat apps.{' '}
+        <q>Everything</q> adds the rest, leaving out silent ones, music and downloads.
+      </>,
+      'Drag the card to where it fits around your gauges.',
+      'Read on the phone only. Nothing is saved or sent anywhere.',
+    ],
+    shot: { kind: 'image', src: media('/media/notify.webp'), alt: 'A message card from Maria Santos on the bike display, beside the next turn and the trip' },
     frame: 'tft',
   },
   {
@@ -146,12 +170,13 @@ const bike: Feature[] = [
     title: 'Move things out from under your gauges',
     body: (
       <>
-        In Settings › Bike display, drag the Turn and Trip cards and the arrow where your speedometer doesn’t cover them, and drag a
-        corner to resize. The bike follows along live.
+        In Settings › Bike display, drag the Turn, Trip and Notification cards and the arrow where your speedometer doesn’t cover
+        them, and drag a corner to resize. The bike follows along live.
       </>
     ),
     points: [
-      <>Fit my TFT: set the left, top and right edges and the bike footer, so nothing is cut off.</>,
+      'The preview in Settings shows a sample ride with every card, so you know what the bike will show before you ride.',
+      <>Fit to the screen edges: set the left, top and right edges and the bike footer, so nothing is cut off.</>,
       'Text size from 100 to 140%, or the Large turns layout.',
       'Saved for each bike.',
     ],
@@ -164,12 +189,27 @@ const small: { icon: IconName; title: string; body: React.ReactNode }[] = [
   {
     icon: 'link',
     title: 'Connects by itself',
-    body: 'With the app open, and all through a ride even with the phone in your pocket, Daanvia looks for your saved dashboard and connects as soon as its QR screen is waiting.',
+    body: 'With the app open, and all through a ride even with the phone in your pocket, Daanvia looks for your saved bike and connects as soon as its QR screen is waiting.',
+  },
+  {
+    icon: 'list',
+    title: 'One checklist to get ready',
+    body: 'Get ready to ride lists what Android needs so directions keep going with the screen off: location, nearby devices, battery settings (with the extra steps OPPO, realme and OnePlus phones need) and your bike.',
+  },
+  {
+    icon: 'clock',
+    title: 'The bike’s clock stays right',
+    body: 'When the bike display connects, Daanvia answers its checks the way Carbit Ride does, and the bike takes the phone’s time.',
   },
   {
     icon: 'moon',
     title: 'Rest the phone',
-    body: 'When the bike shows directions and you haven’t touched the phone for 15 seconds, it goes to a dark screen with just the next turn, to save battery. Tap to bring the map back.',
+    body: 'When the bike shows directions and you haven’t touched the phone for 15 seconds, it goes to a dark screen with just the next turn, to save battery. Tap to bring the map back, or rest it any time from More › Rest phone screen.',
+  },
+  {
+    icon: 'leaf',
+    title: 'Light on your phone',
+    body: 'About 15 MB to download. Pick Directions only for the bike display and the phone does about a third of the work, so it runs cooler on long rides.',
   },
   {
     icon: 'mirror',
@@ -211,7 +251,7 @@ const small: { icon: IconName; title: string; body: React.ReactNode }[] = [
 const installSteps: React.ReactNode[] = [
   <>
     Open this page <strong>on your Android phone</strong> and tap <strong>Download for Android</strong>. Wi-Fi is best; the app is
-    about 35 MB.
+    about 15 MB.
   </>,
   <>
     Open <strong>daanvia-…apk</strong> from the download notification or your Downloads folder. If Android says it can’t install
@@ -222,12 +262,13 @@ const installSteps: React.ReactNode[] = [
     tap <strong>More details › Install anyway</strong>.
   </>,
   <>
-    Open Daanvia, allow location, then frame your area and tap <strong>Download</strong>. After that it works without signal. Had
-    the old Daanvia? Tap <strong>Move my maps and settings</strong> instead, then uninstall Daanvia (old).
+    Open Daanvia. <strong>Get ready to ride</strong> asks for location and the rest on one screen. Then frame your area and tap{' '}
+    <strong>Download</strong>; after that it works without signal. Had the old Daanvia? Tap <strong>Move my maps and settings</strong>{' '}
+    instead, then uninstall Daanvia (old).
   </>,
   <>
-    To pair your bike: park, close Carbit Ride, keep the dashboard’s <strong>Android QR screen</strong> open, turn Wi-Fi on and hotspot
-    off. Then Settings › Bike › <strong>Scan dashboard QR</strong>.
+    To pair your bike: park, close Carbit Ride, keep the <strong>Android QR screen</strong> open on the bike display, turn Wi-Fi on
+    and hotspot off. Then Settings › Bike › <strong>Scan your bike’s QR</strong>.
   </>,
 ];
 
@@ -242,11 +283,21 @@ const faqs: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: 'Which phones?',
-    a: 'Android 10 or newer. One APK works on 64-bit and 32-bit ARM phones. There’s no iPhone version.',
+    a: 'Android 10 or newer on a 64-bit phone, which is nearly every Android phone from the last several years. There’s no iPhone version yet.',
   },
   {
     q: 'Do I need an account? Is it free?',
     a: 'No account and no sign-in. The app is free to download here.',
+  },
+  {
+    q: 'What does Daanvia send off my phone?',
+    a: (
+      <>
+        Your location, routes, saved places and bike pairing stay on the phone. With signal it fetches map tiles and online search
+        results, and during the beta it sends a diagnostics log you can turn off. The <a href="/privacy">privacy page</a> lists
+        everything.
+      </>
+    ),
   },
   {
     q: 'How do I update?',
@@ -414,7 +465,7 @@ export default async function Home() {
               <p className="get-title">Daanvia Beta for Android</p>
               <DownloadButton />
               <VersionLine />
-              <p className="fine">Android 10 or newer · one APK for every ARM phone · no account</p>
+              <p className="fine">Android 10 or newer · 64-bit phones · about 15 MB · no account</p>
             </aside>
           </div>
         </section>
@@ -469,6 +520,8 @@ export default async function Home() {
             </p>
             <p>Daanvia is a navigation aid and isn’t certified for road use. Not affiliated with QJ Motor or Carbit.</p>
             <p>
+              <a href="/privacy">Privacy</a>
+              {' · '}
               <a href={REPO_URL} rel="noopener">
                 Source and releases on GitHub
               </a>

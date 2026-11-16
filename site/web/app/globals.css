@@ -243,3 +243,12 @@ h1 { font-size: clamp(2.2rem, 7.4vw, 3.9rem); line-height: 1.04; font-weight: 80
 .wordmark .beta { margin-left: 2px; }
 .beta-note { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; font-size: 15px; color: var(--ink-2); }
 .beta-note .beta { flex: none; }
+
+/* Privacy and other text pages */
+.doc { max-width: 760px; }
+.doc h1.h2 { max-width: 24ch; }
+.doc h2 { font-size: 1.3rem; font-weight: 800; margin: 40px 0 0; }
+.doc p, .doc li { font-size: 16.5px; color: var(--ink-2); }
+.doc ul { padding-left: 20px; margin: 12px 0 0; display: grid; gap: 10px; }
+.doc strong { color: var(--ink); }
+.doc a { color: var(--accent); }
