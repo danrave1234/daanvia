@@ -30,7 +30,7 @@ final class MapStyle {
     /** The streets on screen, swapped in square by square (see RoadTiles). */
     static final String ROADS_NEAR = "roads-near";
     static final String ALTERNATIVES = "route-alternatives";
-    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", DEST = "dest", DROP = "drop", PARKING = "parking", RESULTS = "results";
+    static final String OVERVIEW = "overview", CELLS = "cells", LAND = "land", WATER = "water", ROADS = "roads", ROUTE = "route", ROUTE_JOIN = "route-join", DEST = "dest", DROP = "drop", PARKING = "parking", RESULTS = "results";
 
     static String base(Gabi.Palette p) {
         return "{\"version\":8,\"glyphs\":\"" + GLYPHS + "\",\"sources\":{},\"layers\":[{\"id\":\"background\",\"type\":\"background\",\"paint\":{\"background-color\":\"" + hex(p.bg) + "\"}}]}";
@@ -110,6 +110,9 @@ final class MapStyle {
         st.addSource(new GeoJsonSource(ALTERNATIVES, new GeoJsonOptions().withMaxZoom(16)));
         st.addLayer(new LineLayer("alternative-case", ALTERNATIVES).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 7, 14, 9, 17, 16))));
         st.addLayer(new LineLayer("alternative-line", ALTERNATIVES).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 4, 14, 5.6f, 17, 10.5f))));
+        // Off the road during a ride (a pump, a car park): a dotted line from the rider to where they join the route, under it.
+        st.addSource(new GeoJsonSource(ROUTE_JOIN));
+        st.addLayer(new LineLayer("route-join", ROUTE_JOIN).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 4, 14, 6, 17, 10)), lineDasharray(new Float[]{0.01f, 1.5f})));
         st.addSource(new GeoJsonSource(ROUTE, new GeoJsonOptions().withMaxZoom(16).withLineMetrics(true)));
         st.addLayer(new LineLayer("route-glow", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineBlur(7f), lineWidth(width(10, 12, 14, 18, 17, 34))));
         st.addLayer(new LineLayer("route-case", ROUTE).withProperties(lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND), lineWidth(width(10, 6.5f, 14, 9, 17, 16))));
@@ -227,6 +230,7 @@ final class MapStyle {
         line(st, "alternative-line", n ? 0xFF889FBE : 0xFF9AB5D8, 1f);
         line(st, "route-case", n ? 0xFF3B2804 : 0xFF8A5600, 1f);
         line(st, "route-line", n ? 0xFFFFB020 : 0xFFFFAA0F, 1f);
+        line(st, "route-join", n ? 0xFFFFB020 : 0xFFFFAA0F, 1f);
         routeLine = n ? 0xFFFFB020 : 0xFFFFAA0F; routeCase = n ? 0xFF3B2804 : 0xFF8A5600; routeGlow = p.accent;
         progressStyle = null;  // the new palette's gradient, even though the progress hasn't moved
         routeProgress(st, progressFrom, progressTo);

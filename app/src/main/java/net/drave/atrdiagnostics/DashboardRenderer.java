@@ -352,6 +352,8 @@ public final class DashboardRenderer {
     /** Overpasses by road class, drawn last on a dark edge; underpasses in one faded path under everything (see drawMap). */
     private final Path[] bridges = {new Path(), new Path(), new Path(), new Path()}; private final Path tunnels = new Path();
     private final DashPathEffect tunnelDash = new DashPathEffect(new float[]{14, 9}, 0);
+    /** The dotted line from a rider off the road (a pump, a car park) to where they join the route. */
+    private final DashPathEffect joinDash = new DashPathEffect(new float[]{4, 14}, 0);
     /** Drawing order: small streets, tertiary, secondary, then main roads on top. */
     private static int layer(String kind) { return kind.contains("primary") || kind.contains("trunk") || kind.contains("motorway") ? 3 : kind.contains("secondary") ? 2 : kind.contains("tertiary") ? 1 : 0; }
     private float cx, cy, cos, sin, tilt; private double clat, clon, mpp = 3, coslat; private long lastFrame;
@@ -521,10 +523,14 @@ public final class DashboardRenderer {
         }
         p.setStrokeCap(Paint.Cap.ROUND);
         if (route.size() > 1) {
-            int from = s.active ? Math.max(0, Math.min(motion.routeFrom, route.size() - 1)) : 0;
+            // Off the road (a pump, a car park, a service road beside it): the route starts where the rider joins it and a
+            // dotted line leads there from the arrow, instead of the route line running from the arrow through the station.
+            double joinLat = s.joinLat, joinLon = s.joinLon; int joinAt = s.joinIndex;
+            boolean off = s.active && !s.snapped && s.joinGap > 3 && joinAt < route.size() - 1;
+            int from = s.active ? Math.max(0, Math.min(off ? joinAt : motion.routeFrom, route.size() - 1)) : 0;
             path.reset();
             boolean first = true;
-            if (s.active) { project(clat, clon, pt); point(path, pt[0], pt[1], true); first = false; }
+            if (s.active) { if (off) project(joinLat, joinLon, pt); else project(clat, clon, pt); point(path, pt[0], pt[1], true); first = false; }
             // Only the stretch that can be on screen: on a long trip, walking the route to the far destination every frame
             // was wasted work. The point just past the limit is kept so the line still runs off the edge.
             double[] cum = s.cumulative; boolean measured = cum.length == route.size();
@@ -532,6 +538,11 @@ public final class DashboardRenderer {
             for (int i = from + (s.active ? 1 : 0); i < route.size(); i++) { double[] a = route.get(i); project(a[0], a[1], pt); point(path, pt[0], pt[1], first); first = false; if (measured && cum[i] > limit) break; }
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(17); p.setColor(pal.night ? 0xFF3B2804 : 0xFF8A5600); c.drawPath(path, p);
             p.setStrokeWidth(10); p.setColor(pal.accent); c.drawPath(path, p);
+            if (off) {
+                path.reset(); project(clat, clon, pt); path.moveTo(pt[0], pt[1]); project(joinLat, joinLon, pt); path.lineTo(pt[0], pt[1]);
+                p.setPathEffect(joinDash); p.setStrokeWidth(13); p.setColor(pal.night ? 0xFF3B2804 : 0xFF8A5600); c.drawPath(path, p);
+                p.setStrokeWidth(8); p.setColor(pal.accent); c.drawPath(path, p); p.setPathEffect(null);
+            }
         }
         c.restore();
         // Pins and the rider stand upright on the tilted map.

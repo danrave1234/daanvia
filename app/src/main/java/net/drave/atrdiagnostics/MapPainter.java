@@ -77,6 +77,7 @@ final class MapPainter {
         GeoJsonSource route = src(MapStyle.ROUTE);
         if (!showRoute) {
             if (!routeCleared) { route.setGeoJson(MapStyle.empty()); MapStyle.routeProgress(style, 0, 1); routeCleared = true; }
+            if (joinDrawn) { GeoJsonSource join = src(MapStyle.ROUTE_JOIN); if (join != null) join.setGeoJson(MapStyle.empty()); joinDrawn = false; }
             drawnShape = null;
         } else if (preview && shape != drawnShape) { routeCleared = false; drawnShape = shape; drawRouteIn(shape); ui.postDelayed(() -> { if (drawnShape == shape) fitRoute(shape, destLat, destLon); }, 120); }
         else if (ride && !host.rideFramesRunning()) paintRideRoute(shape, Math.min(s.progress, shape.size() - 1), s.viewLat, s.viewLon);
@@ -105,6 +106,22 @@ final class MapPainter {
         MapStyle.routeProgress(style, 0, 1); MapStyle.routeFadeIn(style, ui);
         route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, 0, shape.size())));
     }
+    /**
+     * Off the road during a ride (a pump, a car park): the dotted line from the rider's arrow to where they join the route,
+     * and the route shown from there. Cleared once, when the rider is back on the route line.
+     */
+    private boolean joinDrawn; private double joinFromLat, joinFromLon, joinToLat, joinToLon;
+    private void paintJoin(double lat, double lon) {
+        GeoJsonSource src = src(MapStyle.ROUTE_JOIN); if (src == null) return;
+        boolean off = s.active && !s.snapped && s.joinGap > 3;
+        if (!off) { if (joinDrawn) { src.setGeoJson(MapStyle.empty()); joinDrawn = false; } return; }
+        // Only when an end moved about half a metre: the map re-processes the line on each change.
+        if (joinDrawn && Math.abs(lat - joinFromLat) + Math.abs(lon - joinFromLon) + Math.abs(s.joinLat - joinToLat) + Math.abs(s.joinLon - joinToLon) < 5e-6) return;
+        joinFromLat = lat; joinFromLon = lon; joinToLat = s.joinLat; joinToLon = s.joinLon;
+        src.setGeoJson(Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(java.util.Arrays.asList(
+            org.maplibre.geojson.Point.fromLngLat(lon, lat), org.maplibre.geojson.Point.fromLngLat(s.joinLon, s.joinLat)))));
+        joinDrawn = true;
+    }
     /** How far along the route a point on it is, as a fraction of its length. */
     private float routeFraction(List<double[]> shape, int from, double lat, double lon) {
         double[] cum = s.cumulative; if (cum.length != shape.size() || shape.size() < 2 || cum[cum.length - 1] <= 0) return 0;
@@ -115,6 +132,9 @@ final class MapPainter {
     private void paintRideRoute(List<double[]> shape, int from, double lat, double lon) {
         GeoJsonSource route = src(MapStyle.ROUTE); if (route == null || style == null) return;
         if (shape != drawnShape) { drawnShape = shape; route.setGeoJson(Feature.fromGeometry(MapStyle.line(shape, 0, shape.size()))); }
+        paintJoin(lat, lon);
+        // Off the road, the route is hidden up to where the rider joins it, not up to the rider's own spot beside it.
+        if (s.active && !s.snapped && s.joinGap > 3 && s.joinIndex < shape.size()) { from = s.joinIndex; lat = s.joinLat; lon = s.joinLon; }
         routeCleared = false; MapStyle.routeProgress(style, routeFraction(shape, from, lat, lon), 1);
     }
     /** Frame the route (and, while choosing, every route choice) and the destination clear of the panels. */
