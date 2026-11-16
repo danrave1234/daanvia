@@ -47,7 +47,7 @@ public final class ScanActivity extends ComponentActivity {
         preview = new PreviewView(this); preview.setScaleType(PreviewView.ScaleType.FILL_CENTER); preview.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
         root.addView(preview, new FrameLayout.LayoutParams(-1, -1));
         root.addView(new Finder(k), new FrameLayout.LayoutParams(-1, -1));
-        prompt = k.text("Point at the dashboard QR. Tap the screen to focus.", 15, 600, Gabi.Role.INK); prompt.setGravity(Gravity.CENTER);
+        prompt = k.text("Point at the QR on your bike display. Tap the screen to focus.", 15, 600, Gabi.Role.INK); prompt.setGravity(Gravity.CENTER);
         prompt.setPadding(k.dp(18), k.dp(14), k.dp(18), k.dp(14)); k.glass(prompt, 20);
         FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP); pl.leftMargin = pl.rightMargin = k.dp(16); root.addView(prompt, pl);
         LinearLayout actions = k.row(10);
@@ -75,7 +75,7 @@ public final class ScanActivity extends ComponentActivity {
                 scanner = BarcodeScanning.getClient(new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                     .setZoomSuggestionOptions(new ZoomSuggestionOptions.Builder(this::zoom).setMaxSupportedZoomRatio(maxZoom()).build()).build());
                 preview.post(this::refocus);
-            } catch (Exception e) { prompt.setText("The camera could not open. Tap Use a photo and choose a picture of the dashboard QR."); }
+            } catch (Exception e) { prompt.setText("The camera could not open. Tap Use a photo and choose a picture of the QR on your bike."); }
         }, androidx.core.content.ContextCompat.getMainExecutor(this));
     }
 
@@ -119,7 +119,7 @@ public final class ScanActivity extends ComponentActivity {
             } catch (Exception e) { android.util.Log.w("Daanvia", "QR photo could not be read", e); }
             String found = qr;
             if (found != null) done(found);
-            else runOnUiThread(() -> prompt.setText("No QR code found in that photo. Try a sharper photo, or point the camera at the dashboard."));
+            else runOnUiThread(() -> prompt.setText("No QR code found in that photo. Try a sharper photo, or point the camera at the bike display."));
         });
     });
     private void done(String qr) {

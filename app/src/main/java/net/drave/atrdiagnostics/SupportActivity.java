@@ -29,7 +29,7 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         LinearLayout top = GabiPage.card(k);
         top.addView(k.label("Status"));
         status = k.text("", 16, 700, OK); top.addView(status);
-        top.addView(k.text("Tests are local. Park first, close Carbit Ride and keep the dashboard’s QR screen open. Wi-Fi on, hotspot off.", 12.5f, 500, MUTED));
+        top.addView(k.text("Tests are local. Park first, close Carbit Ride and keep the QR screen open on the bike display. Wi-Fi on, hotspot off.", 12.5f, 500, MUTED));
         permissionBanner = k.column(10); permissionBanner.setPadding(k.dp(14), k.dp(12), k.dp(14), k.dp(12)); k.fill(permissionBanner, 16, DANGER_SOFT); permissionBanner.setVisibility(View.GONE);
         permissionBanner.addView(k.text("Android needs Nearby devices and precise location access for these Wi-Fi checks. The app does not request GPS coordinates.", 13, 550, INK));
         permissionBanner.addView(k.ghost("Open app settings", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))));
@@ -39,11 +39,11 @@ public final class SupportActivity extends Activity implements DashboardLink.Hos
         LinearLayout steps = GabiPage.card(k);
         steps.addView(k.label("Pair"));
         LinearLayout r1 = k.row(8);
-        r1.addView(k.ghost("Scan dashboard QR", this::scanCamera), new LinearLayout.LayoutParams(0, -2, 1));
+        r1.addView(k.ghost("Scan bike QR", this::scanCamera), new LinearLayout.LayoutParams(0, -2, 1));
         r1.addView(k.ghost("QR photo", this::scanPhoto), new LinearLayout.LayoutParams(0, -2, 1));
         steps.addView(r1);
         steps.addView(k.ghost("Test connection", () -> link.testConnection()));
-        steps.addView(k.primary("Send Daanvia to dashboard", () -> link.sendNavigation()));
+        steps.addView(k.primary("Connect bike", () -> link.sendNavigation()));
         steps.addView(k.label("Video tests"));
         pattern = k.ghost("Send animated test pattern", () -> link.requestStream(DashboardLink.MODE_PATTERN, null)); steps.addView(pattern);
         mirror = k.ghost("Mirror phone · 90 seconds", () -> {

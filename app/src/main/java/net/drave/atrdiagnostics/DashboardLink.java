@@ -91,7 +91,7 @@ public final class DashboardLink {
      * directions, until {@link #stopMirror}. {@code consent} is Android's screen-sharing permission, asked for each time.
      */
     public void mirror(Intent consent) {
-        if (!profileReady) { log("Scan your dashboard QR first"); return; }
+        if (!profileReady) { log("Scan your bike's QR first"); return; }
         Runnable go = () -> { stoppedByUser = false; quiet = false; keepMirror = true; pendingStream = MODE_MIRROR; captureConsent = consent; permissions(true); };
         replaceStream(go);
     }
@@ -217,7 +217,7 @@ public final class DashboardLink {
         if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, f, Context.RECEIVER_EXPORTED);
         else context.registerReceiver(receiver, f);
         log("Daanvia " + BuildInfo.VERSION + " • Android " + Build.VERSION.RELEASE + " / " + Build.MANUFACTURER + " " + Build.MODEL);
-        log("Scan your dashboard QR or choose its photo. QR text is decoded locally and its URL is never opened.");
+        log("Scan your bike's QR or choose a photo of it. QR text is decoded locally and its URL is never opened.");
         androidx.core.content.ContextCompat.registerReceiver(context, streamReceiver, new IntentFilter(StreamService.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         log("Tests are local. No firmware or engine access. Screen mirroring needs Android’s sharing consent.");
         String saved = context.getSharedPreferences("saved-bike", 0).getString("qr", "");
@@ -237,7 +237,7 @@ public final class DashboardLink {
     // ---- actions ----
     /** Same as the old "Send Daanvia to dashboard" button. */
     public void sendNavigation() {
-        if (!profileReady) { log("Scan your dashboard QR first"); return; }
+        if (!profileReady) { log("Scan your bike's QR first"); return; }
         stoppedByUser = false; quickDrops = 0; quiet = false; pendingStream = MODE_NAVIGATION; permissions(true);
     }
     /**
@@ -262,7 +262,7 @@ public final class DashboardLink {
     public void askPermissions() { if (!profileReady) return; quiet = true; pendingStream = MODE_NAVIGATION; permissions(true); }
     /** Same as the old "Test connection" button. */
     public void testConnection() {
-        if (!profileReady) { log("Scan your dashboard QR first."); return; }
+        if (!profileReady) { log("Scan your bike's QR first."); return; }
         stoppedByUser = false; quiet = false; pendingStream = 0; permissions(true);
     }
     /** The rider stops the search or the display. */
@@ -420,7 +420,7 @@ public final class DashboardLink {
         if (wifi == null || !wifi.isWifiEnabled()) { log("Wi-Fi is off. Enable Wi-Fi and rerun."); finishRun("Wi-Fi is off"); return; }
         LocationManager lm = (LocationManager)context.getSystemService(Context.LOCATION_SERVICE);
         if (lm != null && !lm.isLocationEnabled()) log("Location switch is OFF. Android may block peer discovery; enable it and retry if nothing appears.");
-        label(mode ? "Looking for your dashboard…" : "Inspecting connection…");
+        label(mode ? "Looking for your bike…" : "Inspecting connection…");
         snapshot(); startNsd(); group();
         if (mode && p2p != null && channel != null) {
             ownDiscovery = true;
@@ -612,7 +612,7 @@ public final class DashboardLink {
     private void target(InetAddress host, String iface, Network network, String evidence, int port) {
         if (serviceActive) return;
         if (!running || host == null || port < 1 || port > 65535 || !(host instanceof Inet4Address) || host.isLoopbackAddress() || host.isAnyLocalAddress() || host.isMulticastAddress()) return;
-        label("Dashboard network found • checking protocol…");
+        label("Found your bike • connecting…");
         log("Target evidence: " + evidence + "; " + host.getHostAddress() + ":" + port + " via " + iface);
         if (!active) { label("Connection identified • share report"); log("Inspection captured the target. Close Carbit and use Connect & identify for the protocol test."); return; }
         if (!testing.compareAndSet(false, true)) return;

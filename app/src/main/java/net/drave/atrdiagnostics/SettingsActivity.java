@@ -60,11 +60,11 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         progressAnim.addUpdateListener(a -> progress.setTranslationX((float)a.getAnimatedValue() * track.getWidth()));
         primary = k.primary("", this::onPrimary); bike.addView(primary);
         scanRow = k.row(8);
-        scanRow.addView(k.ghost("Scan QR", this::scanCamera), new LinearLayout.LayoutParams(0, -2, 1));
-        scanRow.addView(k.ghost("QR photo", this::scanPhoto), new LinearLayout.LayoutParams(0, -2, 1));
+        scanRow.addView(k.ghost("Scan again", this::scanCamera), new LinearLayout.LayoutParams(0, -2, 1));
+        scanRow.addView(k.ghost("Use a photo", this::scanPhoto), new LinearLayout.LayoutParams(0, -2, 1));
         bike.addView(scanRow);
         LinearLayout scanHint = k.row(4); scanHint.addView(k.text("Scanning the QR: park first, close Carbit Ride, keep Wi-Fi on", 12.5f, 500, MUTED), new LinearLayout.LayoutParams(0, -2, 1));
-        scanHint.addView(k.info("Park first. Close Carbit Ride and keep the dashboard’s Android QR screen open. Wi-Fi on, hotspot off.")); bike.addView(scanHint);
+        scanHint.addView(k.info("Park first. Close Carbit Ride and keep the QR screen open on the bike display. Wi-Fi on, hotspot off.")); bike.addView(scanHint);
         // Everything Daanvia needs from Android, on one screen (SetupActivity).
         setupRow = k.listRow(IconDrawable.CHECK, "Get ready to ride", "", null, () -> startActivity(new Intent(this, SetupActivity.class)));
         bike.addView(setupRow);
@@ -92,38 +92,38 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         // ---- TFT preview and fit
         LinearLayout tft = GabiPage.card(k);
         LinearLayout tftHead = k.row(4); tftHead.addView(k.label("Bike display"), new LinearLayout.LayoutParams(0, -2, 1));
-        tftHead.addView(k.info("This is what Daanvia sends to your bike’s screen. It updates live, but it’s drawn here on the phone, so colors may look a little different on the bike."));
+        tftHead.addView(k.info("This is what Daanvia sends to your bike’s screen. When you’re not riding it shows a sample ride, with a sample notification, so you can see every part. During a ride it shows the real thing. It’s drawn here on the phone, so colors may look a little different on the bike."));
         tft.addView(tftHead);
         preview = new TftPreview(this, s); tft.addView(preview, new LinearLayout.LayoutParams(-1, -2));
+        previewNote = k.text("Sample ride. Your real directions show here while you ride.", 12.5f, 600, ACCENT); previewNote.setPadding(0, k.dp(8), 0, 0); tft.addView(previewNote);
         // What the bike reported about its screen when it last connected (see NavSession.screenReport).
         screenText = k.text("", 13, 500, MUTED); screenText.setPadding(0, k.dp(10), 0, 0); tft.addView(screenText);
         shapeRow = k.column(6);
-        shapeRow.addView(titled("Match the bike's screen shape", "This bike's panel is a different shape from the video it asks for. On, Daanvia draws for the panel so nothing looks stretched. Turn it off if the display looks squeezed."));
-        boolean shape = getSharedPreferences("ui", 0).getBoolean("matchshape", true);
-        shapeRow.addView(k.segmented(new String[]{"On", "Off"}, shape ? 0 : 1, i -> { getSharedPreferences("ui", 0).edit().putBoolean("matchshape", i == 0).apply(); s.signal(); }));
+        shapeRow.addView(switchRow("Match the bike's screen shape", "This bike's panel is a different shape from the video it asks for. On, Daanvia draws for the panel so nothing looks stretched. Turn it off if the display looks squeezed.",
+            getSharedPreferences("ui", 0).getBoolean("matchshape", true), on -> { getSharedPreferences("ui", 0).edit().putBoolean("matchshape", on).apply(); s.signal(); repaintPreview(); }));
         tft.addView(shapeRow);
         tft.addView(titled("What the bike shows while riding", "Directions only shows the next turn and your trip on a plain screen, without the moving map. The phone does about a third of the work, so it runs cooler and the battery lasts longer on long rides."));
         boolean simple = getSharedPreferences("ui", 0).getBoolean("directionsonly", false);
-        tft.addView(k.segmented(new String[]{"Map and directions", "Directions only"}, simple ? 1 : 0, i -> { getSharedPreferences("ui", 0).edit().putBoolean("directionsonly", i == 1).apply(); s.signal(); }));
+        tft.addView(k.segmented(new String[]{"Map and directions", "Directions only"}, simple ? 1 : 0, i -> { getSharedPreferences("ui", 0).edit().putBoolean("directionsonly", i == 1).apply(); s.signal(); repaintPreview(); }));
         tft.addView(titled("Notifications on the bike", "While the bike display is connected, a card shows on it for a few seconds: who it’s from and the start of the message. Calls & social covers incoming calls, texts, Messenger, Facebook, Instagram, TikTok, WhatsApp, Viber, Telegram and other chat and social apps. Everything adds every other app, except silent ones, music and downloads. Needs Android’s Notification access. Nothing is saved or sent anywhere."));
         boolean notifying = RideNotifications.enabled(this) && RideNotifications.allowed(this);
         tft.addView(k.segmented(new String[]{"Off", "Calls & social", "Everything"}, !notifying ? 0 : RideNotifications.scope(this) == RideNotifications.EVERYTHING ? 2 : 1, i -> {
             RideNotifications.setEnabled(this, i != 0);
             if (i != 0) RideNotifications.setScope(this, i == 2 ? RideNotifications.EVERYTHING : RideNotifications.SOCIAL);
+            preview.invalidate();  // the sample card shows only while notifications are on
             if (i != 0 && !RideNotifications.allowed(this)) {
                 android.widget.Toast.makeText(this, "Turn on Daanvia here, then come back", android.widget.Toast.LENGTH_LONG).show();
                 try { startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
             }
         }));
-        tft.addView(titled("Rest the phone while riding", "When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn"
+        tft.addView(switchRow("Rest the phone while riding", "When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn"
             + (KeepAlive.keepScreenOn() ? ", kept on but dim: your " + KeepAlive.colorOs() + " phone would close Daanvia soon after the screen went off." : " and may turn off, to save battery.")
-            + " Tap it to bring the map back. On the ride screen, More › Rest phone screen does it right away."));
-        boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
-        tft.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
+            + " Tap it to bring the map back. On the ride screen, More › Rest phone screen does it right away.",
+            getSharedPreferences("ui", 0).getBoolean("bikemode", true), on -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", on).apply()));
         TextView layoutBtn = k.primary("Edit display layout", () -> { if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then edit the layout while parked.", android.widget.Toast.LENGTH_SHORT).show(); return; } startActivity(new Intent(this, TftLayoutActivity.class)); });
         tft.addView(layoutBtn);
-        adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
-        fitNote = k.text("End the ride and adjust fit while parked.", 12.5f, 600, ACCENT); fitNote.setVisibility(View.GONE); tft.addView(fitNote);
+        adjust = k.ghost("Fit to the screen edges", this::beginFit); tft.addView(adjust);
+        fitNote = k.text("End the ride first, then fit the screen while parked.", 12.5f, 600, ACCENT); fitNote.setVisibility(View.GONE); tft.addView(fitNote);
         fitControls = k.column(6); fitControls.setVisibility(View.GONE); tft.addView(fitControls);
         c.addView(tft);
 
@@ -158,12 +158,12 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         // ---- testing
         LinearLayout test = GabiPage.card(k); test.setPadding(k.dp(16), k.dp(12), k.dp(16), k.dp(6));
         test.addView(k.label("Help"));
-        test.addView(k.listRow(IconDrawable.PLAY, "Demo ride", "Simulates a sample route on the phone and the bike display, to check the setup while parked", null,
+        test.addView(k.listRow(IconDrawable.PLAY, "Demo ride", "A sample route on the phone and bike display", null,
             () -> { startActivity(new Intent(this, HomeActivity.class).putExtra("demo", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }));
         test.addView(k.listRow(IconDrawable.TOOLS, "Support and test tools", "Connection test, test pattern, mirror test, logs", null, () -> startActivity(new Intent(this, SupportActivity.class))));
-        test.addView(titled("Send diagnostics to the developer", "During the beta, Daanvia sends its connection and ride log every few minutes, so problems like a bike display that drops can be fixed. It never includes where you are or where you’re going, passwords or device addresses: only the log lines, the app version, the phone model and a random id."));
         TextView logState = k.text(LogUpload.status(this), 12.5f, 600, INK_SOFT);
-        test.addView(k.segmented(new String[]{"On", "Off"}, LogUpload.enabled(this) ? 0 : 1, i -> { LogUpload.setEnabled(this, i == 0); logState.setText(LogUpload.status(this)); }));
+        test.addView(switchRow("Send diagnostics to the developer", "During the beta, Daanvia sends its connection and ride log every few minutes, so problems like a bike display that drops can be fixed. It never includes where you are or where you’re going, passwords or device addresses: only the log lines, the app version, the phone model and a random id.",
+            LogUpload.enabled(this), on -> { LogUpload.setEnabled(this, on); logState.setText(LogUpload.status(this)); }));
         // Whether the log is actually getting through: rides of 14 Nov never reached the developer, and nothing showed it.
         LinearLayout logRow = k.row(10); logRow.addView(logState, new LinearLayout.LayoutParams(0, -2, 1));
         logRow.addView(k.ghost("Send now", () -> { logState.setText("Sending…"); LogUpload.sendNow(this, () -> logState.setText(LogUpload.status(this))); }));
@@ -176,7 +176,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         updateBox = k.column(0); more.addView(updateBox);
         more.addView(k.listRow(IconDrawable.SHARE, "Share navigation report", "Locations, destinations and pairing details are left out", null,
             () -> startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, shareable(s.report())), "Share navigation report"))));
-        more.addView(k.listRow(IconDrawable.CHECK, "Licenses and map data", "© OpenStreetMap contributors · ODbL", null, this::toggleLicenses));
+        more.addView(k.listRow(IconDrawable.INFO, "Licenses and map data", "© OpenStreetMap contributors · ODbL", null, this::toggleLicenses));
         licenseText = k.text("", 11, 500, MUTED); licenseText.setTypeface(android.graphics.Typeface.MONOSPACE); licenseText.setVisibility(View.GONE); licenseText.setTextIsSelectable(true);
         more.addView(licenseText);
         c.addView(more);
@@ -186,7 +186,20 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         paint();
     }
 
-    private TextView colorDone; private LinearLayout colorBox; private LinearLayout setupRow;
+    /** NavSession reads these settings at most twice a second, so the preview draws again once it has the new value. */
+    private void repaintPreview() { preview.postDelayed(preview::invalidate, 600); }
+    private TextView colorDone, previewNote; private LinearLayout colorBox; private LinearLayout setupRow;
+    /** An option that is simply on or off: its name, an (i) that explains it, and a switch. Tapping the name flips it too. */
+    private LinearLayout switchRow(String title, String explanation, boolean on, java.util.function.Consumer<Boolean> change) {
+        LinearLayout r = k.row(4); TextView name = k.text(title, 15, 650, INK); r.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+        r.addView(k.info(explanation)); FrameLayout sw = k.toggle(on, change); r.addView(sw);
+        name.setOnClickListener(v -> sw.performClick()); r.setMinimumHeight(k.dp(48)); return r;
+    }
+    /**
+     * The bike's name for the rider. The QR's model field is often just a number (a QJ's is its channel, 37501), which
+     * means nothing to them.
+     */
+    private String bikeName() { String m = link.model(); return m == null || m.trim().isEmpty() || m.trim().matches("[0-9]+") ? "Your bike" : m.trim(); }
     /** An option's name with an (i) beside it that explains it, instead of a paragraph under every option. */
     private LinearLayout titled(String title, String explanation) {
         LinearLayout r = k.row(4); r.addView(k.text(title, 15, 650, INK), new LinearLayout.LayoutParams(0, -2, 1)); r.addView(k.info(explanation)); return r;
@@ -234,13 +247,15 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         paintScreen(); paintSetup();
         if (link == null) return;
         boolean ready = link.profileReady(), live = StreamService.navigationActive, busy = link.searching();
-        modelText.setText(ready ? (link.model() == null || link.model().isEmpty() ? "Saved bike" : link.model()) : "No bike saved yet");
-        statusText.setText(live ? "Daanvia is on the dashboard" : link.status());
+        modelText.setText(ready ? bikeName() : "No bike saved yet");
+        statusText.setText(live ? "Connected. Daanvia is on the bike display" : link.status());
+        previewNote.setVisibility(s.active ? View.GONE : View.VISIBLE);
         liveChip.setVisibility(live ? View.VISIBLE : View.GONE);
         ((View)progress.getParent()).setVisibility(busy ? View.VISIBLE : View.GONE);
         // The searching bar moves only while it shows; running all the time it redrew Settings every frame.
         if (busy) { if (!progressAnim.isStarted()) progressAnim.start(); } else progressAnim.cancel();
-        primary.setText(busy ? "Stop searching" : live ? "Back to the map" : ready ? "Send Daanvia to dashboard" : "Scan dashboard QR");
+        // The same words as the ride screen's Connect bike button.
+        primary.setText(busy ? "Stop searching" : live ? "Back to the map" : ready ? "Connect bike" : "Scan your bike's QR");
         scanRow.setVisibility(ready && !busy ? View.VISIBLE : View.GONE);
         adjust.setVisibility(fitting ? View.GONE : View.VISIBLE);
         fitNote.setVisibility(!fitting && s.active ? View.VISIBLE : View.GONE);
@@ -281,8 +296,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         LinearLayout btns = k.row(8);
         btns.addView(k.ghost("Reset", () -> { s.insetLeft = s.insetTop = s.insetRight = s.insetBottom = 0; s.textScale = 1; s.saveFit(); endFit(); }), new LinearLayout.LayoutParams(0, -2, 1));
         btns.addView(k.ghost("Cancel", this::cancelFit), new LinearLayout.LayoutParams(0, -2, 1));
-        String model = link.model() == null || link.model().isEmpty() ? "this bike" : link.model();
-        btns.addView(k.primary("Save for " + model, () -> { s.saveFit(); endFit(); }), new LinearLayout.LayoutParams(0, -2, 1.4f));
+        btns.addView(k.primary("Save", () -> { s.saveFit(); endFit(); }), new LinearLayout.LayoutParams(0, -2, 1.4f));
         fitControls.addView(btns);
         Gabi.show(fitControls, true, k.dp(12)); s.signal(); paint();
     }

@@ -64,6 +64,15 @@ public final class DashboardRenderer {
 
     // ---------------------------------------------------------------- scene
     /** The visible part of a w×h display after the safe insets, in display pixels. */
+    /**
+     * Settings' preview, when no ride is on: every part the bike can show (turn, next turn, trip, arrow, a notification)
+     * drawn with sample content, so the rider sees what each looks like. The layout editor shows the same, with outlines.
+     */
+    boolean showcase;
+    /** The showcase includes a sample notification only while notifications on the bike are on (TftPreview reads it). */
+    boolean showcaseNote = true;
+    /** Sample content in place of the ride's: the layout editor, or the Settings preview while not riding. */
+    private boolean staged() { return s.layoutEditing || showcase && !s.active; }
     public RectF scene(int w, int h) { double[] r = GeoMath.safeRect(w, h, s.insetLeft, s.insetTop, s.insetRight, s.insetBottom); return new RectF((float)r[0], (float)r[1], (float)r[2], (float)r[3]); }
 
     /**
@@ -88,12 +97,12 @@ public final class DashboardRenderer {
         if (s.calibration) { grid(target, vw, vh); target.restore(); return; }
         // Directions only (Settings › Bike display): the cards on a plain background, no moving map. About a third of the
         // work of the full picture (measured), and only a few frames a second are needed since little moves.
-        boolean simple = s.directionsOnly() && s.active && !s.layoutEditing;
+        boolean simple = s.directionsOnly() && (s.active || showcase) && !s.layoutEditing;
         // With no map to keep clear, the cards fill the screen: a large turn card, and the trip along the bottom.
         RectF turn = simple ? new RectF(vw * 0.04f, vh * 0.04f, vw * 0.96f, vh * 0.68f) : card(s.turnCard, vw, vh);
         RectF trip = simple ? new RectF(vw * 0.04f, vh * 0.72f, vw * 0.96f, vh * 0.96f) : card(s.tripCard, vw, vh);
         if (simple) { target.drawColor(land()); pixelsPerSecond = 0; } else drawMap(target, vw, vh, turn, trip);
-        boolean sample = s.layoutEditing && !s.active;
+        boolean sample = staged() && !s.active;
         if (s.active || sample) { cached(target, turnNode, turnKey(turn, sample), true, turn, sample, vw, vh); cached(target, tripNode, tripKey(trip, sample), false, trip, sample, vw, vh); }
         // No ride: connected is a free ride (the street, speed and roads ahead), unless a planned route waits to start.
         else if (!s.shape.isEmpty() && !s.destination.isEmpty()) idle(target, turn);
@@ -109,7 +118,7 @@ public final class DashboardRenderer {
     private void popup(Canvas c, float vw, float vh) {
         // While the layout is edited a sample card stands in, so the rider can see it and drag it where it fits; a real
         // notification that arrives meanwhile takes its place for its few seconds.
-        boolean live = SystemClock.elapsedRealtime() <= s.popupUntil, sample = s.layoutEditing && !live;
+        boolean live = SystemClock.elapsedRealtime() <= s.popupUntil, sample = staged() && !s.active && !live && (s.layoutEditing || showcaseNote);
         if (s.calibration || !live && !sample) return;
         boolean call = !sample && s.popupCall; String app = sample ? s.sampleApp : s.popupApp, title = sample ? "Maria Santos" : s.popupTitle, body = sample ? "On my way, see you at 5" : s.popupText;
         android.graphics.Bitmap icon = sample ? s.sampleIcon : s.popupIcon, avatar = sample ? null : s.popupAvatar;
@@ -384,7 +393,7 @@ public final class DashboardRenderer {
      */
     private boolean riding() {
         if (s.active) return true;
-        if (s.layoutEditing || s.fixAt == 0) return false;
+        if (staged() || s.fixAt == 0) return false;
         long now = SystemClock.elapsedRealtime();
         if (motion.speed > 2) cruisingUntil = now + 20000;
         return now < cruisingUntil;
@@ -425,7 +434,7 @@ public final class DashboardRenderer {
      * While the layout is being edited it stays exactly where the rider drags it.
      */
     private float[] arrowSpot(float w, float h, RectF turn, RectF trip) {
-        if (s.layoutEditing) return new float[]{s.arrowX * w, s.arrowY * h};
+        if (staged()) return new float[]{s.arrowX * w, s.arrowY * h};
         return arrowSpot(s.arrowX * w, s.arrowY * h, w, h, new float[][]{{turn.left, turn.top, turn.right, turn.bottom}, {trip.left, trip.top, trip.right, trip.bottom}});
     }
     /** {@link #arrowSpot(float, float, RectF, RectF)} with each card as {left, top, right, bottom}. */
@@ -578,7 +587,7 @@ public final class DashboardRenderer {
         for (int x = 0; x < w; x += 40) c.drawLine(x, 0, x, h, p);
         for (int y = 0; y < h; y += 40) c.drawLine(0, y, w, y, p);
         p.setColor(pal.accent); p.setStrokeWidth(5); c.drawRect(3, 3, w - 3, h - 3, p); c.drawCircle(w / 2, h / 2, 60, p);
-        text(c, "FIT MY TFT", 22, 48, 32, ink(), black);
+        text(c, "FIT THE SCREEN", 22, 48, 32, ink(), black);
         text(c, "All four edges visible · circle round", 22, h - 26, 22, soft(), bold);
     }
 }

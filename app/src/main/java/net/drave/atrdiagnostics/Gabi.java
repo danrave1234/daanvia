@@ -221,6 +221,31 @@ public final class Gabi {
             return r;
         }
 
+        /**
+         * On/off switch for an option that is simply on or off (a segmented On | Off read like two choices). The thumb
+         * slides; screen readers hear a switch and its state.
+         */
+        public FrameLayout toggle(boolean on, java.util.function.Consumer<Boolean> change) {
+            FrameLayout track = new FrameLayout(c); boolean[] state = {on};
+            View thumb = new View(c); GradientDrawable dot = new GradientDrawable(); dot.setShape(GradientDrawable.OVAL); dot.setColor(0xFFFFFFFF); dot.setStroke(dp(1), 0x1F000000);
+            thumb.setBackground(dot); thumb.setElevation(dp(1)); thumb.setTranslationX(on ? dp(23) : dp(3));
+            track.addView(thumb, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER_VERTICAL | Gravity.START));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(28)); lp.leftMargin = dp(6); track.setLayoutParams(lp);
+            t.add(p -> track.setBackground(state[0] ? round(p.accent, dp(14)) : round(p.chip, dp(14), p.stroke, dp(1))));
+            track.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(host, info); info.setClassName(Switch.class.getName()); info.setCheckable(true); info.setChecked(state[0]);
+                }
+            });
+            press(track, () -> {
+                state[0] = !state[0];
+                thumb.animate().translationX(state[0] ? dp(23) : dp(3)).setDuration(180).setInterpolator(EASE_OUT).start();
+                track.setBackground(state[0] ? round(t.palette.accent, dp(14)) : round(t.palette.chip, dp(14), t.palette.stroke, dp(1)));
+                change.accept(state[0]);
+            });
+            return track;
+        }
+
         /** Two or three options, one selected; the selection slides. */
         public LinearLayout segmented(String[] options, int selected, java.util.function.IntConsumer pick) {
             LinearLayout r = row(4); r.setPadding(dp(4), dp(4), dp(4), dp(4)); fill(r, 16, Role.CHIP);
