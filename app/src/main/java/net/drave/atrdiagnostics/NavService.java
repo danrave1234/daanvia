@@ -23,7 +23,7 @@ public final class NavService extends Service {
             if(!demo)logStatus();
             s.active=true;s.simulation=demo;prompts.reset();filter.reset();
             metrics=new RideMetrics(this);handler.removeCallbacks(measure);handler.post(measure);
-            if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();}
+            if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();startCompass();}
             s.signal();searches=0;handler.removeCallbacks(bikeSearch);handler.postDelayed(bikeSearch,20000);
         }catch(Exception e){s.message("Cannot start navigation: "+e.getMessage());stopSelf();return START_NOT_STICKY;}
         // A real ride asks Android to restart this service if the phone closes the app, so the ride carries on.
@@ -117,7 +117,9 @@ public final class NavService extends Service {
         long now=SystemClock.elapsedRealtime(),at=l.getElapsedRealtimeNanos()>0?l.getElapsedRealtimeNanos()/1000000L:now;if(!filter.accept(l.getLatitude(),l.getLongitude(),l.getAccuracy(),at,now))return;
         // Heading from GPS is noise below walking speed; keep the last good one instead of snapping to north.
         boolean moving=l.hasBearing()&&(!l.hasSpeed()||l.getSpeed()>1.4f);
-        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.headingLive=moving;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():s.bearing,false);speak();checkArrival(l);}
+        // Not moved yet this ride (starting at a pump): the phone's compass faces the arrow, until GPS has a course (Compass).
+        float kept=s.bearing;if(moving){courseSeen=true;if(compass!=null)compass.stop();}else if(!courseSeen){float h=compass.heading();if(!Float.isNaN(h))kept=h;}
+        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.headingLive=moving;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():kept,false);speak();checkArrival(l);}
     /**
      * Arriving ends the ride on its own, so nobody has to tap End: once the rider has stopped near the arrival spot for
      * 20 s (parked), has ridden 250 m past it, or 5 minutes after arriving. Measured from where the arrival was noticed,
@@ -137,10 +139,13 @@ public final class NavService extends Service {
     private void finishRide(){
         arrivedAt=stoppedSince=0;String name=s.destination;
         if(voice!=null&&voice.ready()&&getSharedPreferences("ui",0).getBoolean("voice",true))voice.speak("You have arrived.");
-        s.finished=name.isEmpty()?"your destination":name;s.stop();if(gps!=null)gps.stop();
+        s.finished=name.isEmpty()?"your destination":name;s.stop();if(gps!=null)gps.stop();if(compass!=null)compass.stop();
         // A moment for the voice to finish before the service (and its voice) closes.
         finishing=this::stopSelf;handler.postDelayed(finishing,4000);
     }
+    /** Which way the phone faces until the bike first moves; see Compass. A ride picked up after a restart skips it (the phone is likely in a pocket). */
+    private Compass compass;private boolean courseSeen=true;
+    private void startCompass(){if(compass==null)compass=new Compass(this);courseSeen=false;compass.start(s.lat,s.lon);}
     private void ensureVoice(){if(voice==null)voice=new VoiceOutput(this,message->{if(voice!=null&&!voice.ready())s.message(message);else s.signal();});}
     private void speakCurrent(){if(voice!=null&&s.active)voice.speak(s.arrived?"Destination nearby":GuidancePrompts.distance(s.distanceToTurn)+". "+s.instruction);}
     private void speak(){
@@ -169,5 +174,5 @@ public final class NavService extends Service {
         if(metrics!=null&&s!=null)metrics.flush(s);
         if(metrics!=null&&!demoRide)LogUpload.add(this,stamp()+"Ride diagnostics: "+RideMetrics.forReport(this).optJSONObject("latest")+"\n");
         LogUpload.now(this);
-        handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(voice!=null)voice.close();if(quiet!=null){quiet.stop();quiet=null;}if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+        handler.removeCallbacksAndMessages(null);if(gps!=null)gps.stop();if(compass!=null)compass.stop();if(voice!=null)voice.close();if(quiet!=null){quiet.stop();quiet=null;}if(s!=null){s.active=false;s.simulation=false;s.signal();}stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
 }
