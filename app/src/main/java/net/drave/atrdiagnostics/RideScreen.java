@@ -31,6 +31,8 @@ final class RideScreen {
         void onRideFrame(long now, double lat, double lon, int routeFrom);
         /** The frames stopped: the next fix redraws the location dot. */
         void puckStale();
+        /** The resting screen now covers the map (true), or has gone (false): the map stops and starts drawing. */
+        void mapHidden(boolean hidden);
     }
 
     private final Activity a; private final NavSession s; private final Gabi.Kit k; private final MapView mapView; private final Handler ui; private final HomeLayout lay; private final Host host;
@@ -268,7 +270,7 @@ final class RideScreen {
         if (bikeMode || !host.riding() || !s.active) return;
         bikeMode = true; ui.removeCallbacks(autoBikeMode); rideFrames = false; placeArrow(false);
         paintBikeMode();
-        bikeView.setAlpha(0f); bikeView.setVisibility(View.VISIBLE); bikeView.animate().alpha(1f).setDuration(400).withEndAction(() -> { if (bikeMode) mapView.setVisibility(View.INVISIBLE); }).start();
+        bikeView.setAlpha(0f); bikeView.setVisibility(View.VISIBLE); bikeView.animate().alpha(1f).setDuration(400).withEndAction(() -> { if (bikeMode) { mapView.setVisibility(View.INVISIBLE); host.mapHidden(true); } }).start();
         Window w = a.getWindow(); WindowManager.LayoutParams lp = w.getAttributes(); savedBrightness = lp.screenBrightness; lp.screenBrightness = 0.05f; w.setAttributes(lp);
         // OPPO, OnePlus and realme close apps soon after the screen turns off (logs of 1 Nov: the screen was on 9% of the
         // ride when the phone closed Daanvia), so there the dark resting screen stays on. Elsewhere it may turn off.
@@ -277,7 +279,7 @@ final class RideScreen {
     }
     private void leaveBikeMode() {
         if (!bikeMode) return;
-        bikeMode = false; mapView.setVisibility(View.VISIBLE);
+        bikeMode = false; host.mapHidden(false); mapView.setVisibility(View.VISIBLE);
         bikeView.animate().alpha(0f).setDuration(250).withEndAction(() -> { if (!bikeMode) bikeView.setVisibility(View.GONE); }).start();
         Window w = a.getWindow(); WindowManager.LayoutParams lp = w.getAttributes(); lp.screenBrightness = savedBrightness; w.setAttributes(lp);
         if (host.riding() && s.active) { w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); host.puckStale(); startFrames(); armBikeMode(); }

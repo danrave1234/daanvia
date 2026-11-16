@@ -107,6 +107,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             public void notice(String text) { HomeActivity.this.notice(text); }
             public void onRideFrame(long now, double lat, double lon, int routeFrom) { painter.onRideFrame(now, lat, lon, routeFrom); }
             public void puckStale() { painter.puckStale(); }
+            public void mapHidden(boolean hidden) { HomeActivity.this.mapHidden(hidden); }
         });
         painter = new MapPainter(this, s, k, ui, worker, new MapPainter.Host() {
             public boolean previewing() { return mode == Mode.ROUTE; }
@@ -189,7 +190,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
 
     protected void onStart() {
-        super.onStart(); mapView.onStart(); started = true; StreamService.appOnScreen = true;
+        super.onStart(); if (!mapHidden) mapView.onStart(); started = true; StreamService.appOnScreen = true;
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
@@ -203,13 +204,28 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         // Android shows one permission request at a time; the location answer starts auto-connect (onRequestPermissionsResult).
         refresh(); if (!asking) { autoConnect(); lookAgain(); }
     }
-    protected void onResume() { super.onResume(); mapView.onResume(); themeCheckedAt = 0; markSaved(); refresh(); }
+    protected void onResume() { super.onResume(); resumed = true; if (!mapHidden) mapView.onResume(); themeCheckedAt = 0; markSaved(); refresh(); }
     protected void onPause() {
         if (map != null && s.ready && (mode == Mode.EXPLORE || mode == Mode.PIN)) { CameraPosition c = map.getCameraPosition();
             getSharedPreferences("ui", 0).edit().putFloat("cam_lat", (float)c.target.getLatitude()).putFloat("cam_lon", (float)c.target.getLongitude()).putFloat("cam_zoom", (float)c.zoom).apply(); }
-        mapView.onPause(); super.onPause();
+        resumed = false; if (!mapHidden) mapView.onPause(); super.onPause();
     }
-    protected void onStop() { ride.stop(); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; StreamService.appOnScreen = false; stoppedAt = SystemClock.elapsedRealtime(); ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} mapView.onStop(); super.onStop(); }
+    /**
+     * The resting screen covers the map during a ride (RideScreen's bike mode). Hiding the map's view didn't stop MapLibre:
+     * it kept drawing the hidden map at every GPS fix, most of the work of the map on screen (emulator, demo ride: 85% of
+     * a core resting against 128% showing, and 0.3% with the screen off). So while it's covered the map is stopped the
+     * same way the screen going off stops it (onPause, onStop) and started again when the resting screen goes. Safe:
+     * the map still takes the route and position updates while stopped, as it does with the screen off, and the
+     * Activity's own start and stop leave a covered map alone, so the calls stay paired.
+     */
+    private boolean mapHidden, resumed;
+    private void mapHidden(boolean hidden) {
+        if (hidden == mapHidden) return;
+        mapHidden = hidden;
+        if (hidden) { if (resumed) mapView.onPause(); if (started) mapView.onStop(); }
+        else { if (started) mapView.onStart(); if (resumed) mapView.onResume(); }
+    }
+    protected void onStop() { ride.stop(); here.stop(); AppUpdate.unlisten(updates); AreaStore.unlisten(areas); started = false; StreamService.appOnScreen = false; stoppedAt = SystemClock.elapsedRealtime(); ui.removeCallbacks(retryConnect); if (!s.active) link.pauseSearch(); /* mid-ride the search for the bike goes on; NavService keeps retrying */ try { unregisterReceiver(changes); } catch (Exception ignored) {} if (!mapHidden) mapView.onStop(); super.onStop(); }
     /** This launch only opened the move screen: nothing was set up, so there is nothing to tear down. */
     private boolean moving, offerUninstallOld;
     private final BroadcastReceiver closeScreens = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { finishAndRemoveTask(); } };
