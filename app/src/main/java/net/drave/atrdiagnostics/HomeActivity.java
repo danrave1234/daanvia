@@ -47,7 +47,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     private MapView mapView; private MapLibreMap map; private org.maplibre.android.maps.Style style; private boolean layersReady;
     private FrameLayout root; private LinearLayout top, chips, fabs; private TextView regionChip, bikeChip, attribution, notice;
-    private FrameLayout fabLocate, fabTft, fabVoice, fabBike, fabCompass, fabMirror; private boolean compassShown; private ImageView fabIcon; private SheetView sheet;
+    private FrameLayout fabLocate, fabVoice, fabBike, fabCompass, fabMirror; private LinearLayout fabConnect; private TextView fabConnectText; private boolean compassShown; private ImageView fabIcon; private SheetView sheet;
     private final HomeLayout lay = new HomeLayout();
     private SearchPanel search; private AreaPicker picker; private RideScreen ride; private MapPainter painter;
 
@@ -352,7 +352,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         top.addView(pill, new LinearLayout.LayoutParams(-1, k.dp(52)));
         chips = k.row(6);
         regionChip = chip(""); bikeChip = chip("");
-        Gabi.press(bikeChip, this::openSettings);
+        // Tapping "Bike not connected" connects; once connected, or with no bike set up, it opens the bike's settings.
+        Gabi.press(bikeChip, () -> { if (link != null && link.profileReady() && !StreamService.navigationActive) connectBike(); else openSettings(); });
         Gabi.press(regionChip, () -> k.tip(regionChip, "Daanvia keeps the map, search and routes on your phone, so it works with no signal or mobile data. Right now it covers " + s.regionName + "."));
         // Daanvia is in beta until its paid launch (1.0); the chip says so and explains it when tapped.
         TextView beta = chip("Beta");
@@ -373,16 +374,22 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
 
     private void buildFabs() {
-        fabs = k.column(10);
+        fabs = k.column(10); fabs.setGravity(Gravity.END);
         // Shown only while the map is turned or tilted, like Google Maps; the needle points north.
         fabCompass = k.circle(IconDrawable.COMPASS, 42, GLASS, ACCENT, this::realign); fabCompass.setVisibility(View.GONE);
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-2, -2); cp.gravity = Gravity.CENTER_HORIZONTAL; fabs.addView(fabCompass, cp);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-2, -2); cp.rightMargin = k.dp(4); fabs.addView(fabCompass, cp);
         fabLocate = k.circle(IconDrawable.LOC, 50, GLASS, ACCENT, this::onLocateFab);
         fabIcon = (ImageView)fabLocate.getChildAt(0);
         fabs.addView(fabLocate);
         fabVoice = k.circle(IconDrawable.VOICE, 50, GLASS, INK, this::toggleVoice); fabVoice.setVisibility(View.GONE); fabs.addView(fabVoice);
         fabMirror = k.circle(IconDrawable.MIRROR, 50, GLASS, INK, this::toggleMirror); fabMirror.setVisibility(View.GONE); fabs.addView(fabMirror);
-        fabTft = k.circle(IconDrawable.TFT, 50, GLASS, INK, this::openSettings); fabTft.setVisibility(View.GONE); fabs.addView(fabTft);
+        // During a ride with the bike display not on: a labelled "Connect bike" button that connects right away (it was a
+        // monitor icon that opened Settings, which riders didn't recognise as the way to connect).
+        fabConnect = k.row(8); fabConnect.setPadding(k.dp(14), 0, k.dp(18), 0); k.glass(fabConnect, 25);
+        fabConnect.addView(k.icon(IconDrawable.BIKE, 20, ACCENT));
+        fabConnectText = k.single(k.text("Connect bike", 14, 750, INK)); fabConnect.addView(fabConnectText);
+        Gabi.press(fabConnect, this::connectBike); fabConnect.setVisibility(View.GONE);
+        fabs.addView(fabConnect, new LinearLayout.LayoutParams(-2, k.dp(50)));
         fabBike = k.circle(IconDrawable.MOON, 50, GLASS, INK, () -> ride.enterBikeMode()); fabBike.setVisibility(View.GONE); fabs.addView(fabBike);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END); lp.rightMargin = k.dp(16);
         root.addView(fabs, lp);
@@ -390,10 +397,26 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         FrameLayout.LayoutParams ap = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START); ap.leftMargin = k.dp(18);
         root.addView(attribution, ap);
     }
+    /** The rider asked to connect the bike display now (the ride's Connect bike button, or the home screen's bike chip). */
+    private void connectBike() {
+        if (link == null || !link.profileReady()) { notice("Set up your bike first"); openSettings(); return; }
+        if (StreamService.navigationActive) { notice("The bike display is already on"); return; }
+        if (!link.wifiOn()) { notice("Turn on Wi-Fi so Daanvia can connect to your bike"); return; }
+        if (!link.searching()) link.sendNavigation();
+        notice("Looking for your bike…"); paintConnect();
+    }
+    /** "Connect bike" during a ride while the bike display isn't on; "Connecting…" while Daanvia is looking for it. */
+    private void paintConnect() {
+        if (fabConnect == null) return;
+        boolean show = mode == Mode.RIDE && !StreamService.navigationActive && !StreamService.mirroring;
+        String label = link == null || !link.profileReady() ? "Set up bike" : link.searching() ? "Connecting…" : "Connect bike";
+        if (!label.contentEquals(fabConnectText.getText())) { fabConnectText.setText(label); fabConnect.setContentDescription(label); }
+        if (show != (fabConnect.getVisibility() == View.VISIBLE)) Gabi.show(fabConnect, show, k.dp(10));
+    }
     private void paintLocateFab() {
         boolean recenter = mode == Mode.RIDE && !ride.following();
         ((IconDrawable)fabIcon.getDrawable()).setColor(recenter ? theme.palette.ink : theme.palette.accent);
-        Gabi.show(fabTft, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabVoice, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabBike, mode == Mode.RIDE, k.dp(10)); paintVoice();
+        paintConnect(); Gabi.show(fabVoice, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabBike, mode == Mode.RIDE, k.dp(10)); paintVoice();
         if (mode == Mode.RIDE) Gabi.show(fabLocate, recenter, k.dp(10)); else Gabi.show(fabLocate, mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.SAVE || mode == Mode.SELECT, k.dp(10));
         paintMirror(); paintCompass();
     }
@@ -1188,7 +1211,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         else if (StreamService.navigationActive) dotChip(bikeChip, "Bike display live", OK);
         // No "Looking for…" state and no raw model code (e.g. 37501): the chip stays quiet until the display is live.
         else dotChip(bikeChip, model == null ? "Set up your bike" : "Bike not connected", MUTED);
-        paintMirror();
+        paintMirror(); paintConnect();
         if (pendingDemo && s.ready) { pendingDemo = false; demo(); }
         if (offerUninstallOld && s.ready && mode == Mode.EXPLORE) {
             // Just moved from the old Daanvia: its copy of the maps is no longer needed. Android asks before uninstalling.
