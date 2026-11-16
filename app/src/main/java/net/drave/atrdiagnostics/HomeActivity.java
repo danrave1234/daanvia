@@ -430,6 +430,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         list.addView(k.listRow(IconDrawable.MOON, "Rest phone screen", "Dims the phone; the bike keeps going", null, () -> { pop.dismiss(); ride.enterBikeMode(); }));
         if (link != null && link.profileReady())
             list.addView(k.listRow(IconDrawable.MIRROR, StreamService.mirroring ? "Stop mirroring" : "Mirror phone to bike", StreamService.mirroring ? "Back to Daanvia on the bike" : "Show any app on the bike", null, () -> { pop.dismiss(); toggleMirror(); }));
+        // The search bar and its gear are hidden during a ride, and the bike buttons connect: this is the way to Settings
+        // mid-ride, opened at the bike display (its live preview, Directions only, notifications).
+        list.addView(k.listRow(IconDrawable.GEAR, "Settings", "Bike display, notifications and more", null, () -> { pop.dismiss(); openSettings("display"); }));
         int[] at = new int[2]; fabMore.getLocationInWindow(at);
         pop.showAtLocation(root, Gravity.TOP | Gravity.END, root.getWidth() - at[0] - fabMore.getWidth(), 0);
         // Measured once shown: lift it so its bottom sits just above the button.

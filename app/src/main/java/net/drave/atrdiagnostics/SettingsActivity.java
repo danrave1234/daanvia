@@ -126,6 +126,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         fitNote = k.text("End the ride first, then fit the screen while parked.", 12.5f, 600, ACCENT); fitNote.setVisibility(View.GONE); tft.addView(fitNote);
         fitControls = k.column(6); fitControls.setVisibility(View.GONE); tft.addView(fitControls);
         c.addView(tft);
+        // Opened from the ride's More menu: straight to the bike display.
+        if ("display".equals(getIntent().getStringExtra("show"))) page.scroll.post(() -> page.scroll.smoothScrollTo(0, Math.max(0, tft.getTop() - k.dp(12))));
 
         // ---- theme
         LinearLayout look = GabiPage.card(k);
