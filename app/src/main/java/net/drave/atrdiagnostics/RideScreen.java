@@ -123,6 +123,34 @@ final class RideScreen {
         if (!riding && bikeMode) leaveBikeMode();
         if (riding && (!bikeMode || KeepAlive.keepScreenOn())) a.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (riding) armBikeMode();
+        rideRefreshRate(riding);
+    }
+    /**
+     * During a ride the map follows the rider on every refresh of the phone's display (rideFrame): on a 90 or 120 Hz
+     * phone, 90-120 map frames a second for the whole ride. 60 looks just as smooth on a handlebar, halves that drawing,
+     * and lets the panel itself run at 60 Hz. Safe: it is only a preference (a phone may keep its own rate), it is asked
+     * only of phones whose display goes above 60 Hz, at their current resolution, and it is dropped when the ride ends.
+     */
+    private void rideRefreshRate(boolean riding) {
+        Window w = a.getWindow(); WindowManager.LayoutParams lp = w.getAttributes();
+        int want = riding ? sixtyHz() : 0;
+        if (lp.preferredDisplayModeId == want) return;
+        lp.preferredDisplayModeId = want; w.setAttributes(lp);
+    }
+    /** The display's 60 Hz mode at its current resolution, or 0 (see {@link #sixtyHz(int[], float[])}). */
+    private int sixtyHz() {
+        @SuppressWarnings("deprecation") Display d = a.getWindowManager().getDefaultDisplay();
+        Display.Mode now = d.getMode(); java.util.ArrayList<Display.Mode> same = new java.util.ArrayList<>();
+        for (Display.Mode m : d.getSupportedModes()) if (m.getPhysicalWidth() == now.getPhysicalWidth() && m.getPhysicalHeight() == now.getPhysicalHeight()) same.add(m);
+        int[] ids = new int[same.size()]; float[] rates = new float[same.size()];
+        for (int i = 0; i < ids.length; i++) { ids[i] = same.get(i).getModeId(); rates[i] = same.get(i).getRefreshRate(); }
+        return sixtyHz(ids, rates);
+    }
+    /** Of display modes {@code ids} refreshing at {@code rates}: the one at about 60 Hz, or 0 when none goes faster than about 60. */
+    static int sixtyHz(int[] ids, float[] rates) {
+        int sixty = 0; boolean faster = false;
+        for (int i = 0; i < ids.length; i++) { if (rates[i] > 65) faster = true; else if (Math.abs(rates[i] - 60) < 1) sixty = ids[i]; }
+        return faster ? sixty : 0;
     }
     /** On every ride update. */
     void paint(boolean riding) { if (riding) paintRide(); if (bikeMode) paintBikeMode(); }
