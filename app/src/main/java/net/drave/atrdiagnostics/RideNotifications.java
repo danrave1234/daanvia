@@ -17,6 +17,10 @@ import android.service.notification.StatusBarNotification;
  */
 public final class RideNotifications extends NotificationListenerService {
     static final long SHOW_MS = 8000, CALL_MS = 30000;
+    /** The layout editor is open: real notifications show there too, so the rider sees one where it will appear. */
+    static volatile boolean previewing;
+    /** Cards are made while the bike display is connected, or while the layout editor shows the scene on the phone. */
+    private static boolean showing() { return StreamService.navigationActive || previewing; }
 
     /** What shows: calls, chats and social apps (the default once on), or every app's notifications. */
     static final int SOCIAL = 0, EVERYTHING = 1;
@@ -35,7 +39,7 @@ public final class RideNotifications extends NotificationListenerService {
     }
 
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
-        if (!enabled(this) || !StreamService.navigationActive || getPackageName().equals(sbn.getPackageName())) return;
+        if (!enabled(this) || !showing() || getPackageName().equals(sbn.getPackageName())) return;
         Notification n = sbn.getNotification();
         if ((n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
         boolean call = Notification.CATEGORY_CALL.equals(n.category);
@@ -84,7 +88,7 @@ public final class RideNotifications extends NotificationListenerService {
     /** A call that is answered or ends takes its card away at once. */
     @Override public void onNotificationRemoved(StatusBarNotification sbn) {
         // Only a card shown during a ride can need clearing; otherwise touching NavSession would load the whole map.
-        if (!StreamService.navigationActive) return;
+        if (!showing()) return;
         NavSession s = NavSession.get(this);
         if (sbn.getKey().equals(s.popupKey) && s.popupCall) s.popupUntil = 0;
     }

@@ -107,9 +107,10 @@ public final class DashboardRenderer {
      * Who it's from in large type, a call or the app's name above it, and up to two lines of the message.
      */
     private void popup(Canvas c, float vw, float vh) {
-        // While the layout is edited a sample card stands in, so the rider can see it and drag it where it fits.
-        boolean sample = s.layoutEditing;
-        if (s.calibration || !sample && SystemClock.elapsedRealtime() > s.popupUntil) return;
+        // While the layout is edited a sample card stands in, so the rider can see it and drag it where it fits; a real
+        // notification that arrives meanwhile takes its place for its few seconds.
+        boolean live = SystemClock.elapsedRealtime() <= s.popupUntil, sample = s.layoutEditing && !live;
+        if (s.calibration || !live && !sample) return;
         boolean call = !sample && s.popupCall; String app = sample ? s.sampleApp : s.popupApp, title = sample ? "Maria Santos" : s.popupTitle, body = sample ? "On my way, see you at 5" : s.popupText;
         android.graphics.Bitmap icon = sample ? s.sampleIcon : s.popupIcon, avatar = sample ? null : s.popupAvatar;
         // The app's own colour, lifted where it would be too dark to read on a night card (and the other way by day).
@@ -127,10 +128,11 @@ public final class DashboardRenderer {
         // Laid out like the notification on the phone: the sender's photo in a circle with the app's icon pinned to its
         // corner, the app's name in its own colour, then who and what. No photo: the sender's initial on the app's colour.
         float cx = x + pad + face / 2, cy = y + pad + face / 2;
+        // Pictures are drawn fully opaque: the paint still carries the last text's colour, often half transparent.
         if (avatar != null && !avatar.isRecycled()) {
             c.save(); notePath.rewind(); notePath.addCircle(cx, cy, face / 2, Path.Direction.CW); c.clipPath(notePath);
             noteRect.set(cx - face / 2, cy - face / 2, cx + face / 2, cy + face / 2);
-            p.setFilterBitmap(true); c.drawBitmap(avatar, null, noteRect, p); p.setFilterBitmap(false); c.restore();
+            p.setFilterBitmap(true); p.setColor(Color.WHITE); c.drawBitmap(avatar, null, noteRect, p); p.setFilterBitmap(false); c.restore();
         } else {
             p.setStyle(Paint.Style.FILL); p.setColor(brand); c.drawCircle(cx, cy, face / 2, p);
             String initial = from.isEmpty() ? "?" : from.substring(0, from.offsetByCodePoints(0, 1)).toUpperCase(Locale.ROOT);
@@ -142,7 +144,7 @@ public final class DashboardRenderer {
             p.setStyle(Paint.Style.FILL); p.setColor(panel()); c.drawCircle(bx + badge / 2, by + badge / 2, badge / 2 + 3, p);
             c.save(); notePath.rewind(); notePath.addCircle(bx + badge / 2, by + badge / 2, badge / 2, Path.Direction.CW); c.clipPath(notePath);
             noteRect.set(bx, by, bx + badge, by + badge);
-            p.setFilterBitmap(true); c.drawBitmap(icon, null, noteRect, p); p.setFilterBitmap(false); c.restore();
+            p.setFilterBitmap(true); p.setColor(Color.WHITE); c.drawBitmap(icon, null, noteRect, p); p.setFilterBitmap(false); c.restore();
         }
         String head = app.isEmpty() ? (call ? "Phone" : "Notification") : app;
         p.setTypeface(black); p.setTextSize(16); float headW = p.measureText(head);
@@ -151,7 +153,7 @@ public final class DashboardRenderer {
         text(c, fit(from, textW, 30, bold), textX, y + pad + 20 + 32, 30, ink(), bold);
         if (call) text(c, "Incoming call", textX, y + pad + 20 + 36 + 26, 24, brand, semi);
         for (int i = 0; i < lines.size(); i++) text(c, lines.get(i), textX, y + pad + 20 + 36 + 26 + i * 31, 24, soft(), semi);
-        if (sample) {
+        if (s.layoutEditing) {
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3); p.setColor(pal.accent); p.setPathEffect(new DashPathEffect(new float[]{12, 8}, 0));
             c.drawRoundRect(r, 18, 18, p); p.setPathEffect(null);
             label(c, "NOTIFICATION", r.right - 130, r.top + (r.top < 26 ? r.height() + 28 : -6));

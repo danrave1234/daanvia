@@ -38,8 +38,8 @@ public final class TftLayoutActivity extends Activity {
         Gabi.insets(root, (l, t, r, b, ime) -> root.setPadding(l + k.dp(16), t + k.dp(10), r + k.dp(16), b + k.dp(14)));
         setContentView(root);
     }
-    protected void onResume() { super.onResume(); s.layoutEditing = true; s.signal(); }
-    protected void onPause() { s.layoutEditing = false; s.saveFit(); super.onPause(); }
+    protected void onResume() { super.onResume(); s.layoutEditing = true; RideNotifications.previewing = true; s.signal(); }
+    protected void onPause() { s.layoutEditing = false; RideNotifications.previewing = false; s.saveFit(); super.onPause(); }
 
     /** The bike's scene at its 5:3 shape, with the cards and arrow draggable. */
     static final class Editor extends View {
