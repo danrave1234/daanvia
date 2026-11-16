@@ -84,13 +84,6 @@ final class KeepAlive {
     static boolean keepScreenOn() { return colorOs() != null; }
     /** The rider said they've set up ColorOS's own settings for Daanvia. */
     static boolean colorOsDone(Context c) { return c.getSharedPreferences("ui", 0).getBoolean("coloros_done", false); }
-    /** On a ColorOS phone not yet set up: a reminder at most once every three days. */
-    static boolean remindColorOs(Context c) {
-        if (colorOs() == null || colorOsDone(c)) return false;
-        android.content.SharedPreferences p = c.getSharedPreferences("ui", 0); long now = System.currentTimeMillis();
-        if (now - p.getLong("coloros_reminded", 0) < 3L * 24 * 3600 * 1000) return false;
-        p.edit().putLong("coloros_reminded", now).apply(); return true;
-    }
 
     /**
      * Background navigation is always on: at the start of any real ride, ask for Android's exemption if it's missing. At

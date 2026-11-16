@@ -32,7 +32,10 @@ public final class Maneuvers {
     /** That road, or the maneuver's own instruction when it has no name; {@code fallback} for no maneuver at all. */
     public static String streetOf(org.json.JSONObject m, String fallback) {
         if (m == null) return fallback;
-        String road = road(m); return road.isEmpty() ? m.optString("instruction", fallback) : road;
+        String road = road(m); if (!road.isEmpty()) return road;
+        // Valhalla's instruction is a sentence ("Turn left."): on a card it reads better without the full stop.
+        String said = m.optString("instruction", fallback);
+        return said.endsWith(".") ? said.substring(0, said.length() - 1) : said;
     }
     public static int icon(int valhallaType) {
         switch (valhallaType) {

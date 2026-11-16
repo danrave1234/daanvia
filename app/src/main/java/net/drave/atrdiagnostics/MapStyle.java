@@ -151,6 +151,17 @@ final class MapStyle {
             textField(get("name")), textFont(FONT), textSize(interpolate(linear(), zoom(), stop(15, 10.5f), stop(18, 12.5f))),
             textAnchor(Property.TEXT_ANCHOR_LEFT), textJustify(Property.TEXT_JUSTIFY_LEFT), textOffset(new Float[]{1.3f, 0f}), textMaxWidth(8f), textPadding(3f));
     }
+    /**
+     * Shops, food and other places with their names: shown on the planning map, hidden during a ride so the route and the
+     * next turn stand out (riders found the ride map too busy). Street and neighbourhood names stay.
+     */
+    static void placesWhileRiding(Style st, boolean riding) {
+        if (st == null) return;
+        for (String id : new String[]{"online-poi", "online-poi-major"}) {
+            Layer l = st.getLayer(id);
+            if (l != null) l.setProperties(visibility(riding ? Property.NONE : Property.VISIBLE));
+        }
+    }
     private static void online(Style st, Layer layer, String sourceLayer, float minZoom) {
         if (layer instanceof FillLayer) ((FillLayer)layer).setSourceLayer(sourceLayer);
         else if (layer instanceof LineLayer) ((LineLayer)layer).setSourceLayer(sourceLayer);

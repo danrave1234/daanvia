@@ -8,7 +8,7 @@ public final class IconDrawable extends Drawable {
     public static final int SEARCH = 1, LOC = 2, BIKE = 3, RIGHT = 4, LEFT = 5, SLIGHT_RIGHT = 6, SLIGHT_LEFT = 7, SHARP_RIGHT = 8, SHARP_LEFT = 9,
         UTURN = 10, STRAIGHT = 11, FLAG = 12, ROUNDABOUT = 13, MERGE = 14, PARK = 15, TFT = 16, PLAY = 17, PIN = 18, CLOCK = 19, CLOSE = 20,
         CHEVRON = 21, BACK = 22, SHARE = 24, MOON = 27, CHECK = 28, TOOLS = 30, GEAR = 34, STAR = 35, STAR_FILLED = 36, INFO = 37, DOWNLOAD = 38, VOICE = 39, MUTE = 40, MAP = 41, COMPASS = 42, MIRROR = 43,
-        FOOD = 44, CAFE = 45, BAG = 46, CART = 47, HEALTH = 48, PILL = 49, PESO = 50, CAP = 51, CHURCH = 52, BED = 53, FUEL = 54, TREE = 55, BUS = 56, CIVIC = 57;
+        FOOD = 44, CAFE = 45, BAG = 46, CART = 47, HEALTH = 48, PILL = 49, PESO = 50, CAP = 51, CHURCH = 52, BED = 53, FUEL = 54, TREE = 55, BUS = 56, CIVIC = 57, MORE = 58;
 
     private final int type; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG); private final Path path = new Path(), solid = new Path(); private boolean filled;
     public IconDrawable(int type, int color) {
@@ -44,6 +44,7 @@ public final class IconDrawable extends Drawable {
             case PIN: p.moveTo(12, 21); p.quadTo(5, 14.5f, 5, 9); p.arcTo(new RectF(5, 2, 19, 16), 180, 180); p.quadTo(19, 14.5f, 12, 21); p.close(); p.addCircle(12, 9, 2.5f, Path.Direction.CW); break;
             case CLOCK: p.addCircle(12, 12, 9, Path.Direction.CW); p.moveTo(12, 7); p.lineTo(12, 12); p.lineTo(15, 14); break;
             case CLOSE: p.moveTo(6, 6); p.lineTo(18, 18); p.moveTo(18, 6); p.lineTo(6, 18); break;
+            case MORE: p.addCircle(5, 12, 1.3f, Path.Direction.CW); p.addCircle(12, 12, 1.3f, Path.Direction.CW); p.addCircle(19, 12, 1.3f, Path.Direction.CW); break;
             case CHEVRON: p.moveTo(9, 6); p.lineTo(15, 12); p.lineTo(9, 18); break;
             case BACK: p.moveTo(15, 6); p.lineTo(9, 12); p.lineTo(15, 18); break;
             case SHARE: p.moveTo(4, 12); p.lineTo(4, 20); p.lineTo(20, 20); p.lineTo(20, 12); p.moveTo(12, 3); p.lineTo(12, 15); p.moveTo(7, 8); p.lineTo(12, 3); p.lineTo(17, 8); break;

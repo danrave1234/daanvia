@@ -47,7 +47,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     private MapView mapView; private MapLibreMap map; private org.maplibre.android.maps.Style style; private boolean layersReady;
     private FrameLayout root; private LinearLayout top, chips, fabs; private TextView regionChip, bikeChip, attribution, notice;
-    private FrameLayout fabLocate, fabVoice, fabBike, fabCompass, fabMirror; private LinearLayout fabConnect; private TextView fabConnectText; private boolean compassShown; private ImageView fabIcon; private SheetView sheet;
+    private FrameLayout fabLocate, fabVoice, fabMore, fabCompass, fabMirror; private LinearLayout fabConnect; private TextView fabConnectText; private boolean compassShown; private ImageView fabIcon; private SheetView sheet;
     private final HomeLayout lay = new HomeLayout();
     private SearchPanel search; private AreaPicker picker; private RideScreen ride; private MapPainter painter;
 
@@ -65,7 +65,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     // pin
     private LinearLayout pinSheet; private TextView pinSub; private double dropLat, dropLon;
     // route
-    private LinearLayout routeSheet, parkRow; private TextView routeName, routeEta, routeMeta, routeStatus, parkText, startBtn, simNote; private FrameLayout routeStar; private View shimmer;
+    private LinearLayout routeSheet, parkRow, keepRow; private TextView routeName, routeEta, routeMeta, routeStatus, parkText, startBtn, simNote; private FrameLayout routeStar; private View shimmer;
     private RouteChoicesView routePicker;
     // parking
     private boolean parkIsEntrance; private LinearLayout parkEntranceRow; private LinearLayout startRow;
@@ -173,7 +173,9 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         place(ride.top, column, Gravity.TOP | Gravity.START, k.dp(10), lay.top + k.dp(8), landscape ? 0 : k.dp(10), 0);
         place(sheet, column, Gravity.BOTTOM | Gravity.START, k.dp(8), 0, landscape ? 0 : k.dp(8), lay.bottom + k.dp(8) + (mode == Mode.PARK_FORM || mode == Mode.SAVE ? lay.ime : 0));
         place(ride.bar, column, Gravity.BOTTOM | Gravity.START, k.dp(10), 0, landscape ? 0 : k.dp(10), lay.bottom + k.dp(8));
-        place(notice, column, Gravity.TOP | Gravity.START, k.dp(14), lay.top + k.dp(70), landscape ? 0 : k.dp(14), 0);
+        // During a ride a message sits just above the bottom bar, never over the turn card at the top.
+        if (mode == Mode.RIDE) place(notice, column, Gravity.BOTTOM | Gravity.START, k.dp(14), 0, landscape ? 0 : k.dp(14), lay.bottom + (ride.barHeight() > 0 ? ride.barHeight() : k.dp(130)) + k.dp(20));
+        else place(notice, column, Gravity.TOP | Gravity.START, k.dp(14), lay.top + k.dp(70), landscape ? 0 : k.dp(14), 0);
         ((FrameLayout.LayoutParams)fabs.getLayoutParams()).bottomMargin = lay.bottom + k.dp(16); fabs.requestLayout();
         FrameLayout.LayoutParams ap = (FrameLayout.LayoutParams)attribution.getLayoutParams();
         ap.bottomMargin = lay.bottom + k.dp(14); ap.leftMargin = landscape ? lay.panelW + k.dp(26) : k.dp(18); attribution.requestLayout();
@@ -296,7 +298,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
 
     private void installLayers() {
         if (layersReady || style == null) return;
-        MapStyle.install(this, style, s.roadsUri); MapStyle.paint(style, theme.palette, coastline); layersReady = true; shownRegion = s.regionVersion; loadLandcover(); loadOverview();
+        MapStyle.install(this, style, s.roadsUri); MapStyle.paint(style, theme.palette, coastline); MapStyle.placesWhileRiding(style, mode == Mode.RIDE); layersReady = true; shownRegion = s.regionVersion; loadLandcover(); loadOverview();
         painter.ready(style);
         if (s.ready) { search.index(); paintRecents(); }
     }
@@ -390,12 +392,27 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         fabConnectText = k.single(k.text("Connect bike", 14, 750, INK)); fabConnect.addView(fabConnectText);
         Gabi.press(fabConnect, this::connectBike); fabConnect.setVisibility(View.GONE);
         fabs.addView(fabConnect, new LinearLayout.LayoutParams(-2, k.dp(50)));
-        fabBike = k.circle(IconDrawable.MOON, 50, GLASS, INK, () -> ride.enterBikeMode()); fabBike.setVisibility(View.GONE); fabs.addView(fabBike);
+        // During a ride, the less used controls (rest the phone's screen, mirror the phone) sit in one labelled menu: icon-only
+        // buttons for them were hard to tell apart while riding.
+        fabMore = k.circle(IconDrawable.MORE, 50, GLASS, INK, this::rideMenu); fabMore.setVisibility(View.GONE); fabs.addView(fabMore);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END); lp.rightMargin = k.dp(16);
         root.addView(fabs, lp);
         attribution = k.text("© OpenStreetMap contributors", 10.5f, 500, MUTED);
         FrameLayout.LayoutParams ap = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START); ap.leftMargin = k.dp(18);
         root.addView(attribution, ap);
+    }
+    /** The ride's More menu: each control with its name and what it does, above the button. */
+    private void rideMenu() {
+        LinearLayout list = k.column(0); list.setPadding(k.dp(6), k.dp(6), k.dp(6), k.dp(6)); k.glass(list, 22);
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(list, k.dp(300), -2, true);
+        pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0)); pop.setOutsideTouchable(true); pop.setElevation(k.dp(12));
+        list.addView(k.listRow(IconDrawable.MOON, "Rest phone screen", "Dims the phone. The bike keeps showing directions", null, () -> { pop.dismiss(); ride.enterBikeMode(); }));
+        if (link != null && link.profileReady())
+            list.addView(k.listRow(IconDrawable.MIRROR, StreamService.mirroring ? "Stop mirroring" : "Mirror phone to bike", StreamService.mirroring ? "Back to Daanvia's directions on the bike" : "Show Google Maps, music or any app on the bike", null, () -> { pop.dismiss(); toggleMirror(); }));
+        int[] at = new int[2]; fabMore.getLocationInWindow(at);
+        pop.showAtLocation(root, Gravity.TOP | Gravity.END, root.getWidth() - at[0] - fabMore.getWidth(), 0);
+        // Measured once shown: lift it so its bottom sits just above the button.
+        list.post(() -> pop.update(root.getWidth() - at[0] - fabMore.getWidth(), Math.max(k.dp(8), at[1] - list.getHeight() - k.dp(10)), -1, -1));
     }
     /** The rider asked to connect the bike display now (the ride's Connect bike button, or the home screen's bike chip). */
     private void connectBike() {
@@ -416,7 +433,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void paintLocateFab() {
         boolean recenter = mode == Mode.RIDE && !ride.following();
         ((IconDrawable)fabIcon.getDrawable()).setColor(recenter ? theme.palette.ink : theme.palette.accent);
-        paintConnect(); Gabi.show(fabVoice, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabBike, mode == Mode.RIDE, k.dp(10)); paintVoice();
+        paintConnect(); Gabi.show(fabVoice, mode == Mode.RIDE, k.dp(10)); Gabi.show(fabMore, mode == Mode.RIDE, k.dp(10)); paintVoice();
         if (mode == Mode.RIDE) Gabi.show(fabLocate, recenter, k.dp(10)); else Gabi.show(fabLocate, mode == Mode.EXPLORE || mode == Mode.PIN || mode == Mode.SAVE || mode == Mode.SELECT, k.dp(10));
         paintMirror(); paintCompass();
     }
@@ -438,7 +455,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** The mirror button: once a bike is set up, on the map and during rides; orange while the phone's screen is on the bike. */
     private void paintMirror() {
         if (fabMirror == null) return;
-        Gabi.show(fabMirror, link != null && link.profileReady() && (mode == Mode.EXPLORE || mode == Mode.RIDE), k.dp(10));
+        Gabi.show(fabMirror, link != null && link.profileReady() && mode == Mode.EXPLORE, k.dp(10));  // during a ride it's in the More menu
         int tint = StreamService.mirroring ? theme.palette.accent : theme.palette.ink;
         if (tint != mirrorTint) { mirrorTint = tint; ((ImageView)fabMirror.getChildAt(0)).setImageDrawable(new IconDrawable(IconDrawable.MIRROR, tint)); }
     }
@@ -842,6 +859,14 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         Gabi.press(parkRow, this::toggleArrivalParking);
         simNote = k.text("The demo moves by itself so you can check the bike display while parked. Don’t follow it while riding.", 12.5f, 500, MUTED);
         simNote.setPadding(0, k.dp(10), 0, 0); c.addView(simNote);
+        // OPPO, OnePlus and realme close apps mid-ride unless set up: said here, before Start, instead of over the turn card
+        // once the ride has begun.
+        keepRow = k.row(10); keepRow.setPadding(k.dp(12), k.dp(10), k.dp(12), k.dp(10)); k.fill(keepRow, 16, CHIP);
+        keepRow.addView(k.icon(IconDrawable.INFO, 18, ACCENT));
+        keepRow.addView(k.text("Your phone can close Daanvia mid-ride. Set it up so your ride keeps going", 13, 600, INK_SOFT), new LinearLayout.LayoutParams(0, -2, 1));
+        keepRow.addView(k.icon(IconDrawable.CHEVRON, 16, INK_SOFT));
+        Gabi.press(keepRow, () -> openSettings("coloros"));
+        LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, -2); kp.topMargin = k.dp(10); c.addView(keepRow, kp);
         LinearLayout btns = k.row(0); k.fill(btns, 28, ACCENT); btns.setClipToOutline(true); startRow = btns;
         startBtn = k.primary("Start ride", this::start);
         TextView editStops = k.primary("Edit stops", () -> startActivity(new Intent(this, TripPlannerActivity.class))); editStops.setTextSize(15);
@@ -888,6 +913,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!(mine && lots > 0) || lots != parkListCount) { parkList.setVisibility(View.GONE); parkList.removeAllViews(); }
         parkText.setText(lots + " parking " + (lots == 1 ? "spot" : "spots") + " near arrival" + (priced > 0 ? " · " + priced + " with a saved rate" : ""));
         simNote.setVisibility(demoTrip ? View.VISIBLE : View.GONE);
+        keepRow.setVisibility(!demoTrip && KeepAlive.colorOs() != null && !KeepAlive.colorOsDone(this) ? View.VISIBLE : View.GONE);
         startBtn.setText(demoTrip ? "Start demo" : "Start ride");
         boolean can = mine && !s.routing; startRow.setAlpha(can ? 1f : 0.45f);
         routeStar.setVisibility(demoTrip ? View.GONE : View.VISIBLE);
@@ -969,7 +995,6 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
      */
     private void rideAsks(boolean askingNotifications) {
         if (!resuming && !askingNotifications) KeepAlive.askForRide(this);
-        if (!resuming && KeepAlive.remindColorOs(this)) notice("Your " + KeepAlive.colorOs() + " phone can close Daanvia mid-ride. Set it up so your ride keeps going", "Show me", () -> openSettings("coloros"), 15000);
     }
     /**
      * The ride's notification carries the lock-screen buttons (Reconnect, Commands, Exit). Asked once; after a refusal,
@@ -1169,6 +1194,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         Gabi.show(top, next == Mode.EXPLORE || next == Mode.PIN, -k.dp(14));
         if (prev == Mode.SAVE && next != Mode.SAVE) hideKeyboard();
         ride.show(riding);
+        if (layersReady) MapStyle.placesWhileRiding(style, riding);
         picker.show(next == Mode.SELECT);
         switch (next) {
             case SELECT: sheet.swap(picker.sheet); break;

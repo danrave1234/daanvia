@@ -279,6 +279,7 @@ public final class Gabi {
             case IconDrawable.SEARCH:return "Search places";
             case IconDrawable.LOC:return "Find my location";
             case IconDrawable.CLOSE:return "Close";
+            case IconDrawable.MORE:return "More options";
             case IconDrawable.BACK:return "Back";
             case IconDrawable.STAR:return "Save place";
             case IconDrawable.STAR_FILLED:return "Remove saved place";
