@@ -63,13 +63,11 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         scanRow.addView(k.ghost("Scan QR", this::scanCamera), new LinearLayout.LayoutParams(0, -2, 1));
         scanRow.addView(k.ghost("QR photo", this::scanPhoto), new LinearLayout.LayoutParams(0, -2, 1));
         bike.addView(scanRow);
-        bike.addView(k.text("Park first. Close Carbit Ride and keep the dashboard’s Android QR screen open. Wi-Fi on, hotspot off.", 12.5f, 500, MUTED));
-        bike.addView(k.text("Rest the phone while riding", 14, 650, INK));
-        boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
-        bike.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
-        bike.addView(k.text("When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn"
-            + (KeepAlive.keepScreenOn() ? ", kept on but dim: your " + KeepAlive.colorOs() + " phone would close Daanvia soon after the screen went off." : " and may turn off, to save battery.")
-            + " Tap it to bring the map back. The moon button on the ride screen does it right away.", 12.5f, 500, MUTED));
+        LinearLayout scanHint = k.row(4); scanHint.addView(k.text("Scanning the QR: park first, close Carbit Ride, keep Wi-Fi on", 12.5f, 500, MUTED), new LinearLayout.LayoutParams(0, -2, 1));
+        scanHint.addView(k.info("Park first. Close Carbit Ride and keep the dashboard’s Android QR screen open. Wi-Fi on, hotspot off.")); bike.addView(scanHint);
+        // Everything Daanvia needs from Android, on one screen (SetupActivity).
+        setupRow = k.listRow(IconDrawable.CHECK, "Get ready to ride", "", null, () -> startActivity(new Intent(this, SetupActivity.class)));
+        bike.addView(setupRow);
         String brand = KeepAlive.colorOs();
         if (brand != null) {
             // OPPO, OnePlus and realme phones (ColorOS) close apps mid-ride even when Android allows them to run, so their
@@ -100,16 +98,14 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         // What the bike reported about its screen when it last connected (see NavSession.screenReport).
         screenText = k.text("", 13, 500, MUTED); screenText.setPadding(0, k.dp(10), 0, 0); tft.addView(screenText);
         shapeRow = k.column(6);
-        shapeRow.addView(k.text("Match the bike's screen shape", 15, 650, INK));
+        shapeRow.addView(titled("Match the bike's screen shape", "This bike's panel is a different shape from the video it asks for. On, Daanvia draws for the panel so nothing looks stretched. Turn it off if the display looks squeezed."));
         boolean shape = getSharedPreferences("ui", 0).getBoolean("matchshape", true);
         shapeRow.addView(k.segmented(new String[]{"On", "Off"}, shape ? 0 : 1, i -> { getSharedPreferences("ui", 0).edit().putBoolean("matchshape", i == 0).apply(); s.signal(); }));
-        shapeRow.addView(k.text("This bike's panel is a different shape from the video it asks for. On, Daanvia draws for the panel so nothing looks stretched. Turn it off if the display looks squeezed.", 13, 500, MUTED));
         tft.addView(shapeRow);
-        tft.addView(k.text("What the bike shows while riding", 15, 650, INK));
+        tft.addView(titled("What the bike shows while riding", "Directions only shows the next turn and your trip on a plain screen, without the moving map. The phone does about a third of the work, so it runs cooler and the battery lasts longer on long rides."));
         boolean simple = getSharedPreferences("ui", 0).getBoolean("directionsonly", false);
         tft.addView(k.segmented(new String[]{"Map and directions", "Directions only"}, simple ? 1 : 0, i -> { getSharedPreferences("ui", 0).edit().putBoolean("directionsonly", i == 1).apply(); s.signal(); }));
-        tft.addView(k.text("Directions only shows the next turn and your trip on a plain screen, without the moving map. The phone does about a third of the work, so it runs cooler and the battery lasts longer on long rides.", 12.5f, 500, MUTED));
-        tft.addView(k.text("Notifications on the bike", 15, 650, INK));
+        tft.addView(titled("Notifications on the bike", "While the bike display is connected, a card shows on it for a few seconds: who it’s from and the start of the message. Calls & social covers incoming calls, texts, Messenger, Facebook, Instagram, TikTok, WhatsApp, Viber, Telegram and other chat and social apps. Everything adds every other app, except silent ones, music and downloads. Needs Android’s Notification access. Nothing is saved or sent anywhere."));
         boolean notifying = RideNotifications.enabled(this) && RideNotifications.allowed(this);
         tft.addView(k.segmented(new String[]{"Off", "Calls & social", "Everything"}, !notifying ? 0 : RideNotifications.scope(this) == RideNotifications.EVERYTHING ? 2 : 1, i -> {
             RideNotifications.setEnabled(this, i != 0);
@@ -119,7 +115,11 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
                 try { startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
             }
         }));
-        tft.addView(k.text("While the bike display is connected, a card shows on it for a few seconds: who it’s from and the start of the message. Calls & social covers incoming calls, texts, Messenger, Facebook, Instagram, TikTok, WhatsApp, Viber, Telegram and other chat and social apps. Everything adds every other app, except silent ones, music and downloads. Needs Android’s Notification access. Nothing is saved or sent anywhere.", 12.5f, 500, MUTED));
+        tft.addView(titled("Rest the phone while riding", "When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn"
+            + (KeepAlive.keepScreenOn() ? ", kept on but dim: your " + KeepAlive.colorOs() + " phone would close Daanvia soon after the screen went off." : " and may turn off, to save battery.")
+            + " Tap it to bring the map back. On the ride screen, More › Rest phone screen does it right away."));
+        boolean rest = getSharedPreferences("ui", 0).getBoolean("bikemode", true);
+        tft.addView(k.segmented(new String[]{"On", "Off"}, rest ? 0 : 1, i -> getSharedPreferences("ui", 0).edit().putBoolean("bikemode", i == 0).apply()));
         TextView layoutBtn = k.primary("Edit display layout", () -> { if (s.active) { android.widget.Toast.makeText(this, "End the ride first, then edit the layout while parked.", android.widget.Toast.LENGTH_SHORT).show(); return; } startActivity(new Intent(this, TftLayoutActivity.class)); });
         tft.addView(layoutBtn);
         adjust = k.ghost("Fit my TFT", this::beginFit); tft.addView(adjust);
@@ -129,26 +129,24 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
 
         // ---- theme
         LinearLayout look = GabiPage.card(k);
-        look.addView(k.label("Map theme"));
+        look.addView(k.label("Map"));
+        look.addView(titled("Theme", "Auto switches to the night map after sunset where you are riding, and back at sunrise."));
         String[] keys = {Gabi.THEME_AUTO, Gabi.THEME_DAY, Gabi.THEME_NIGHT}; String cur = Gabi.themeSetting(this); int sel = 0; for (int i = 0; i < 3; i++) if (keys[i].equals(cur)) sel = i;
         look.addView(k.segmented(new String[]{"Auto", "Day", "Night"}, sel, i -> { Gabi.setThemeSetting(this, keys[i]); theme.set(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)); }));
-        look.addView(k.text("Auto switches to the night map after sunset where you are riding, and back at sunrise.", 12.5f, 500, MUTED));
-        c.addView(look);
-
-        // ---- GPS
-        LinearLayout gps = GabiPage.card(k);
-        LinearLayout gpsHead = k.row(4); gpsHead.addView(k.label("GPS"), new LinearLayout.LayoutParams(0, -2, 1));
+        // ---- GPS, in the same card
+        LinearLayout gps = look;
+        LinearLayout gpsHead = k.row(4); gpsHead.addView(k.text("GPS", 15, 650, INK), new LinearLayout.LayoutParams(0, -2, 1));
         gpsHead.addView(k.info("Recalibrate clears the satellite data your phone saved and downloads fresh data, so GPS locks on again from scratch. Use it when your location is stuck, far off, or slow to find you. GPS check shows how accurate it is right now."));
         gps.addView(gpsHead);
         LinearLayout gpsRow = k.row(8);
         gpsRow.addView(k.ghost("Recalibrate GPS", this::recalibrateGps), new LinearLayout.LayoutParams(0, -2, 1));
         gpsRow.addView(k.ghost("GPS check", () -> startActivity(new Intent(this, SupportActivity.class))), new LinearLayout.LayoutParams(0, -2, 1));
         gps.addView(gpsRow);
-        c.addView(gps);
+        c.addView(look);
 
         // ---- downloaded maps
         LinearLayout maps = GabiPage.card(k);
-        LinearLayout mapsHead = k.row(4); mapsHead.addView(k.label("Maps"), new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout mapsHead = k.row(4); mapsHead.addView(k.label("Downloaded maps"), new LinearLayout.LayoutParams(0, -2, 1));
         mapsHead.addView(k.info("Downloaded areas live on your phone, so the map, search and directions work without signal. Download the places you ride. Remove ones you no longer need to free up space."));
         maps.addView(mapsHead);
         mapList = k.column(0); maps.addView(mapList);
@@ -159,18 +157,17 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
 
         // ---- testing
         LinearLayout test = GabiPage.card(k); test.setPadding(k.dp(16), k.dp(12), k.dp(16), k.dp(6));
-        test.addView(k.label("Testing"));
+        test.addView(k.label("Help"));
         test.addView(k.listRow(IconDrawable.PLAY, "Demo ride", "Simulates a sample route on the phone and the bike display, to check the setup while parked", null,
             () -> { startActivity(new Intent(this, HomeActivity.class).putExtra("demo", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }));
         test.addView(k.listRow(IconDrawable.TOOLS, "Support and test tools", "Connection test, test pattern, mirror test, logs", null, () -> startActivity(new Intent(this, SupportActivity.class))));
-        test.addView(k.text("Send diagnostics to the developer", 14, 650, INK));
+        test.addView(titled("Send diagnostics to the developer", "During the beta, Daanvia sends its connection and ride log every few minutes, so problems like a bike display that drops can be fixed. It never includes where you are or where you’re going, passwords or device addresses: only the log lines, the app version, the phone model and a random id."));
         TextView logState = k.text(LogUpload.status(this), 12.5f, 600, INK_SOFT);
         test.addView(k.segmented(new String[]{"On", "Off"}, LogUpload.enabled(this) ? 0 : 1, i -> { LogUpload.setEnabled(this, i == 0); logState.setText(LogUpload.status(this)); }));
         // Whether the log is actually getting through: rides of 14 Nov never reached the developer, and nothing showed it.
         LinearLayout logRow = k.row(10); logRow.addView(logState, new LinearLayout.LayoutParams(0, -2, 1));
         logRow.addView(k.ghost("Send now", () -> { logState.setText("Sending…"); LogUpload.sendNow(this, () -> logState.setText(LogUpload.status(this))); }));
         test.addView(logRow);
-        test.addView(k.text("During the beta, Daanvia sends its connection and ride log every few minutes, so problems like a bike display that drops can be fixed. It never includes where you are or where you’re going, passwords or device addresses: only the log lines, the app version, the phone model and a random id.", 12.5f, 500, MUTED));
         c.addView(test);
 
         // ---- about
@@ -189,7 +186,23 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         paint();
     }
 
-    private TextView colorDone; private LinearLayout colorBox;
+    private TextView colorDone; private LinearLayout colorBox; private LinearLayout setupRow;
+    /** An option's name with an (i) beside it that explains it, instead of a paragraph under every option. */
+    private LinearLayout titled(String title, String explanation) {
+        LinearLayout r = k.row(4); r.addView(k.text(title, 15, 650, INK), new LinearLayout.LayoutParams(0, -2, 1)); r.addView(k.info(explanation)); return r;
+    }
+    /** "3 of 5 ready" under Get ready to ride. */
+    private void paintSetup() {
+        if (setupRow == null) return; int[] p = SetupActivity.progress(this);
+        TextView sub = findSub(setupRow); if (sub != null) sub.setText(p[0] == p[1] ? "All set" : p[0] + " of " + p[1] + " ready · tap to finish");
+    }
+    /** A list row's second line (its subtitle). */
+    private static TextView findSub(LinearLayout row) {
+        for (int i = 0; i < row.getChildCount(); i++) if (row.getChildAt(i) instanceof LinearLayout) {
+            LinearLayout col = (LinearLayout)row.getChildAt(i); if (col.getChildCount() > 1 && col.getChildAt(1) instanceof TextView) return (TextView)col.getChildAt(1);
+        }
+        return null;
+    }
     private void openAppInfo() { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
     private void paintColorOs() {
         if (colorBox == null) return; boolean done = KeepAlive.colorOsDone(this);
@@ -218,7 +231,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         shapeRow.setVisibility(differs ? View.VISIBLE : View.GONE);
     }
     private void paint() {
-        paintScreen();
+        paintScreen(); paintSetup();
         if (link == null) return;
         boolean ready = link.profileReady(), live = StreamService.navigationActive, busy = link.searching();
         modelText.setText(ready ? (link.model() == null || link.model().isEmpty() ? "Saved bike" : link.model()) : "No bike saved yet");

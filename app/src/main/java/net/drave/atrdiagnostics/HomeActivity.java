@@ -173,8 +173,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         place(ride.top, column, Gravity.TOP | Gravity.START, k.dp(10), lay.top + k.dp(8), landscape ? 0 : k.dp(10), 0);
         place(sheet, column, Gravity.BOTTOM | Gravity.START, k.dp(8), 0, landscape ? 0 : k.dp(8), lay.bottom + k.dp(8) + (mode == Mode.PARK_FORM || mode == Mode.SAVE ? lay.ime : 0));
         place(ride.bar, column, Gravity.BOTTOM | Gravity.START, k.dp(10), 0, landscape ? 0 : k.dp(10), lay.bottom + k.dp(8));
-        // During a ride a message sits just above the bottom bar, never over the turn card at the top.
-        if (mode == Mode.RIDE) place(notice, column, Gravity.BOTTOM | Gravity.START, k.dp(14), 0, landscape ? 0 : k.dp(14), lay.bottom + (ride.barHeight() > 0 ? ride.barHeight() : k.dp(130)) + k.dp(20));
+        // During a ride a message sits just under the turn card, never over it, and clear of the buttons further down.
+        if (mode == Mode.RIDE) place(notice, column, Gravity.TOP | Gravity.START, k.dp(14), lay.top + k.dp(16) + (ride.top.getHeight() > 0 ? ride.top.getHeight() : k.dp(170)), landscape ? 0 : k.dp(14), 0);
         else place(notice, column, Gravity.TOP | Gravity.START, k.dp(14), lay.top + k.dp(70), landscape ? 0 : k.dp(14), 0);
         ((FrameLayout.LayoutParams)fabs.getLayoutParams()).bottomMargin = lay.bottom + k.dp(16); fabs.requestLayout();
         FrameLayout.LayoutParams ap = (FrameLayout.LayoutParams)attribution.getLayoutParams();
@@ -193,7 +193,10 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         androidx.core.content.ContextCompat.registerReceiver(this, changes, new IntentFilter(NavSession.EVENT), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         String qr = savedQr(); if (!qr.equals(linkedQr)) { linkedQr = qr; if (!qr.isEmpty()) link.acceptQr(qr); }
         AreaStore.listen(areas); AppUpdate.listen(updates); AppUpdate.check(this, true);
-        if (!s.active) { here.start(); checkMapUpdates(); } boolean asking = askLocationOnce(); if (!asking && !s.active) askAccuracy(false);
+        // The first time something Daanvia needs is missing, the checklist opens and asks for it all on one screen; the
+        // questions below then wait for the next start, so nothing pops up on top of it.
+        boolean setup = openSetupOnce();
+        if (!s.active) { here.start(); checkMapUpdates(); } boolean asking = setup || askLocationOnce(); if (!asking && !s.active) askAccuracy(false);
         // Opening Daanvia (not just coming back from one of its own screens) looks for the bike again, even if the display was stopped before.
         if (stoppedAt == 0 || SystemClock.elapsedRealtime() - stoppedAt > 60_000) link.allowAuto();
         lookStep = 0;
@@ -403,12 +406,14 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     }
     /** The ride's More menu: each control with its name and what it does, above the button. */
     private void rideMenu() {
-        LinearLayout list = k.column(0); list.setPadding(k.dp(6), k.dp(6), k.dp(6), k.dp(6)); k.glass(list, 22);
+        LinearLayout list = k.column(0); list.setPadding(k.dp(6), k.dp(6), k.dp(6), k.dp(6));
+        // Solid, like Settings' cards: see-through, the buttons under it showed through its text.
+        list.setBackground(Gabi.round(theme.palette.night ? 0xFF151E28 : 0xFFFFFFFF, k.dp(22), theme.palette.stroke, k.dp(1)));
         android.widget.PopupWindow pop = new android.widget.PopupWindow(list, k.dp(300), -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0)); pop.setOutsideTouchable(true); pop.setElevation(k.dp(12));
-        list.addView(k.listRow(IconDrawable.MOON, "Rest phone screen", "Dims the phone. The bike keeps showing directions", null, () -> { pop.dismiss(); ride.enterBikeMode(); }));
+        list.addView(k.listRow(IconDrawable.MOON, "Rest phone screen", "Dims the phone; the bike keeps going", null, () -> { pop.dismiss(); ride.enterBikeMode(); }));
         if (link != null && link.profileReady())
-            list.addView(k.listRow(IconDrawable.MIRROR, StreamService.mirroring ? "Stop mirroring" : "Mirror phone to bike", StreamService.mirroring ? "Back to Daanvia's directions on the bike" : "Show Google Maps, music or any app on the bike", null, () -> { pop.dismiss(); toggleMirror(); }));
+            list.addView(k.listRow(IconDrawable.MIRROR, StreamService.mirroring ? "Stop mirroring" : "Mirror phone to bike", StreamService.mirroring ? "Back to Daanvia on the bike" : "Show any app on the bike", null, () -> { pop.dismiss(); toggleMirror(); }));
         int[] at = new int[2]; fabMore.getLocationInWindow(at);
         pop.showAtLocation(root, Gravity.TOP | Gravity.END, root.getWidth() - at[0] - fabMore.getWidth(), 0);
         // Measured once shown: lift it so its bottom sits just above the button.
@@ -1352,6 +1357,13 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         });
     }
     /** Ask for location the first time the app opens, so the map can show where the rider is. */
+    /** Opens Get ready to ride once, when something it covers is missing and no ride is under way. True if it opened. */
+    private boolean openSetupOnce() {
+        android.content.SharedPreferences p = getSharedPreferences("ui", 0);
+        if (s.active || p.getBoolean("setup_shown", false) || !SetupActivity.missing(this)) return false;
+        p.edit().putBoolean("setup_shown", true).apply();
+        startActivity(new Intent(this, SetupActivity.class)); return true;
+    }
     private boolean askLocationOnce() {
         android.content.SharedPreferences prefs = getSharedPreferences("ui", 0);
         if (Here.allowed(this) || prefs.getBoolean("asked_location", false)) return false;

@@ -40,6 +40,7 @@
         <activity android:name=".VoiceCommandsActivity" android:exported="false" android:showWhenLocked="true" android:turnScreenOn="true" />
         <activity android:name=".TripPlannerActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <activity android:name=".TftLayoutActivity" android:exported="false" android:configChanges="orientation|screenSize" />
+        <activity android:name=".SetupActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <activity android:name=".SupportActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <service android:name=".NavService" android:exported="false" android:foregroundServiceType="location|connectedDevice" />
         <activity android:name=".ScanActivity" android:exported="false" android:configChanges="orientation|screenSize" />
