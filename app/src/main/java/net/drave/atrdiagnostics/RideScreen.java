@@ -73,11 +73,15 @@ final class RideScreen {
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2); tl.leftMargin = k.dp(12);
         top.addView(thenChip, tl); thenChip.setVisibility(View.GONE);
 
-        bar = k.row(12); bar.setPadding(k.dp(20), k.dp(10), k.dp(10), k.dp(10)); k.glass(bar, 30);
+        // The bar is one row: time and distance, Blocked, End. The DEMO and "On bike" chips sit just above it, so the row
+        // never runs out of width (side by side on a 6.7" phone they squeezed the text into a column, one word a line).
+        bar = k.column(6);
+        LinearLayout chips = k.row(6); chips.setPadding(k.dp(6), 0, 0, 0); bar.addView(chips);
+        LinearLayout panel = k.row(12); panel.setPadding(k.dp(20), k.dp(10), k.dp(10), k.dp(10)); k.glass(panel, 30); bar.addView(panel);
         LinearLayout et = k.column(3);
-        LinearLayout etTop = k.row(8); etaMin = k.num("", 25, 800, INK); etTop.addView(etaMin);
-        simBadge = k.chip("DEMO", ACCENT_SOFT, ACCENT); simBadge.setTextSize(10.5f); simBadge.setLetterSpacing(0.08f); etTop.addView(simBadge);
-        tftBadge = k.chip("On bike · Map", OK_SOFT, OK); tftBadge.setTextSize(10.5f); etTop.addView(tftBadge);
+        etaMin = k.single(k.num("", 25, 800, INK)); et.addView(etaMin);
+        simBadge = k.single(k.chip("DEMO", ACCENT_SOFT, ACCENT)); simBadge.setTextSize(10.5f); simBadge.setLetterSpacing(0.08f); chips.addView(simBadge);
+        tftBadge = k.single(k.chip("On bike · Map", OK_SOFT, OK)); tftBadge.setTextSize(11.5f); chips.addView(tftBadge);
         // Tap: the bike shows its own screen with the turn arrow and distance (like Carbit's closed map), or the map again.
         tftBadge.setContentDescription("Switch the bike display between the map and turn arrows");
         Gabi.press(tftBadge, () -> {
@@ -85,19 +89,20 @@ final class RideScreen {
             if (!StreamService.showOwnScreen(own)) { host.notice("Connect the bike display first"); return; }
             paintBikeBadge(); host.notice(own ? "Bike shows turn arrows" : "Bike shows the map");
         });
-        et.addView(etTop);
-        etaMeta = k.num("", 13, 600, MUTED); et.addView(etaMeta);
-        bar.addView(et, new LinearLayout.LayoutParams(0, -2, 1));
-        endBtn = k.pill("End", 800, DANGER, WHITE, this::onEnd); endBtn.setPadding(k.dp(20), 0, k.dp(20), 0);
+        etaMeta = k.single(k.num("", 13, 600, MUTED)); et.addView(etaMeta);
+        panel.addView(et, new LinearLayout.LayoutParams(0, -2, 1));
+        endBtn = oneLine(k.pill("End", 800, DANGER, WHITE, this::onEnd)); endBtn.setPadding(k.dp(20), 0, k.dp(20), 0);
         // The offline map can't know about closures: the rider marks the road ahead blocked and gets a way around it.
-        blockBtn = k.pill("Blocked", 800, CHIP, INK, this::onBlocked); blockBtn.setPadding(k.dp(16), 0, k.dp(16), 0);
-        bar.addView(blockBtn); LinearLayout.LayoutParams bl = (LinearLayout.LayoutParams)blockBtn.getLayoutParams(); bl.rightMargin = k.dp(8); blockBtn.setLayoutParams(bl);
-        bar.addView(endBtn);
+        blockBtn = oneLine(k.pill("Blocked", 800, CHIP, INK, this::onBlocked)); blockBtn.setPadding(k.dp(16), 0, k.dp(16), 0);
+        panel.addView(blockBtn); LinearLayout.LayoutParams bl = (LinearLayout.LayoutParams)blockBtn.getLayoutParams(); bl.rightMargin = k.dp(8); blockBtn.setLayoutParams(bl);
+        panel.addView(endBtn);
         FrameLayout.LayoutParams el = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM); el.leftMargin = el.rightMargin = k.dp(10);
         root.addView(bar, el); bar.setVisibility(View.GONE);
     }
 
     // ---------------------------------------------------------------- showing and painting
+    /** A button's label on one line, keeping its full height (setSingleLine would shrink it to one line of text). */
+    private static TextView oneLine(TextView v) { v.setMaxLines(1); v.setEllipsize(android.text.TextUtils.TruncateAt.END); return v; }
     /** Fade the turn card and ETA bar in or out with the ride mode. */
     void show(boolean riding) {
         Gabi.show(top, riding, -k.dp(24)); if (!riding) thenChip.setVisibility(View.GONE);
@@ -121,23 +126,23 @@ final class RideScreen {
     void paint(boolean riding) { if (riding) paintRide(); if (bikeMode) paintBikeMode(); }
     int barHeight() { return bar.getHeight(); }
 
-    private final Runnable disarmEnd = () -> { endArmed = false; endBtn.setText("End"); };
+    private final Runnable disarmEnd = () -> { endArmed = false; endBtn.setText("End"); blockBtn.setVisibility(View.VISIBLE); };
     private final Runnable disarmBlock = () -> { blockArmed = false; blockBtn.setText("Blocked"); };
     /** First tap asks, second marks the road ahead blocked and finds a way around it (NavSession.blockAhead). */
     private void onBlocked() {
         if (!s.active || s.simulation) return;
-        if (!blockArmed) { blockArmed = true; blockBtn.setText("Road blocked?"); ui.removeCallbacks(disarmBlock); ui.postDelayed(disarmBlock, 4000); return; }
+        if (!blockArmed) { blockArmed = true; blockBtn.setText("Blocked?"); ui.removeCallbacks(disarmBlock); ui.postDelayed(disarmBlock, 4000); return; }
         ui.removeCallbacks(disarmBlock); disarmBlock.run();
         s.blockAhead(); host.notice("Finding a way around the blocked road");
     }
     private void onEnd() {
-        if (!endArmed && !"Destination nearby".equals(s.instruction)) { endArmed = true; endBtn.setText("Tap to end"); ui.removeCallbacks(disarmEnd); ui.postDelayed(disarmEnd, 3000); return; }
+        if (!endArmed && !"Destination nearby".equals(s.instruction)) { endArmed = true; endBtn.setText("Tap to end"); blockBtn.setVisibility(View.GONE); ui.removeCallbacks(disarmEnd); ui.postDelayed(disarmEnd, 3000); return; }
         ui.removeCallbacks(disarmEnd); disarmEnd.run();
         // The bike display stays connected between rides; the notification's Stop still disconnects everything.
         s.stop(); a.stopService(new Intent(a, NavService.class)); host.refresh();
     }
     private void paintRide() {
-        Gabi.show(blockBtn, true, 0);
+        Gabi.show(blockBtn, !endArmed, 0);  // while End asks "Tap to end", Blocked makes room for it
         int idx = s.maneuver; TurnCard card = TurnCard.of(s.maneuvers, idx, s.instruction, s.destination);
         boolean stale = s.gpsStale(); Gabi.Palette p = k.t.palette;
         if (idx != shownManeuver) {
@@ -155,7 +160,7 @@ final class RideScreen {
         Gabi.show(thenChip, next != null, -k.dp(6));
         etaMin.setText(card.arriving ? "You’re here" : Gabi.minutes(s.seconds));
         if (!endArmed) endBtn.setText(card.arriving ? "Finish" : "End");
-        etaMeta.setText(Gabi.distance(s.remaining) + " · arrive " + Gabi.clock(s.seconds));
+        etaMeta.setText(Gabi.distance(s.remaining) + " · " + Gabi.clock(s.seconds));
         simBadge.setVisibility(s.simulation ? View.VISIBLE : View.GONE);
         paintBikeBadge();
     }

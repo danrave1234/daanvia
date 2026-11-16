@@ -164,7 +164,12 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             () -> { startActivity(new Intent(this, HomeActivity.class).putExtra("demo", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }));
         test.addView(k.listRow(IconDrawable.TOOLS, "Support and test tools", "Connection test, test pattern, mirror test, logs", null, () -> startActivity(new Intent(this, SupportActivity.class))));
         test.addView(k.text("Send diagnostics to the developer", 14, 650, INK));
-        test.addView(k.segmented(new String[]{"On", "Off"}, LogUpload.enabled(this) ? 0 : 1, i -> LogUpload.setEnabled(this, i == 0)));
+        TextView logState = k.text(LogUpload.status(this), 12.5f, 600, INK_SOFT);
+        test.addView(k.segmented(new String[]{"On", "Off"}, LogUpload.enabled(this) ? 0 : 1, i -> { LogUpload.setEnabled(this, i == 0); logState.setText(LogUpload.status(this)); }));
+        // Whether the log is actually getting through: rides of 14 Nov never reached the developer, and nothing showed it.
+        LinearLayout logRow = k.row(10); logRow.addView(logState, new LinearLayout.LayoutParams(0, -2, 1));
+        logRow.addView(k.ghost("Send now", () -> { logState.setText("Sending…"); LogUpload.sendNow(this, () -> logState.setText(LogUpload.status(this))); }));
+        test.addView(logRow);
         test.addView(k.text("During the beta, Daanvia sends its connection and ride log every few minutes, so problems like a bike display that drops can be fixed. It never includes where you are or where you’re going, passwords or device addresses: only the log lines, the app version, the phone model and a random id.", 12.5f, 500, MUTED));
         c.addView(test);
 

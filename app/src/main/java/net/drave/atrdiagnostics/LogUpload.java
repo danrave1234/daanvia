@@ -109,9 +109,42 @@ final class LogUpload {
                 if (from < all.length) { try (FileOutputStream o = new FileOutputStream(out, false)) { o.write(all, from, all.length - from); } }
             }
             out.delete();
-        } catch (Exception ignored) {
-            // No signal or the server is busy: the rest stays in log-sending.txt and goes with the next try.
+            note(c, null);
+        } catch (Exception e) {
+            // No signal or the server is busy: the rest stays in log-sending.txt and goes with the next try. A piece that has
+            // failed many times in a row is set aside, so it can't hold back every later log (rides of 14 Nov never arrived).
+            String why = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+            if (note(c, why) >= GIVE_UP) { out.delete(); note(c, "skipped a piece that failed " + GIVE_UP + " times (" + why + ")"); }
         }
+    }
+    private static final int GIVE_UP = 8;
+    /**
+     * Remembers how the last send went, for Settings' status line: {@code why} null for success. Returns how many sends
+     * in a row have failed.
+     */
+    private static int note(Context c, String why) {
+        android.content.SharedPreferences p = c.getSharedPreferences("ui", 0);
+        if (why == null) { p.edit().putLong("log_sent_at", System.currentTimeMillis()).putInt("log_fails", 0).remove("log_error").apply(); return 0; }
+        int fails = p.getInt("log_fails", 0) + 1;
+        p.edit().putInt("log_fails", fails).putString("log_error", why).putLong("log_error_at", System.currentTimeMillis()).apply();
+        return fails;
+    }
+    /** One line for Settings: when the log last reached the developer, how much waits, and the last problem if any. */
+    static String status(Context c) {
+        if (!enabled(c)) return "Off";
+        android.content.SharedPreferences p = c.getSharedPreferences("ui", 0);
+        long sent = p.getLong("log_sent_at", 0), waiting = outbox(c).length() + sending(c).length();
+        long ago = System.currentTimeMillis() - sent;
+        String when = sent == 0 ? "Not sent yet" : ago < 60_000 ? "Last sent just now" : "Last sent " + android.text.format.DateUtils.getRelativeTimeSpanString(sent, System.currentTimeMillis(), 60_000L);
+        String wait = waiting == 0 ? "" : " · " + Math.max(1, waiting / 1024) + " KB waiting";
+        String err = p.getString("log_error", null);
+        return when + wait + (err == null ? "" : " · last try failed (" + err + ")");
+    }
+    /** The rider's "Send now": what's waiting goes at once, and {@code done} runs on the main thread afterwards. */
+    static void sendNow(Context c, Runnable done) {
+        Context app = c.getApplicationContext(); lastTry = SystemClock.elapsedRealtime();
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        io.execute(() -> { if (enabled(app)) send(app); main.post(done); });
     }
 
     private static void post(Context c, String text) throws Exception {
