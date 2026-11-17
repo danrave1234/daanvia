@@ -79,13 +79,15 @@ public final class NavSession {
     public volatile boolean arrived;
     /** A call or message shown on the bike display until popupUntil (elapsedRealtime), see RideNotifications. */
     public volatile String popupApp="",popupTitle="",popupText="",popupKey="";public volatile boolean popupCall;public volatile long popupUntil;
+    /** When the card came up (elapsedRealtime): it fades in from here and its countdown runs to popupUntil. */
+    public volatile long popupSince;
     /** The icon of the app the card is from; null shows the sender's initial instead. */
     public volatile android.graphics.Bitmap popupIcon;
     /** The sender's photo when the notification carries one (chat apps do), and the app's own colour (0: none). */
     public volatile android.graphics.Bitmap popupAvatar;public volatile int popupColor;
     /** The layout editor's sample card: an app that is on this phone, so the sample shows a real icon. */
     public volatile String sampleApp="Messenger";public volatile android.graphics.Bitmap sampleIcon;public volatile int sampleColor=0xFF0084FF;
-    void popup(String app,android.graphics.Bitmap icon,android.graphics.Bitmap avatar,int color,String title,String text,boolean call,String key,long until){popupIcon=icon;popupAvatar=avatar;popupColor=color;popupApp=app;popupTitle=title;popupText=text;popupCall=call;popupKey=key;popupUntil=until;signal();}
+    void popup(String app,android.graphics.Bitmap icon,android.graphics.Bitmap avatar,int color,String title,String text,boolean call,String key,long until){popupIcon=icon;popupAvatar=avatar;popupColor=color;popupApp=app;popupTitle=title;popupText=text;popupCall=call;popupKey=key;popupSince=android.os.SystemClock.elapsedRealtime();popupUntil=until;signal();}
     /** Set when a ride ended on its own at the destination (see NavService.checkArrival); the map screen says so once. */
     public volatile String finished;
     /** Every installed offline pack, best source first; the map, search and parking data come from {@link #regionId}. */
@@ -100,12 +102,14 @@ public final class NavSession {
     public static final float[] DEFAULT_TURN={0.02f,0.03f,0.34f,0.57f},DEFAULT_TRIP={0.02f,0.63f,0.34f,0.33f};public static final float DEFAULT_ARROW_X=0.68f,DEFAULT_ARROW_Y=0.72f;
     /** Where the notification card (RideNotifications) shows: its middle across the screen and its top edge, as fractions. */
     public static final float DEFAULT_NOTE_X=0.67f,DEFAULT_NOTE_Y=0.04f;public volatile float noteX=DEFAULT_NOTE_X,noteY=DEFAULT_NOTE_Y;
+    /** The notification card's size (1 = as designed), set by its corner dot in the layout editor. */
+    public static final float NOTE_MIN=0.7f,NOTE_MAX=1.5f;public volatile float noteScale=1f;
     public volatile float[] turnCard=DEFAULT_TURN.clone(),tripCard=DEFAULT_TRIP.clone();public volatile float arrowX=DEFAULT_ARROW_X,arrowY=DEFAULT_ARROW_Y;
     /** True while the layout editor is open: the display shows sample directions and outlines its cards. */
     public volatile boolean layoutEditing;
-    public void resetLayout(){turnCard=DEFAULT_TURN.clone();tripCard=DEFAULT_TRIP.clone();arrowX=DEFAULT_ARROW_X;arrowY=DEFAULT_ARROW_Y;noteX=DEFAULT_NOTE_X;noteY=DEFAULT_NOTE_Y;}
-    static String cards(float[] t,float[] r,float ax,float ay,float nx,float ny){StringBuilder b=new StringBuilder();for(float v:t)b.append(v).append(',');for(float v:r)b.append(v).append(',');return b.append(ax).append(',').append(ay).append(',').append(nx).append(',').append(ny).toString();}
-    void cards(String saved){resetLayout();if(saved==null||saved.isEmpty())return;try{String[] v=saved.split(",");if(v.length!=10&&v.length!=12)return;float[] n=new float[v.length];for(int i=0;i<v.length;i++)n[i]=Float.parseFloat(v[i]);turnCard=new float[]{n[0],n[1],n[2],n[3]};tripCard=new float[]{n[4],n[5],n[6],n[7]};arrowX=n[8];arrowY=n[9];if(n.length==12){noteX=n[10];noteY=n[11];}}catch(NumberFormatException e){resetLayout();}}
+    public void resetLayout(){turnCard=DEFAULT_TURN.clone();tripCard=DEFAULT_TRIP.clone();arrowX=DEFAULT_ARROW_X;arrowY=DEFAULT_ARROW_Y;noteX=DEFAULT_NOTE_X;noteY=DEFAULT_NOTE_Y;noteScale=1f;}
+    static String cards(float[] t,float[] r,float ax,float ay,float nx,float ny,float ns){StringBuilder b=new StringBuilder();for(float v:t)b.append(v).append(',');for(float v:r)b.append(v).append(',');return b.append(ax).append(',').append(ay).append(',').append(nx).append(',').append(ny).append(',').append(ns).toString();}
+    void cards(String saved){resetLayout();if(saved==null||saved.isEmpty())return;try{String[] v=saved.split(",");if(v.length!=10&&v.length!=12&&v.length!=13)return;float[] n=new float[v.length];for(int i=0;i<v.length;i++)n[i]=Float.parseFloat(v[i]);turnCard=new float[]{n[0],n[1],n[2],n[3]};tripCard=new float[]{n[4],n[5],n[6],n[7]};arrowX=n[8];arrowY=n[9];if(n.length>=12){noteX=n[10];noteY=n[11];}if(n.length==13)noteScale=Math.max(NOTE_MIN,Math.min(NOTE_MAX,n[12]));}catch(NumberFormatException e){resetLayout();}}
     /** A road line for the bike display, its points packed as lat,lon floats (about 1 m precision) to keep a large area in memory. Bridge / tunnel / layer come from the map data (package schema 4) and draw overpasses above the roads they cross. */
     public static final class Road {private final float[] xy;public final String name,kind;public final boolean bridge,tunnel;public final int layer;public double minLat=90,maxLat=-90,minLon=180,maxLon=-180;
         Road(float[] xy,String n,String k){this(xy,n,k,false,false,0);}
@@ -646,5 +650,5 @@ public final class NavSession {
         String[] v=p.getString("screen","").split(",",-1);if(v.length<6)return;
         try{panelW=Integer.parseInt(v[0]);panelH=Integer.parseInt(v[1]);videoW=Integer.parseInt(v[2]);videoH=Integer.parseInt(v[3]);bikeFps=Integer.parseInt(v[4]);screenType=v[5];}catch(NumberFormatException ignored){}}
     public void loadFit(){android.content.SharedPreferences p=context.getSharedPreferences(fitStore(),0);insetLeft=p.getFloat("left",0);insetTop=p.getFloat("top",0);insetRight=p.getFloat("right",0);insetBottom=p.getFloat("bottom",0);textScale=p.getFloat("text",1);layout=p.getString("layout","Map focus");cards(p.getString("cards",""));loadScreen(p);}
-    public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).putString("cards",cards(turnCard,tripCard,arrowX,arrowY,noteX,noteY)).apply();signal();}
+    public void saveFit(){context.getSharedPreferences(fitStore(),0).edit().putFloat("left",insetLeft).putFloat("top",insetTop).putFloat("right",insetRight).putFloat("bottom",insetBottom).putFloat("text",textScale).putString("layout",layout).putString("cards",cards(turnCard,tripCard,arrowX,arrowY,noteX,noteY,noteScale)).apply();signal();}
 }

@@ -23,7 +23,8 @@ public final class TftLayoutActivity extends Activity {
         // The sample notification card is from a chat or social app this phone has, with its real icon.
         String[] app = RideNotifications.sampleApp(getPackageManager());
         if (app != null) { s.sampleApp = app[1]; s.sampleIcon = RideNotifications.iconOf(getPackageManager(), app[0]); s.sampleColor = RideNotifications.color(app[0], 0); }
-        Gabi.Kit k = new Gabi.Kit(this, new Gabi.Themer(Gabi.resolve(this, s.lat, s.lon, s.fixAt > 0)));
+        // Always the night palette: the screen is dark like the bike's (a day palette drew its title dark on dark).
+        Gabi.Kit k = new Gabi.Kit(this, new Gabi.Themer(Gabi.NIGHT));
         Window w = getWindow(); Gabi.edgeToEdge(w); Gabi.barIcons(w, Gabi.NIGHT); w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         LinearLayout root = k.column(12); root.setBackgroundColor(0xFF0A0F14);
         LinearLayout bar = k.row(10); bar.setGravity(Gravity.CENTER_VERTICAL);
@@ -33,7 +34,7 @@ public final class TftLayoutActivity extends Activity {
         root.addView(bar);
         editor = new Editor(this, s);
         root.addView(editor, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView hint = k.text("Drag the Turn, Trip and Notification cards and the arrow where your bike’s speedometer and gauges don’t cover them. Drag a corner dot to resize the Turn or Trip card. Your bike display follows along while it’s connected.", 13.5f, 500, MUTED);
+        TextView hint = k.text("Drag the Turn, Trip and Notification cards and the arrow where your bike’s speedometer and gauges don’t cover them. Drag a corner dot to resize a card. Your bike display follows along while it’s connected.", 13.5f, 500, MUTED);
         hint.setGravity(Gravity.CENTER); root.addView(hint);
         Gabi.insets(root, (l, t, r, b, ime) -> root.setPadding(l + k.dp(16), t + k.dp(10), r + k.dp(16), b + k.dp(14)));
         setContentView(root);
@@ -44,8 +45,8 @@ public final class TftLayoutActivity extends Activity {
     /** The bike's scene at its 5:3 shape, with the cards and arrow draggable. */
     static final class Editor extends View {
         private final NavSession s; private final DashboardRenderer renderer; private final float d;
-        private int mode; private float[] grabbed; private float downX, downY, startX, startY, startW, startH;
-        private static final int NONE = 0, MOVE = 1, RESIZE = 2, ARROW = 3, NOTE = 4;
+        private int mode; private float[] grabbed; private float downX, downY, startX, startY, startW, startH, startScale;
+        private static final int NONE = 0, MOVE = 1, RESIZE = 2, ARROW = 3, NOTE = 4, NOTE_SIZE = 5;
         Editor(Context c, NavSession s) { super(c); this.s = s; renderer = new DashboardRenderer(s); d = c.getResources().getDisplayMetrics().density; }
 
         private RectF box() {
@@ -56,7 +57,21 @@ public final class TftLayoutActivity extends Activity {
             RectF b = box(); c.save(); c.translate(b.left, b.top);
             Path clip = new Path(); clip.addRoundRect(0, 0, b.width(), b.height(), 14 * d, 14 * d, Path.Direction.CW); c.clipPath(clip);
             renderer.draw(c, Math.round(b.width()), Math.round(b.height())); c.restore();
+            keepFromBackGesture();
             postInvalidateDelayed(250);
+        }
+        /**
+         * The corner dots and the arrow can sit at the screen's edge, where a drag is Android's Back swipe and closed this
+         * screen mid-resize. Android lets an app keep small areas for its own drags: these.
+         */
+        private final java.util.ArrayList<Rect> kept = new java.util.ArrayList<>();
+        private void keepFromBackGesture() {
+            RectF sc = scene(); if (sc.width() <= 0) return; float r = 30 * d; float[] note = renderer.noteBox;
+            float[][] at = {{s.turnCard[0] + s.turnCard[2], s.turnCard[1] + s.turnCard[3]}, {s.tripCard[0] + s.tripCard[2], s.tripCard[1] + s.tripCard[3]},
+                {note[0] + note[2], note[1] + note[3]}, {s.arrowX, s.arrowY}};
+            java.util.ArrayList<Rect> now = new java.util.ArrayList<>();
+            for (float[] a : at) { float x = sc.left + a[0] * sc.width(), y = sc.top + a[1] * sc.height(); now.add(new Rect(Math.round(x - r), Math.round(y - r), Math.round(x + r), Math.round(y + r))); }
+            if (!now.equals(kept)) { kept.clear(); kept.addAll(now); setSystemGestureExclusionRects(now); }
         }
         /** The renderer's visible area inside the editor, in view pixels. */
         private RectF scene() { RectF b = box(); RectF r = renderer.scene(Math.round(b.width()), Math.round(b.height())); r.offset(b.left, b.top); return r; }
@@ -72,6 +87,8 @@ public final class TftLayoutActivity extends Activity {
                     if (Math.hypot(e.getX() - ax, e.getY() - ay) < 40 * d) { mode = ARROW; startX = s.arrowX; startY = s.arrowY; return true; }
                     // The notification card is drawn over the others, so it is picked first where they overlap.
                     float[] note = renderer.noteBox;
+                    float nx = sc.left + (note[0] + note[2]) * sc.width(), ny = sc.top + (note[1] + note[3]) * sc.height();
+                    if (Math.hypot(e.getX() - nx, e.getY() - ny) < 30 * d) { mode = NOTE_SIZE; startW = note[2]; startScale = s.noteScale; performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); return true; }
                     if (fx >= note[0] && fx <= note[0] + note[2] && fy >= note[1] && fy <= note[1] + note[3]) { mode = NOTE; startX = s.noteX; startY = s.noteY; performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); return true; }
                     for (float[] card : new float[][]{s.tripCard, s.turnCard}) {
                         float cx = sc.left + (card[0] + card[2]) * sc.width(), cy = sc.top + (card[1] + card[3]) * sc.height();
@@ -84,6 +101,8 @@ public final class TftLayoutActivity extends Activity {
                 case MotionEvent.ACTION_MOVE: {
                     float dx = fx - downX, dy = fy - downY;
                     if (mode == ARROW) { s.arrowX = clamp(startX + dx, 0.06f, 0.94f); s.arrowY = clamp(startY + dy, 0.08f, 0.94f); }
+                    // The card keeps its shape: the dot's sideways drag scales all of it, text included.
+                    else if (mode == NOTE_SIZE) s.noteScale = clamp(startScale * (startW + dx) / Math.max(0.01f, startW), NavSession.NOTE_MIN, NavSession.NOTE_MAX);
                     else if (mode == NOTE) { float[] note = renderer.noteBox; s.noteX = clamp(startX + dx, note[2] / 2, 1 - note[2] / 2); s.noteY = clamp(startY + dy, 0, 1 - note[3]); }
                     else if (mode == MOVE || mode == RESIZE) {
                         float[] n = grabbed.clone();

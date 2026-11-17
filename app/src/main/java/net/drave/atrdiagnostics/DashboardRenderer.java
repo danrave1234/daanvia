@@ -118,7 +118,8 @@ public final class DashboardRenderer {
     private void popup(Canvas c, float vw, float vh) {
         // While the layout is edited a sample card stands in, so the rider can see it and drag it where it fits; a real
         // notification that arrives meanwhile takes its place for its few seconds.
-        boolean live = SystemClock.elapsedRealtime() <= s.popupUntil, sample = staged() && !s.active && !live && (s.layoutEditing || showcaseNote);
+        long now = SystemClock.elapsedRealtime();
+        boolean live = now <= s.popupUntil, sample = staged() && !s.active && !live && (s.layoutEditing || showcaseNote);
         if (s.calibration || !live && !sample) return;
         boolean call = !sample && s.popupCall; String app = sample ? s.sampleApp : s.popupApp, title = sample ? "Maria Santos" : s.popupTitle, body = sample ? "On my way, see you at 5" : s.popupText;
         android.graphics.Bitmap icon = sample ? s.sampleIcon : s.popupIcon, avatar = sample ? null : s.popupAvatar;
@@ -127,21 +128,38 @@ public final class DashboardRenderer {
         float w = Math.min(vw * 0.6f, 560), pad = 18, face = 64, textW = w - pad * 2 - face - 16;
         String from = title.isEmpty() ? (call ? "Unknown caller" : app) : title;
         List<String> lines = call || body.isEmpty() ? Collections.emptyList() : wrap(body, textW, 24, semi, 2);
-        float h = pad * 2 + 20 + 36 + Math.max(lines.size(), call ? 1 : 0) * 31;
-        // Where the rider placed it (Settings > Edit display layout), kept wholly on the screen.
-        float x = Math.max(0, Math.min(vw - w, s.noteX * vw - w / 2)), y = Math.max(0, Math.min(vh - h - 4, s.noteY * vh)), textX = x + pad + face + 16;
-        RectF r = new RectF(x, y, x + w, y + h);
-        noteBox = new float[]{x / vw, y / vh, w / vw, h / vh};
-        p.setStyle(Paint.Style.FILL); p.setColor(0x55000000); c.drawRoundRect(r.left, r.top + 4, r.right, r.bottom + 4, 18, 18, p);
-        cardBackground(c, r);
+        // A message shows for a few seconds, counted down by a thin bar along the card's foot; a call stays while it rings.
+        boolean timed = !call;
+        float h = pad * 2 + 20 + 36 + Math.max(lines.size(), call ? 1 : 0) * 31 + (timed ? 8 : 0);
+        // The size the rider gave it (Settings > Edit display layout, its corner dot), never wider than the screen.
+        float k = Math.max(0.5f, Math.min(s.noteScale, vw * 0.96f / w)), cw = w * k, ch = h * k;
+        // Where the rider placed it, kept wholly on the screen.
+        float x = Math.max(0, Math.min(vw - cw, s.noteX * vw - cw / 2)), y = Math.max(0, Math.min(vh - ch - 4, s.noteY * vh));
+        noteBox = new float[]{x / vw, y / vh, cw / vw, ch / vh};
+        // It comes and goes: slides down and fades in over a quarter second, fades out over its last 0.4 s, so on the bike
+        // it reads as something passing over the directions, not a part of the screen.
+        float alpha = 1, drop = 0, left = 0.62f;
+        if (live) {
+            long shown = now - s.popupSince, remaining = s.popupUntil - now;
+            float in = Math.min(1f, Math.max(0, shown / 250f));
+            alpha = Math.max(0, Math.min(in, remaining / 400f)); drop = (1 - in) * -16;
+            left = Math.max(0, Math.min(1, remaining / (float)Math.max(1, s.popupUntil - s.popupSince)));
+        }
+        int saved = alpha < 0.995f ? c.saveLayerAlpha(x - 4, y + drop - 4, x + cw + 4, y + drop + ch + 12, Math.round(alpha * 255)) : c.save();
+        c.translate(x, y + drop); c.scale(k, k);
+        RectF r = new RectF(0, 0, w, h);
+        p.setStyle(Paint.Style.FILL); p.setColor(0x33000000); c.drawRoundRect(0, 4, w, h + 4, 18, 18, p);
+        // See-through, so the map and the turn card show under it.
+        p.setColor(pal.night ? 0xB30B1117 : 0xC7FFFFFF); c.drawRoundRect(r, 18, 18, p);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.5f); p.setColor(pal.night ? 0x33FFFFFF : 0x1F000000); c.drawRoundRect(r, 18, 18, p);
         // Laid out like the notification on the phone: the sender's photo in a circle with the app's icon pinned to its
         // corner, the app's name in its own colour, then who and what. No photo: the sender's initial on the app's colour.
-        float cx = x + pad + face / 2, cy = y + pad + face / 2;
+        float cx = pad + face / 2, cy = pad + face / 2, textX = pad + face + 16;
         // Pictures are drawn fully opaque: the paint still carries the last text's colour, often half transparent.
         if (avatar != null && !avatar.isRecycled()) {
             c.save(); notePath.rewind(); notePath.addCircle(cx, cy, face / 2, Path.Direction.CW); c.clipPath(notePath);
             noteRect.set(cx - face / 2, cy - face / 2, cx + face / 2, cy + face / 2);
-            p.setFilterBitmap(true); p.setColor(Color.WHITE); c.drawBitmap(avatar, null, noteRect, p); p.setFilterBitmap(false); c.restore();
+            p.setStyle(Paint.Style.FILL); p.setFilterBitmap(true); p.setColor(Color.WHITE); c.drawBitmap(avatar, null, noteRect, p); p.setFilterBitmap(false); c.restore();
         } else {
             p.setStyle(Paint.Style.FILL); p.setColor(brand); c.drawCircle(cx, cy, face / 2, p);
             String initial = from.isEmpty() ? "?" : from.substring(0, from.offsetByCodePoints(0, 1)).toUpperCase(Locale.ROOT);
@@ -157,15 +175,24 @@ public final class DashboardRenderer {
         }
         String head = app.isEmpty() ? (call ? "Phone" : "Notification") : app;
         p.setTypeface(black); p.setTextSize(16); float headW = p.measureText(head);
-        text(c, head, textX, y + pad + 16, 16, brand, black);
-        text(c, "  ·  now", textX + headW, y + pad + 16, 15, muted(), semi);
-        text(c, fit(from, textW, 30, bold), textX, y + pad + 20 + 32, 30, ink(), bold);
-        if (call) text(c, "Incoming call", textX, y + pad + 20 + 36 + 26, 24, brand, semi);
-        for (int i = 0; i < lines.size(); i++) text(c, lines.get(i), textX, y + pad + 20 + 36 + 26 + i * 31, 24, soft(), semi);
+        text(c, head, textX, pad + 16, 16, brand, black);
+        text(c, "  ·  now", textX + headW, pad + 16, 15, muted(), semi);
+        text(c, fit(from, textW, 30, bold), textX, pad + 20 + 32, 30, ink(), bold);
+        if (call) text(c, "Incoming call", textX, pad + 20 + 36 + 26, 24, brand, semi);
+        for (int i = 0; i < lines.size(); i++) text(c, lines.get(i), textX, pad + 20 + 36 + 26 + i * 31, 24, soft(), semi);
+        if (timed) {
+            float barY = h - 12, barL = pad, barR = w - pad;
+            p.setStyle(Paint.Style.FILL); p.setColor(pal.night ? 0x26FFFFFF : 0x1A000000); c.drawRoundRect(barL, barY, barR, barY + 4, 2, 2, p);
+            if (left > 0) { p.setColor(brand); c.drawRoundRect(barL, barY, barL + (barR - barL) * left, barY + 4, 2, 2, p); }
+        }
+        c.restoreToCount(saved);
         if (s.layoutEditing) {
+            RectF box = new RectF(x, y, x + cw, y + ch);
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3); p.setColor(pal.accent); p.setPathEffect(new DashPathEffect(new float[]{12, 8}, 0));
-            c.drawRoundRect(r, 18, 18, p); p.setPathEffect(null);
-            label(c, "NOTIFICATION", r.right - 130, r.top + (r.top < 26 ? r.height() + 28 : -6));
+            c.drawRoundRect(box, 18, 18, p); p.setPathEffect(null);
+            // Its corner dot sizes it, like the Turn and Trip cards'.
+            p.setStyle(Paint.Style.FILL); p.setColor(pal.accent); c.drawCircle(box.right - 4, box.bottom - 4, 11, p); p.setColor(0xFF1A1203); c.drawCircle(box.right - 4, box.bottom - 4, 4, p);
+            label(c, "NOTIFICATION", box.right - 130, box.top + (box.top < 26 ? box.height() + 28 : -6));
         }
     }
     private final RectF noteRect = new RectF();
