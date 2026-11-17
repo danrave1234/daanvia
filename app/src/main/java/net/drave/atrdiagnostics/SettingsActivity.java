@@ -116,6 +116,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
                 try { startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
             }
         }));
+        appsRow = k.listRow(IconDrawable.MIRROR, "Choose apps", "", null, () -> startActivity(new Intent(this, NotifyAppsActivity.class)));
+        tft.addView(appsRow);
         tft.addView(switchRow("Rest the phone while riding", "When the bike display is showing directions and you haven’t touched the phone for 15 seconds, the phone switches to a dark screen with just the next turn"
             + (KeepAlive.keepScreenOn() ? ", kept on but dim: your " + KeepAlive.colorOs() + " phone would close Daanvia soon after the screen went off." : " and may turn off, to save battery.")
             + " Tap it to bring the map back. On the ride screen, More › Rest phone screen does it right away.",
@@ -190,6 +192,12 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
 
     /** NavSession reads these settings at most twice a second, so the preview draws again once it has the new value. */
     private void repaintPreview() { preview.postDelayed(preview::invalidate, 600); }
+    private LinearLayout appsRow;
+    /** "All on" or "2 turned off" under Choose apps. */
+    private void paintApps() {
+        if (appsRow == null) return; int off = RideNotifications.hidden(this).size(); TextView sub = findSub(appsRow);
+        if (sub != null) sub.setText(off == 0 ? "All on · turn off an app or one kind" : off + " turned off · tap to change");
+    }
     private TextView colorDone, previewNote; private LinearLayout colorBox; private LinearLayout setupRow;
     /** An option that is simply on or off: its name, an (i) that explains it, and a switch. Tapping the name flips it too. */
     private LinearLayout switchRow(String title, String explanation, boolean on, java.util.function.Consumer<Boolean> change) {
@@ -246,7 +254,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         shapeRow.setVisibility(differs ? View.VISIBLE : View.GONE);
     }
     private void paint() {
-        paintScreen(); paintSetup();
+        paintScreen(); paintSetup(); paintApps();
         if (link == null) return;
         boolean ready = link.profileReady(), live = StreamService.navigationActive, busy = link.searching();
         modelText.setText(ready ? bikeName() : "No bike saved yet");

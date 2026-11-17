@@ -39,21 +39,28 @@ public final class RideNotifications extends NotificationListenerService {
     }
 
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
-        if (!enabled(this) || !showing() || getPackageName().equals(sbn.getPackageName())) return;
+        String pkg = sbn.getPackageName();
+        if (!enabled(this) || getPackageName().equals(pkg)) return;
         Notification n = sbn.getNotification();
         if ((n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
-        boolean call = Notification.CATEGORY_CALL.equals(n.category);
+        boolean call = Notification.CATEGORY_CALL.equals(n.category), message = Notification.CATEGORY_MESSAGE.equals(n.category);
         Bundle x = n.extras;
-        NavSession s = NavSession.get(this);
         // An answered call updates the same notification into an ongoing one (a running timer): that ends the card.
         if (call && (x.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER)
                 || android.os.Build.VERSION.SDK_INT >= 31 && x.getInt(Notification.EXTRA_CALL_TYPE) == Notification.CallStyle.CALL_TYPE_ONGOING)) {
-            if (sbn.getKey().equals(s.popupKey)) s.popupUntil = 0;
+            if (showing()) { NavSession s = NavSession.get(this); if (sbn.getKey().equals(s.popupKey)) s.popupUntil = 0; }
             return;
         }
-        // An ongoing notification that isn't a call (music, navigation, a download) is never news.
-        if (!call && (n.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
-        if (!call && !wanted(scope(this), Notification.CATEGORY_MESSAGE.equals(n.category), sbn.getPackageName(), n.category, importance(sbn))) return;
+        int importance = importance(sbn);
+        // Not news at all (a status line like Messenger's "Chat heads active", music, a download): never shown, nor listed.
+        if (!call && !wanted(EVERYTHING, message, pkg, n.category, importance, n.flags)) return;
+        remember(pkg);
+        if (!showing()) return;
+        if (!call && !wanted(scope(this), message, pkg, n.category, importance, n.flags)) return;
+        // Apps and kinds the rider turned off (NotifyAppsActivity).
+        String channel = n.getChannelId() == null ? "" : n.getChannelId();
+        java.util.Set<String> off = hidden(this); if (off.contains(pkg) || off.contains(pkg + "|" + channel)) return;
+        NavSession s = NavSession.get(this);
         String title = text(x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE));
         if (title.isEmpty()) title = text(x.getCharSequence(Notification.EXTRA_TITLE));
         String body = call ? "Incoming call" : lastMessage(x);
@@ -62,7 +69,40 @@ public final class RideNotifications extends NotificationListenerService {
         if (title.isEmpty() && body.isEmpty()) return;
         // Apps post the same notification again without anything new (read on another device, a sync): shown once.
         if (sbn.getKey().equals(s.popupKey) && body.equals(s.popupText) && title.equals(s.popupTitle)) return;
-        s.popup(app(sbn.getPackageName()), icon(sbn.getPackageName()), avatar(n), color(sbn.getPackageName(), n.color), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
+        String name = app(pkg);
+        s.popup(name, icon(pkg), avatar(n), color(pkg, n.color), title, body, call, sbn.getKey(), SystemClock.elapsedRealtime() + (call ? CALL_MS : SHOW_MS));
+        shown(new Shown(pkg, name, channel, title.isEmpty() ? body : title, System.currentTimeMillis()));
+    }
+
+    // ---- What the rider chose (NotifyAppsActivity)
+    /** Apps ("package") and kinds of notification ("package|channel") the rider turned off for the bike. Kept, as names only. */
+    static java.util.Set<String> hidden(Context c) { return new java.util.HashSet<>(c.getSharedPreferences("ui", 0).getStringSet("tft_hidden", java.util.Collections.emptySet())); }
+    static void setHidden(Context c, String key, boolean hide) {
+        java.util.Set<String> h = hidden(c); if (hide) h.add(key); else h.remove(key);
+        c.getSharedPreferences("ui", 0).edit().putStringSet("tft_hidden", h).apply();
+    }
+    /** Apps that have posted news while this was on, for the app list: package names only, nothing of what they said. */
+    static java.util.Set<String> seen(Context c) { return new java.util.HashSet<>(c.getSharedPreferences("ui", 0).getStringSet("tft_seen", java.util.Collections.emptySet())); }
+    private void remember(String pkg) {
+        java.util.Set<String> s = seen(this); if (s.contains(pkg) || s.size() >= 80) return;
+        s.add(pkg); getSharedPreferences("ui", 0).edit().putStringSet("tft_seen", s).apply();
+    }
+    /** A card shown on the bike: kept in memory only (never saved), so Settings can offer to hide that kind. */
+    static final class Shown {
+        final String pkg, app, channel, title; final long at;
+        Shown(String pkg, String app, String channel, String title, long at) { this.pkg = pkg; this.app = app; this.channel = channel; this.title = title; this.at = at; }
+    }
+    private static final java.util.ArrayDeque<Shown> recent = new java.util.ArrayDeque<>();
+    private static void shown(Shown c) { synchronized (recent) { recent.removeIf(o -> o.pkg.equals(c.pkg) && o.channel.equals(c.channel)); recent.addFirst(c); while (recent.size() > 8) recent.removeLast(); } }
+    /** The latest cards, newest first, one per app and kind. */
+    static java.util.List<Shown> recent() { synchronized (recent) { return new java.util.ArrayList<>(recent); } }
+    /** A notification channel's id as words: "chat_heads_service" is "chat heads service". */
+    static String kind(String channel) { String k = channel.replaceAll("[_\\-.]+", " ").replaceAll("([a-z])([A-Z])", "$1 $2").trim().toLowerCase(java.util.Locale.ROOT); return k.isEmpty() ? "other" : k; }
+    /** Installed chat and social apps, by package, one per name (for the app list). */
+    static java.util.List<String[]> installedSocial(android.content.pm.PackageManager pm) {
+        java.util.List<String[]> l = new java.util.ArrayList<>();
+        for (String[] a : APPS) if (!"Phone".equals(a[1])) try { pm.getApplicationInfo(a[0], 0); l.add(a); } catch (Exception notInstalled) { /* skip */ }
+        return l;
     }
 
     /** How loudly Android would announce it (silent ones score below IMPORTANCE_DEFAULT). */
@@ -71,18 +111,20 @@ public final class RideNotifications extends NotificationListenerService {
         return android.app.NotificationManager.IMPORTANCE_DEFAULT;
     }
     /**
-     * Whether a notification that isn't a call belongs on the bike. Calls, chats and social: a message, or anything from
-     * a chat or social app. Everything: any app, except what Android itself shows silently, and progress, music, system
-     * and navigation chatter, which would only take the rider's eyes for nothing.
+     * Whether a notification that isn't a call belongs on the bike. First, from any app, only news: not a status line
+     * (a running service such as Messenger's "Chat heads active", which on Android 13 and later isn't marked ongoing),
+     * not anything the phone itself shows silently (a muted chat), not progress, music, system or navigation chatter.
+     * Then Calls & social: a message, or anything from a chat or social app; Everything: any app but Android's own.
      */
-    static boolean wanted(int scope, boolean message, String pkg, String category, int importance) {
+    static boolean wanted(int scope, boolean message, String pkg, String category, int importance, int flags) {
+        if ((flags & (Notification.FLAG_FOREGROUND_SERVICE | Notification.FLAG_ONGOING_EVENT)) != 0) return false;
+        if (importance < android.app.NotificationManager.IMPORTANCE_DEFAULT) return false;
+        if (category != null && (category.equals(Notification.CATEGORY_PROGRESS) || category.equals(Notification.CATEGORY_TRANSPORT)
+            || category.equals(Notification.CATEGORY_SERVICE) || category.equals(Notification.CATEGORY_SYSTEM) || category.equals(Notification.CATEGORY_NAVIGATION)
+            || category.equals(Notification.CATEGORY_STATUS) || category.equals(Notification.CATEGORY_STOPWATCH) || category.equals("location_sharing"))) return false;
         if (message || social(pkg)) return true;
         if (scope != EVERYTHING) return false;
-        if (importance < android.app.NotificationManager.IMPORTANCE_DEFAULT) return false;
-        if (pkg.equals("android") || pkg.startsWith("com.android.systemui") || pkg.startsWith("com.android.providers")) return false;
-        return category == null || !(category.equals(Notification.CATEGORY_PROGRESS) || category.equals(Notification.CATEGORY_TRANSPORT)
-            || category.equals(Notification.CATEGORY_SERVICE) || category.equals(Notification.CATEGORY_SYSTEM) || category.equals(Notification.CATEGORY_NAVIGATION)
-            || category.equals(Notification.CATEGORY_STATUS) || category.equals(Notification.CATEGORY_STOPWATCH));
+        return !(pkg.equals("android") || pkg.startsWith("com.android.systemui") || pkg.startsWith("com.android.providers"));
     }
 
     /** A call that is answered or ends takes its card away at once. */

@@ -11,23 +11,40 @@ public class RideNotificationsTest {
 
     @Test public void callsAndSocialShowsChatsAndSocialAppsOnly() {
         int scope = RideNotifications.SOCIAL;
-        assertTrue(RideNotifications.wanted(scope, true, "com.some.bank", Notification.CATEGORY_MESSAGE, LOUD));    // any app's message
-        assertTrue(RideNotifications.wanted(scope, false, "com.facebook.orca", null, LOUD));                        // Messenger
-        assertTrue(RideNotifications.wanted(scope, false, "com.facebook.katana", Notification.CATEGORY_SOCIAL, LOUD)); // Facebook
-        assertTrue(RideNotifications.wanted(scope, false, "com.zhiliaoapp.musically", null, SILENT));                // TikTok
-        assertFalse(RideNotifications.wanted(scope, false, "com.shopee.ph", Notification.CATEGORY_PROMO, LOUD));
-        assertFalse(RideNotifications.wanted(scope, false, "com.google.android.gm", Notification.CATEGORY_EMAIL, LOUD));
+        assertTrue(RideNotifications.wanted(scope, true, "com.some.bank", Notification.CATEGORY_MESSAGE, LOUD, 0));    // any app's message
+        assertTrue(RideNotifications.wanted(scope, false, "com.facebook.orca", null, LOUD, 0));                        // Messenger
+        assertTrue(RideNotifications.wanted(scope, false, "com.facebook.katana", Notification.CATEGORY_SOCIAL, LOUD, 0)); // Facebook
+        assertFalse(RideNotifications.wanted(scope, false, "com.zhiliaoapp.musically", null, SILENT, 0));               // TikTok, but silent on the phone
+        assertFalse(RideNotifications.wanted(scope, false, "com.shopee.ph", Notification.CATEGORY_PROMO, LOUD, 0));
+        assertFalse(RideNotifications.wanted(scope, false, "com.google.android.gm", Notification.CATEGORY_EMAIL, LOUD, 0));
     }
     @Test public void everythingAddsOtherAppsButNotBackgroundNoise() {
         int scope = RideNotifications.EVERYTHING;
-        assertTrue(RideNotifications.wanted(scope, false, "com.shopee.ph", Notification.CATEGORY_PROMO, LOUD));
-        assertTrue(RideNotifications.wanted(scope, false, "com.google.android.gm", Notification.CATEGORY_EMAIL, LOUD));
-        assertTrue(RideNotifications.wanted(scope, false, "com.gcash.app", null, LOUD));
-        assertFalse(RideNotifications.wanted(scope, false, "com.some.app", null, SILENT));                            // shown silently by Android
-        assertFalse(RideNotifications.wanted(scope, false, "com.spotify.music", Notification.CATEGORY_TRANSPORT, LOUD));
-        assertFalse(RideNotifications.wanted(scope, false, "com.android.vending", Notification.CATEGORY_PROGRESS, LOUD));
-        assertFalse(RideNotifications.wanted(scope, false, "android", Notification.CATEGORY_SYSTEM, LOUD));
-        assertFalse(RideNotifications.wanted(scope, false, "com.android.systemui", null, LOUD));
+        assertTrue(RideNotifications.wanted(scope, false, "com.shopee.ph", Notification.CATEGORY_PROMO, LOUD, 0));
+        assertTrue(RideNotifications.wanted(scope, false, "com.google.android.gm", Notification.CATEGORY_EMAIL, LOUD, 0));
+        assertTrue(RideNotifications.wanted(scope, false, "com.gcash.app", null, LOUD, 0));
+        assertFalse(RideNotifications.wanted(scope, false, "com.some.app", null, SILENT, 0));                            // shown silently by Android
+        assertFalse(RideNotifications.wanted(scope, false, "com.spotify.music", Notification.CATEGORY_TRANSPORT, LOUD, 0));
+        assertFalse(RideNotifications.wanted(scope, false, "com.android.vending", Notification.CATEGORY_PROGRESS, LOUD, 0));
+        assertFalse(RideNotifications.wanted(scope, false, "android", Notification.CATEGORY_SYSTEM, LOUD, 0));
+        assertFalse(RideNotifications.wanted(scope, false, "com.android.systemui", null, LOUD, 0));
+    }
+    @Test public void statusLinesNeverShowEvenFromChatApps() {
+        for (int scope : new int[]{RideNotifications.SOCIAL, RideNotifications.EVERYTHING}) {
+            // Messenger's "Chat heads active · 3 conversations": a running service's notice (Android 13+ drops the ongoing flag).
+            assertFalse(RideNotifications.wanted(scope, false, "com.facebook.orca", null, LOUD, Notification.FLAG_FOREGROUND_SERVICE));
+            assertFalse(RideNotifications.wanted(scope, false, "com.facebook.orca", Notification.CATEGORY_SERVICE, LOUD, 0));
+            assertFalse(RideNotifications.wanted(scope, false, "com.facebook.orca", null, SILENT, 0));
+            assertFalse(RideNotifications.wanted(scope, false, "com.whatsapp", Notification.CATEGORY_PROGRESS, LOUD, 0));   // sending a video
+            assertFalse(RideNotifications.wanted(scope, false, "com.facebook.orca", null, LOUD, Notification.FLAG_ONGOING_EVENT));
+            // A real message from the same app still shows.
+            assertTrue(RideNotifications.wanted(scope, true, "com.facebook.orca", Notification.CATEGORY_MESSAGE, LOUD, 0));
+        }
+    }
+    @Test public void kindsReadAsWords() {
+        assertEquals("chat heads service", RideNotifications.kind("chat_heads_service"));
+        assertEquals("direct messages", RideNotifications.kind("directMessages"));
+        assertEquals("other", RideNotifications.kind(""));
     }
     @Test public void phoneAppsAreNotSocial() {
         assertFalse(RideNotifications.social("com.google.android.dialer"));

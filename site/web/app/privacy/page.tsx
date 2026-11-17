@@ -47,7 +47,7 @@ export default function Privacy() {
           <li>
             <strong>Notifications on the bike</strong> (optional). With Android’s Notification access turned on, Daanvia reads a new call
             or message only to draw its card on your bike display: the app, who it’s from and the start of the message. It is not saved
-            and not sent anywhere.
+            and not sent anywhere. So you can turn apps off, Daanvia remembers which apps have sent notifications, by name only.
           </li>
           <li>
             <strong>The camera</strong> is used only to scan the bike’s QR code. No picture is kept.
