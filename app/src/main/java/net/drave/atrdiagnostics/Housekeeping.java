@@ -24,10 +24,13 @@ public final class Housekeeping {
         File[] regions = AreaStore.root(c).listFiles();
         if (regions != null && !downloading) for (File d : regions) if (leftover(d.getName())) freed += remove(d);
         // an app update that is already installed (or older than this version)
-        File[] apks = new File(cache, "updates").listFiles();
-        if (apks != null) for (File a : apks) {
-            if (AppUpdate.busy()) break; // being downloaded or installed right now
-            if (everything || !a.getName().endsWith(".apk") || AppUpdate.compare(versionOf(a.getName()), BuildInfo.VERSION) <= 0) freed += remove(a);
+        // (in the app's files; before 0.9.44 they waited in the cache)
+        for (File folder : new File[]{AppUpdate.folder(c), new File(cache, "updates")}) {
+            File[] apks = folder.listFiles();
+            if (apks != null) for (File a : apks) {
+                if (AppUpdate.busy()) break; // being downloaded or installed right now
+                if (everything || !a.getName().endsWith(".apk") || AppUpdate.compare(versionOf(a.getName()), BuildInfo.VERSION) <= 0) freed += remove(a);
+            }
         }
         // routing copies for packs that are no longer installed
         // (by pack id, read from each pack's region.json, in app storage and in the USB-copy folder)

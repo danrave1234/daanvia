@@ -135,7 +135,7 @@ public final class MoveActivity extends Activity {
     private void updateOld() {
         if (!getPackageManager().canRequestPackageInstalls()) {
             status.setText("Allow Daanvia to install apps, then tap the button again.");
-            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); return;
+            AppUpdate.allowInstallsScreen(this); return;
         }
         working = true; primary.setEnabled(false); status.setText("Downloading the update for the old Daanvia…");
         Context c = getApplicationContext();

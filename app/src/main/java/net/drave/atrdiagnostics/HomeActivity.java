@@ -550,7 +550,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private void onAppUpdate(AppUpdate.State st) {
         if (updateOffered || st.release == null || !st.available() || st.downloading || s.active || mode == Mode.SELECT) return;
         updateOffered = true;
-        notice("Daanvia " + st.release.version + " is available", "Update", this::openSettings);
+        notice("Daanvia " + st.release.version + " is available", "Update", () -> openSettings("update"));
     }
     /** Riding outside every downloaded area: offer to download where they are, once. */
     private void suggestOutside() {
@@ -1309,6 +1309,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private BroadcastReceiver debugReceiver;
     private void debugLayers() {
         androidx.core.content.ContextCompat.registerReceiver(this, debugReceiver = new BroadcastReceiver() { public void onReceive(Context c, Intent i) {
+            // --es update_apk name.apk --es update_version 9.9.9 --ei update_route 1: offers an APK in cache/updates as an update.
+            if (i.hasExtra("update_apk")) { AppUpdate.debugOffer(HomeActivity.this, i.getStringExtra("update_version"), i.getStringExtra("update_apk"), i.getIntExtra("update_route", 0)); return; }
             if (style == null) return;
             for (String key : new String[]{"hide", "show"}) { String ids = i.getStringExtra(key); if (ids == null) continue;
                 for (String id : ids.split(",")) { Layer l = style.getLayer(id); if (l != null) l.setProperties(org.maplibre.android.style.layers.PropertyFactory.visibility(key.equals("hide") ? org.maplibre.android.style.layers.Property.NONE : org.maplibre.android.style.layers.Property.VISIBLE)); } }

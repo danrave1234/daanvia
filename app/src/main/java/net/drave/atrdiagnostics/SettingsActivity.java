@@ -184,6 +184,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         licenseText = k.text("", 11, 500, MUTED); licenseText.setTypeface(android.graphics.Typeface.MONOSPACE); licenseText.setVisibility(View.GONE); licenseText.setTextIsSelectable(true);
         more.addView(licenseText);
         c.addView(more);
+        // Opened from the home screen's update notice: straight to the update, at the bottom of the page.
+        if ("update".equals(getIntent().getStringExtra("show"))) page.scroll.post(() -> page.scroll.smoothScrollTo(0, Math.max(0, more.getTop() - k.dp(12))));
 
         link = DashboardLink.attach(this, this);
         if (getIntent().getBooleanExtra("navigation_connect", false) && link.profileReady()) link.sendNavigation();
@@ -329,6 +331,11 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         LinearLayout r = uk.listRow(IconDrawable.DOWNLOAD, "Daanvia " + BuildInfo.VERSION, sub, null, null);
         if (action != null) { TextView a = uk.text(action, 13.5f, 700, ACCENT); a.setPadding(uk.dp(12), uk.dp(8), 0, uk.dp(8)); Runnable go = run; Gabi.press(a, () -> { if (s.active) { Gabi.shake(a); return; } go.run(); }); r.addView(a); }
         updateBox.addView(r);
+        // Been through the phone's installer and still on this version: what may be in the way, and the other way to get it.
+        if (st != null && st.blocked) {
+            TextView help = uk.text(AppUpdate.BLOCKED_HELP, 12.5f, 500, MUTED); help.setPadding(0, 0, 0, uk.dp(10)); updateBox.addView(help);
+            updateBox.addView(uk.ghost("Get it from the website", () -> AppUpdate.openWebsite(this)));
+        }
     }
     private void loadAreas() {
         int ask = ++areasAsked; Context app = getApplicationContext();

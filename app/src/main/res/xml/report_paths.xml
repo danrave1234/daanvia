@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The support report, shared to another app from Support. Nothing else in the cache can be handed out. -->
+<!-- Read-only grants, one file at a time: the support report shared from Support, and a downloaded update opened in the
+     phone's own installer (AppUpdate). Nothing else can be handed out. -->
 <paths>
     <cache-path name="reports" path="reports/" />
+    <files-path name="updates" path="updates/" />
 </paths>
