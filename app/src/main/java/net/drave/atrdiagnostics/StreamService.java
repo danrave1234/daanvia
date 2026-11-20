@@ -50,6 +50,17 @@ public final class StreamService extends Service {
     private Runnable deadline;
     private PowerManager.WakeLock navigationWake;
     private volatile long lastFrameAt, lastControlAt; private boolean waitingNoted;
+    /** Requests for the map sent this session (see the watchdog), and when the last went. */
+    private int mapAsks; private long mapAskedAt; private boolean mapAnswered;
+    /**
+     * Whether to ask the bike for the map now: a navigation session the bike hasn't asked video of, 5 s after it began,
+     * the rider not having chosen the arrows, the data channel open; twice at most, 20 s apart.
+     */
+    static boolean askForMap(long frames,boolean navigation,boolean riderChoseArrows,boolean dataOpen,long sinceStart,int asks,long sinceAsk){
+        return frames==0&&navigation&&!riderChoseArrows&&dataOpen&&sinceStart>=5000&&asks<2&&sinceAsk>=20000;
+    }
+    /** The rider chose the bike's own screen with the arrows (the ride screen's chip): Daanvia doesn't ask for the map then. */
+    static volatile boolean riderChoseArrows;
     /** Control channels open now: the dashboard opens two (CAR_CTRL and CAR_DATA); the link is up while either is. */
     private final java.util.concurrent.atomic.AtomicInteger controlChannels=new java.util.concurrent.atomic.AtomicInteger();
     private boolean controlOpen(){return controlChannels.get()>0;}
@@ -64,8 +75,15 @@ public final class StreamService extends Service {
         // (logs of 1 Nov: four restarts, no video) and gave the dashboard a new session each time, so wait for it instead.
         if(frames==0&&now-startedAt>45000){
             if(!controlOpen()){log("The display never asked for video within 45 s.");stopSelf();return;}
-            if(!waitingNoted){waitingNoted=true;log("The bike is connected but showing its own screen; waiting for it to ask for directions.");}
+            if(!waitingNoted){waitingNoted=true;ownScreen=true;log("The bike is connected but showing its own screen; waiting for it to ask for directions.");}
             if(now-lastControlAt>20000){log("The bike went quiet for 20 s; reconnecting.");stopSelf();return;}
+        }
+        // Back from a dropped link, the bike sat on its own screen with the turn arrows for about 90 s before it asked for
+        // the map again (logs of 20 Nov, twice, on rides). So Daanvia asks for the map at once, with the same message as
+        // the ride screen's Arrows/Map chip, unless the rider chose the arrows there. Twice at most, 20 s apart.
+        if(askForMap(frames,"navigation".equals(mode),riderChoseArrows,dataOut!=null,now-startedAt,mapAsks,now-mapAskedAt)){
+            mapAsks++;mapAskedAt=now;ownScreen=true;
+            sendOnData(BikeHud.PHONE_SCREEN,"",0,"a request for the map (the bike came back on its own screen)");
         }
         // The rider left the map on the bike (its own screen, with the turn arrows Daanvia keeps sending, see BikeHud). As
         // long as the control link is alive the session stays, as Carbit Ride's does, and the map comes back when the bike
@@ -321,7 +339,8 @@ public final class StreamService extends Service {
     }
     private void media(Socket s)throws Exception {
         // The bike asks for video again: it is back on the map.
-        if(ownScreen&&frames>0)log("The bike is back on the map.");ownScreen=false;lastFrameAt=System.currentTimeMillis();
+        if(ownScreen&&frames>0)log("The bike is back on the map.");else if(mapAsks>0&&frames==0&&!mapAnswered){mapAnswered=true;log("The bike went back to the map "+(System.currentTimeMillis()-mapAskedAt)/1000+" s after Daanvia asked.");}
+        ownScreen=false;riderChoseArrows=false;lastFrameAt=System.currentTimeMillis();
         InputStream in=s.getInputStream();OutputStream out=s.getOutputStream();
         while(running) {
             MediaWire f=MediaWire.read(in);
@@ -444,7 +463,7 @@ public final class StreamService extends Service {
     /** Switch the bike between its own screen with the arrows ({@code own}) and the phone's map. False when not connected. */
     public static boolean showOwnScreen(boolean own){
         StreamService c=current;PxcWriter out=c==null?null:c.dataOut;if(out==null||!c.running)return false;
-        ownScreen=own;
+        ownScreen=own;riderChoseArrows=own;
         c.sendOnData(own?BikeHud.OWN_SCREEN:BikeHud.PHONE_SCREEN,"",0,own?"the switch to the bike's own screen with turn arrows":"the switch back to the phone's map");
         return true;
     }
