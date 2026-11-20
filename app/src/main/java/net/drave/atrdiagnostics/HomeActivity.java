@@ -1208,6 +1208,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         // Leaving the stop search without a stop: back to the trip, as it was.
         if (next == Mode.EXPLORE && pickStops != null) { List<TripStop> keep = pickStops; pickStops = null; search.hint("Search a place"); openPlanner(keep, false); }
         Mode prev = mode; mode = next;
+        // A route on screen or a ride starting: the bike display is wanted now, so look for it at once.
+        if ((next == Mode.ROUTE || next == Mode.RIDE) && prev != next) lookNow();
         boolean searching = next == Mode.SEARCH, riding = next == Mode.RIDE;
         if (prev == Mode.RESULTS && next != Mode.RESULTS) pins(null);
         if (next == Mode.SEARCH && prev != Mode.ROUTE) fromResults = false;
@@ -1330,7 +1332,11 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     /** For the encode test: whether an Annex B frame opens with the stream headers or a key slice (NAL type 7 or 5). */
     private static boolean keyFrame(byte[] f) { int at = f.length > 3 && f[2] == 1 ? 3 : 4; int type = f.length > at ? f[at] & 0x1f : 0; return type == 7 || type == 5; }
 
-    public void onUserInteraction() { super.onUserInteraction(); ride.onUserInteraction(mode == Mode.RIDE); }
+    public void onUserInteraction() {
+        super.onUserInteraction(); ride.onUserInteraction(mode == Mode.RIDE);
+        // The rider is using Daanvia while the bike display isn't on: bring a slow search forward to the quick pace.
+        if (lookStep >= LOOK_AFTER.length && link != null && !StreamService.navigationActive && !link.searching()) { lookStep = 0; lookAgain(); }
+    }
 
     // ================================================================ GPS & screens
     private void locate() {
@@ -1453,11 +1459,15 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
     private boolean wifiNoticed;
     /*
      * While Daanvia is open and the bike display isn't live, it keeps looking: a new search 5 s after the last one ended,
-     * then 10 s, 20 s, 30 s, 1 min, and every 2 min after that. A timer of its own, so it goes on whatever the last search
-     * reported (it used to wait for a status change, and stopped after the first miss when none came).
+     * then 10 s, 20 s, and every 30 s after that. A timer of its own, so it goes on whatever the last search reported (it
+     * used to wait for a status change, and stopped after the first miss when none came). It was every 2 min after a few
+     * misses: a bike switched on meanwhile waited that long. The screen is on anyway while Daanvia is open, so scanning
+     * for the bike costs little next to it.
      */
-    private static final long[] LOOK_AFTER = {5_000, 10_000, 20_000, 30_000, 60_000};
-    private static final long LOOK_SLOW = 120_000;
+    private static final long[] LOOK_AFTER = {5_000, 10_000, 20_000};
+    private static final long LOOK_SLOW = 30_000;
+    /** Look for the bike now, at the quick pace again: the rider is about to need it (a route, a ride, Connect). */
+    private void lookNow() { lookStep = 0; autoConnect(); lookAgain(); }
     private int lookStep; private long stoppedAt;
     private void lookAgain() {
         ui.removeCallbacks(retryConnect);

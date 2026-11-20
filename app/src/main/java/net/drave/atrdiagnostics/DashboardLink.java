@@ -142,6 +142,8 @@ public final class DashboardLink {
     private final Map<String,String> visualEvidence = new LinkedHashMap<>();
     private final Map<String,Long> frameEvidence = new LinkedHashMap<>();
     private volatile boolean running, active, connecting, extended, extendedPaired;
+    /** This search: looks at a paired group that had no address for the bike, and how often it paired again because of it. */
+    private int addressless, repairs;
     private boolean ownDiscovery;
     private volatile int generation;
     private Runnable deadline;
@@ -411,7 +413,7 @@ public final class DashboardLink {
     private void start(boolean mode) {
         // A search or test now would cut the live display off when it times out.
         if (serviceActive) { log("The bike display is already connected. Stop it first to run another test."); ui.onChanged(); return; }
-        cleanup(); running = true; active = mode; connecting = false; extended = false; extendedPaired = false; tested.clear();
+        cleanup(); running = true; active = mode; connecting = false; extended = false; extendedPaired = false; tested.clear(); addressless = 0; repairs = 0;
         if (pendingStream == 0) identificationAccepted = false;
         ui.onChanged();
         trustedInterface = null; trustedOwner = null;
@@ -506,7 +508,13 @@ public final class DashboardLink {
                     if (!running || g != generation) return;
                     // Paired, but Android doesn't have the bike's address yet: ask again shortly. Asking once left a
                     // paired bike unused until the search timed out (logs of 9 Nov, 14:17 and 14:20).
-                    if (info == null || !info.groupFormed || (!info.isGroupOwner && info.groupOwnerAddress == null)) { groupSoon(g); return; }
+                    if (info == null || !info.groupFormed || (!info.isGroupOwner && info.groupOwnerAddress == null)) {
+                        // Still nothing after about 9 s: this pairing is stuck (often a bike that was just switched on), and
+                        // asking more didn't help: logs of 17 and 20 Nov waited 66 s and 11 min for an address that never
+                        // came, where a new search paired and connected in 4 s. So pair again, twice at most per search.
+                        if (active && ++addressless >= 6 && repairs < 2) { repairs++; addressless = 0; pairAgain(g); return; }
+                        groupSoon(g); return;
+                    }
                     if (!info.isGroupOwner && info.groupOwnerAddress != null) {
                         trustedOwner = info.groupOwnerAddress.getHostAddress();
                         target(info.groupOwnerAddress, grp.getInterface(), null, "QR-matched Wi-Fi Direct group owner");
@@ -514,6 +522,17 @@ public final class DashboardLink {
                 });
             });
         } catch (SecurityException e) { log("Android blocked Wi-Fi Direct group access. Check permissions."); }
+    }
+    /** Leaves the stuck pairing and asks the bike again, as a new search would (see group). */
+    private void pairAgain(int g) {
+        log("Paired, but Android never gave the bike's address; pairing again.");
+        trustedInterface = null; trustedOwner = null; connecting = false;
+        try { p2p.removeGroup(channel, null); } catch (Exception ignored) {}
+        main.postDelayed(() -> {
+            if (!running || g != generation || serviceActive) return;
+            try { p2p.discoverPeers(channel, null); } catch (SecurityException ignored) {}
+            main.postDelayed(this::peers, 1500);
+        }, 1500);
     }
     /** Look at the Wi-Fi Direct group again in a moment, while this search is still the current one and has no target. */
     private void groupSoon(int g) {

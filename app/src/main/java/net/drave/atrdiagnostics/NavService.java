@@ -24,7 +24,7 @@ public final class NavService extends Service {
             s.active=true;s.simulation=demo;prompts.reset();filter.reset();
             metrics=new RideMetrics(this);handler.removeCallbacks(measure);handler.post(measure);
             if(demo){if(gps!=null)gps.stop();startSimulation();}else{if(simulator!=null)handler.removeCallbacks(simulator);subscribe();startCompass();}
-            s.signal();searches=0;handler.removeCallbacks(bikeSearch);handler.postDelayed(bikeSearch,20000);
+            s.signal();searches=0;handler.removeCallbacks(bikeSearch);handler.postDelayed(bikeSearch,3000);  // at once: the ride wants the bike display (it waited 20 s)
         }catch(Exception e){s.message("Cannot start navigation: "+e.getMessage());stopSelf();return START_NOT_STICKY;}
         // A real ride asks Android to restart this service if the phone closes the app, so the ride carries on.
         return demo?START_NOT_STICKY:START_STICKY;
