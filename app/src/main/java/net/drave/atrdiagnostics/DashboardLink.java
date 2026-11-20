@@ -82,7 +82,7 @@ public final class DashboardLink {
         // Five minutes without the bike: give up, and say so (during a ride NavService keeps looking, see bikeSearch).
         if (SystemClock.elapsedRealtime() > reconnectUntil) { if (!NavSession.get(context).active) { label("Bike display not found • tap Connect"); ui.onChanged(); } return; }
         if (!running) { log("Reconnecting to the bike display."); autoNavigation(); }
-        main.postDelayed(reconnect, 8000);
+        main.postDelayed(reconnect, ReconnectPolicy.afterDrop(sinceDrop()));
     }
     /** Runs once the current stream has fully stopped (its ports are free), to start another kind of stream. */
     private Runnable afterStop; private boolean keepMirror;
@@ -193,9 +193,13 @@ public final class DashboardLink {
             return;
         }
         if (!quick || reconnectUntil < now) reconnectUntil = now + 5 * 60_000L;
+        lastDropAt = now;
         label("Bike display dropped • reconnecting…"); if (s.active) s.message("Bike display dropped · reconnecting");
-        main.removeCallbacks(reconnect); main.postDelayed(reconnect, quick ? 8000 : 3000);
+        main.removeCallbacks(reconnect); main.postDelayed(reconnect, ReconnectPolicy.firstTry(quick));
     }
+    /** When the bike display last dropped (elapsedRealtime), for how hard to look for it (ReconnectPolicy). */
+    private static volatile long lastDropAt = -10 * 60_000L;
+    static long sinceDrop() { return SystemClock.elapsedRealtime() - lastDropAt; }
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         public void onReceive(Context c, Intent i) {
             if (!running) return;

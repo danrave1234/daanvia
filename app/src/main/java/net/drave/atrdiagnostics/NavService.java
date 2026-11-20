@@ -81,9 +81,9 @@ public final class NavService extends Service {
     }
     private Runnable resumer;private int resumeTries;
     /**
-     * While riding, keep looking for the bike display (10 s apart at first, see searchGap; the first search waits 20 s for
-     * the connect the ride screen starts itself), also with the phone in a pocket: a ride started before the bike was
-     * switched on, or a display that dropped, connects as soon as the bike is reachable.
+     * While riding, keep looking for the bike display (how often: ReconnectPolicy; the first search 3 s into the ride),
+     * also with the phone in a pocket: a ride started before the bike was switched on, or a display that dropped,
+     * connects as soon as the bike is reachable.
      */
     private final Runnable bikeSearch=new Runnable(){public void run(){
         if(s==null||!s.active)return;
@@ -93,8 +93,9 @@ public final class NavService extends Service {
         DashboardLink link=DashboardLink.existing();
         if(StreamService.navigationActive)searches=0;
         else if(link!=null&&!link.searching()){link.autoNavigation();searches++;}
-        // Back off while the bike stays off (see searchGap): each search keeps Wi-Fi scanning.
-        handler.postDelayed(this,searchGap(searches));}};
+        // Back to back while riding or just after a drop; backing off while stopped with the bike off (ReconnectPolicy).
+        boolean moving=ReconnectPolicy.moving(s.speedMetersPerSecond,SystemClock.elapsedRealtime()-s.fixAt,s.simulation);
+        handler.postDelayed(this,ReconnectPolicy.rideGap(searches,moving,DashboardLink.sinceDrop()));}};
     private int searches;private long aliveSavedAt=-60000;
     /**
      * Wait before the next search for the bike. A search keeps Wi-Fi scanning for up to 45 s, so a bike that stays off
@@ -102,7 +103,7 @@ public final class NavService extends Service {
      * bike switched off: it is found soon after it is switched on again), then 10 s longer each time, up to a minute (the
      * old three minutes left riders reconnecting by hand). Starting a ride or tapping Reconnect starts over.
      */
-    static long searchGap(int searches){return Math.min(60000,10000+Math.max(0,searches-12)*10000L);}
+    static long searchGap(int searches){return ReconnectPolicy.rideGap(searches,false,Long.MAX_VALUE/2);}
     private static NavService running;
     /** The rider tapped Reconnect: look for the bike at the short pace again. */
     static void searchAgain(){NavService n=running;if(n==null)return;n.searches=0;n.handler.removeCallbacks(n.bikeSearch);n.handler.postDelayed(n.bikeSearch,50000);}
