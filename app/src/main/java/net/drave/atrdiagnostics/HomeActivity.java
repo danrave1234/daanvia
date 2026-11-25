@@ -379,7 +379,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         // Daanvia is in beta until its paid launch (1.0); the chip says so and explains it when tapped.
         TextView beta = chip("Beta");
         Gabi.press(beta, () -> k.tip(beta, "Daanvia is in beta: it works for real riding, and it's still being improved. Something wrong? Settings › Support and test tools › Share report."));
-        chips.addView(regionChip); chips.addView(bikeChip); chips.addView(beta);
+        chips.addView(regionChip); chips.addView(bikeChip); if (!BuildInfo.PLAY) chips.addView(beta);  // the Play app is the paid release
         top.addView(chips);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP); lp.leftMargin = lp.rightMargin = k.dp(14);
         root.addView(top, lp);
@@ -1269,7 +1269,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             // Just moved from the old Daanvia: its copy of the maps is no longer needed. Android asks before uninstalling.
             offerUninstallOld = false; resumeOffered = true; getSharedPreferences("ui", 0).edit().remove("ride").apply();
             if (MoveActivity.oldVersion(this) >= 0) notice("Your maps and settings moved over. Uninstall the old Daanvia to free its space", "Uninstall",
-                () -> { try { startActivity(new Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:" + MoveActivity.OLD_APP))); } catch (Exception ignored) {} }, 30000);
+                () -> { try { startActivity(new Intent(BuildInfo.PLAY ? android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS : Intent.ACTION_DELETE, android.net.Uri.parse("package:" + MoveActivity.OLD_APP))); } catch (Exception ignored) {} }, 30000);  // Play's build can't ask to uninstall: the old app's page has the button
         }
         if (!resumeOffered && started && s.ready && !s.active && mode == Mode.EXPLORE) { resumeOffered = true; offerResume(); }
         exploreStatus.setText(!s.ready ? "Getting the map ready…" : s.status.startsWith("Offline region could not load") ? "The map couldn't load. Open Settings › Support." : "");

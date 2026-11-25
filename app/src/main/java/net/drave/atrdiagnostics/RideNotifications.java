@@ -33,6 +33,17 @@ public final class RideNotifications extends NotificationListenerService {
     }
     /** Switched off in Daanvia but access still granted: let go, so Android doesn't keep Daanvia running for nothing. */
     @Override public void onListenerConnected() { if (!enabled(this)) try { requestUnbind(); } catch (Exception ignored) {} }
+    /**
+     * Says what Notification access is used for, then opens Android's screen for it: Google Play asks for an explanation
+     * in the app before a rider is sent to grant access to their notifications.
+     */
+    static void explainThenOpen(android.app.Activity a) {
+        new android.app.AlertDialog.Builder(a, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Show calls and messages on the bike?")
+            .setMessage("Daanvia reads a new call or message only to show a short card on your bike display: the app, who it's from and the start of the message. It is never saved or sent anywhere.\n\nOn the next screen, turn on Daanvia.")
+            .setPositiveButton("Continue", (d, w) -> { try { a.startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {} })
+            .setNegativeButton("Not now", null).show();
+    }
     /** Whether the rider has given Daanvia Notification access in Android's settings. */
     static boolean allowed(Context c) {
         return androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(c).contains(c.getPackageName());

@@ -65,13 +65,15 @@ public final class MoveActivity extends Activity {
     private void paint() {
         if (oldVersion(this) < 0) { status.setText("The old Daanvia isn't on this phone any more."); primary.setText("Open Daanvia"); return; }
         if (ready()) { status.setText(""); primary.setText("Move my maps and settings"); }
+        // The Play build can't install the old app's update: start fresh and download the area again.
+        else if (BuildInfo.PLAY) { status.setText("The old Daanvia is too old to hand over your maps. Start fresh here and download your area again."); primary.setText("Start fresh"); }
         else { status.setText("First, the old Daanvia needs a small update (0.8.1) so it can hand over your maps. Android will ask you to confirm it."); primary.setText("Update the old Daanvia"); }
     }
 
     private void go() {
         if (working) return;
         if (oldVersion(this) < 0) { fresh(); return; }
-        if (!ready()) { updateOld(); return; }
+        if (!ready()) { if (BuildInfo.PLAY) fresh(); else updateOld(); return; }
         working = true; skip.setEnabled(false); primary.setEnabled(false); status.setText("Getting ready…");
         new Thread(this::move, "daanvia-move").start();
     }

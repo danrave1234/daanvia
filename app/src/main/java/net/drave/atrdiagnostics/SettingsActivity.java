@@ -111,10 +111,7 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
             RideNotifications.setEnabled(this, i != 0);
             if (i != 0) RideNotifications.setScope(this, i == 2 ? RideNotifications.EVERYTHING : RideNotifications.SOCIAL);
             preview.invalidate();  // the sample card shows only while notifications are on
-            if (i != 0 && !RideNotifications.allowed(this)) {
-                android.widget.Toast.makeText(this, "Turn on Daanvia here, then come back", android.widget.Toast.LENGTH_LONG).show();
-                try { startActivity(new android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
-            }
+            if (i != 0 && !RideNotifications.allowed(this)) RideNotifications.explainThenOpen(this);
         }));
         appsRow = k.listRow(IconDrawable.MIRROR, "Choose apps", "", null, () -> startActivity(new Intent(this, NotifyAppsActivity.class)));
         tft.addView(appsRow);
@@ -322,7 +319,8 @@ public final class SettingsActivity extends Activity implements DashboardLink.Ho
         updateBox.removeAllViews(); updateTheme.clear();
         AppUpdate.State st = AppUpdate.state();
         String sub; String action = null; Runnable run = null;
-        if (st == null) { sub = "Tap to check for updates"; action = "Check"; run = () -> AppUpdate.check(this, false); }
+        if (BuildInfo.PLAY) { sub = "Updates come from Google Play"; action = "Open"; run = () -> AppUpdate.openPlay(this); }
+        else if (st == null) { sub = "Tap to check for updates"; action = "Check"; run = () -> AppUpdate.check(this, false); }
         else if (st.checking) sub = "Checking for updates…";
         else if (st.downloading) sub = "Downloading " + st.release.version + " · " + st.percent() + "%";
         else if (st.error != null) { sub = st.error; action = st.available() ? "Update" : "Check"; run = st.available() ? () -> AppUpdate.install(this) : () -> AppUpdate.check(this, false); }

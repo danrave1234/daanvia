@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 def releaseKey = new File(System.getProperty('user.home'), '.daanvia/signing.properties')
 def releaseProps = new Properties(); if (releaseKey.isFile()) releaseKey.withInputStream { releaseProps.load(it) }
 gradle.taskGraph.whenReady { graph ->
-    if (!releaseKey.isFile() && graph.allTasks.any { it.name ==~ /(package|assemble|bundle)Release/ })
+    if (!releaseKey.isFile() && graph.allTasks.any { it.name ==~ /(package|assemble|bundle)\w*Release/ })
         throw new GradleException("Release signing key missing: " + releaseKey + ". Releases must be signed with Daanvia's private key.")
 }
 android {
@@ -30,6 +30,16 @@ android {
             if (releaseKey.isFile()) signingConfig signingConfigs.release
             minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+    // Two builds of the same app. "site": the APK on the website and GitHub, which updates itself (AppUpdate) and moves
+    // data over from the old app (MoveActivity). "play": Google Play, which updates the app itself and doesn't allow an app
+    // to install its own updates, so that build leaves out the self-updater, the old app's handover install and the direct
+    // battery-exemption request (src/play/AndroidManifest.xml removes their permissions). Same app id and signing key, so
+    // either installs over the other. Site APK: ./gradlew assembleSiteRelease. Play bundle: ./gradlew bundlePlayRelease.
+    flavorDimensions 'store'
+    productFlavors {
+        site { dimension 'store'; buildConfigField 'boolean', 'PLAY', 'false'; manifestPlaceholders = [appName: 'Daanvia Beta'] }
+        play { dimension 'store'; buildConfigField 'boolean', 'PLAY', 'true'; manifestPlaceholders = [appName: 'Daanvia'] }
     }
     // One APK for every Android phone (64-bit and 32-bit ARM). Only debug builds add x86_64, for testing on a PC emulator.
     // Compress the native libraries inside the APK so the one-for-all download stays small; Android unpacks them on install.

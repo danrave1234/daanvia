@@ -35,7 +35,7 @@ public final class SetupActivity extends Activity {
 
     private static List<Item> items() {
         List<Item> l = new ArrayList<>();
-        l.add(new Item(IconDrawable.LOC, "Precise location", "For turn-by-turn directions. Only used on this phone", false,
+        l.add(new Item(IconDrawable.LOC, "Precise location", "For turn-by-turn directions. Stays on this phone; only online search and fuel stops send a spot rounded to about 100 m", false,
             Here::precise, a -> a.ask(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION})));
         if (Build.VERSION.SDK_INT >= 33) {
             l.add(new Item(IconDrawable.TFT, "Nearby devices", "Lets Daanvia find your bike's Wi-Fi", false,
@@ -43,7 +43,7 @@ public final class SetupActivity extends Activity {
             l.add(new Item(IconDrawable.INFO, "Notifications", "Reconnect and Exit on your lock screen during rides", false,
                 c -> granted(c, Manifest.permission.POST_NOTIFICATIONS), a -> a.ask(new String[]{Manifest.permission.POST_NOTIFICATIONS})));
         }
-        l.add(new Item(IconDrawable.PLAY, "Keep running during rides", "So Android doesn't stop directions with the screen off", false,
+        l.add(new Item(IconDrawable.PLAY, "Keep running during rides", BuildInfo.PLAY ? "In the list, find Daanvia and choose Don't optimize, so directions don't stop with the screen off" : "So Android doesn't stop directions with the screen off", false,
             KeepAlive::allowed, KeepAlive::ask));
         if (KeepAlive.colorOs() != null)
             l.add(new Item(IconDrawable.TOOLS, KeepAlive.colorOs() + " battery settings", "Your phone has its own battery manager that can close Daanvia mid-ride", false,
@@ -53,7 +53,7 @@ public final class SetupActivity extends Activity {
         l.add(new Item(IconDrawable.MIRROR, "Notifications on the bike", "Optional: calls and messages shown on the bike display", true,
             c -> RideNotifications.enabled(c) && RideNotifications.allowed(c), a -> {
                 RideNotifications.setEnabled(a, true);
-                if (!RideNotifications.allowed(a)) try { a.startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) {}
+                if (!RideNotifications.allowed(a)) RideNotifications.explainThenOpen(a);
             }));
         return l;
     }

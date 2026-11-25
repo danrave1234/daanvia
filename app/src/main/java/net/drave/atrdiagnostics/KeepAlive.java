@@ -25,6 +25,15 @@ final class KeepAlive {
     @SuppressLint("BatteryLife") // a navigation app that streams to a dashboard is the case this permission is for
     static void ask(Activity a) {
         if (allowed(a)) return;
+        // Play restricts the one-tap request: its build opens the list, where the rider picks Daanvia (Get ready to ride says so).
+        if (BuildInfo.PLAY) {
+            new android.app.AlertDialog.Builder(a, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Keep directions going with the screen off?")
+                .setMessage("Android may stop Daanvia mid-ride to save battery. On the next screen, find Daanvia and choose Don't optimize (or Unrestricted).")
+                .setPositiveButton("Continue", (d, w) -> { try { a.startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception ignored) {} })
+                .setNegativeButton("Not now", null).show();
+            return;
+        }
         try { a.startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + a.getPackageName()))); }
         catch (Exception e) { try { a.startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception ignored) {} }
     }

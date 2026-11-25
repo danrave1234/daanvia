@@ -1,0 +1,38 @@
+Daanvia is turn-by-turn navigation made for riding a motorcycle or scooter in the Philippines. Download the area you ride once, and the map, search, routes and parking all work without signal.
+
+OFFLINE MAPS
+• Download the part of the Philippines you ride, from Luzon to Mindanao. Daanvia shows the size in km and MB before you download.
+• After that, the map, search, directions and parking work without mobile data.
+• 1,650 towns are built in, so you can find yours before any download.
+
+ROUTES FOR A 160 CC SCOOTER
+• Routes are planned on your phone and set for a scooter, so they skip expressways and toll roads.
+• Spoken directions before each turn, and a new route on its own if you miss one.
+• Start at a gas station or a parking lot and the first direction tells you which way to turn onto the road.
+
+SEARCH THE WAY YOU SAY IT
+• Branches are named by road and town, like "Jollibee · EDSA, Makati".
+• Type a place and its area, like "chowking guadalupe", and the right branch comes first.
+• With signal, Daanvia also searches OpenStreetMap for new places and streets.
+
+PARKING AND GATES
+• See motorcycle parking near where you're going, nearest first, with hours and rates where known.
+• Know before you go when the route passes guardhouse gates, or a place is inside a private subdivision.
+
+DIRECTIONS ON YOUR BIKE'S DISPLAY
+Some motorcycle dashboards connect to a phone by scanning a QR code on the dashboard (the EasyConn connection). Daanvia can show its own navigation screen on those dashboards over Wi-Fi Direct: the map, the next turn and the one after it, and the time and distance left.
+• Calls and messages can show on the bike as a short card. You choose which apps, and nothing is saved or sent anywhere.
+• Move the cards so your speedometer doesn't cover them.
+• Mirror your phone's screen to the bike for music or another app.
+You don't need such a dashboard: everything else in Daanvia works on the phone alone.
+
+MADE FOR RIDING
+• Rest the phone: a dark screen with just the next turn saves battery while the bike shows the directions.
+• Day and night maps that switch at sunset where you are.
+• Rides carry on if your phone closes the app mid-ride.
+• Save places, or share them to Daanvia from Google Maps.
+
+PRIVACY
+No account, no ads and no tracking. Your location, routes and saved places stay on your phone. Read what Daanvia sends and why at daanvia-app.vercel.app/privacy.
+
+Daanvia is a navigation aid. Plan your route before you ride, and always follow the road, signs and traffic rules. Map data © OpenStreetMap contributors. Daanvia is not affiliated with any motorcycle maker or with Carbit.

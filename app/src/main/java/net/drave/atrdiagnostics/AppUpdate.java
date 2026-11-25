@@ -97,6 +97,7 @@ public final class AppUpdate {
 
     /** Check GitHub for a newer version. With {@code quiet}, at most every 12 hours. Never during a ride. */
     public static void check(Context context, boolean quiet) {
+        if (BuildInfo.PLAY) return;  // Google Play updates this build
         Context c = context.getApplicationContext();
         SharedPreferences prefs = c.getSharedPreferences("update", 0);
         // A newer version found by an earlier check is looked up again, so the update banner is back after a restart.
@@ -148,6 +149,11 @@ public final class AppUpdate {
     /** What may still stop an update, for the rider who has been through the phone's installer and is still on this version. */
     public static final String BLOCKED_HELP = "Your phone may be blocking apps from outside its own store. In its Settings, search for Pure mode, Security mode or Install unknown apps, allow Daanvia, then tap Install again.";
     private static final String WEBSITE = "https://daanvia-app.vercel.app/#install";
+    /** Daanvia's page in the Play Store app, or on the web where the Play Store isn't installed. */
+    public static void openPlay(Context c) {
+        for (String u : new String[]{"market://details?id=" + c.getPackageName(), "https://play.google.com/store/apps/details?id=" + c.getPackageName()})
+            try { c.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return; } catch (Exception noStore) { /* the next */ }
+    }
     public static void openWebsite(Context c) { try { c.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(WEBSITE))); } catch (Exception ignored) {} }
     /** Android's "install unknown apps" switch for Daanvia; some phones don't have that screen. False when none would open. */
     static boolean allowInstallsScreen(Context c) {
@@ -163,6 +169,7 @@ public final class AppUpdate {
 
     /** Download the APK (verified) and hand it to the phone's installer. */
     public static void install(Context context) {
+        if (BuildInfo.PLAY) { openPlay(context); return; }
         State s = state; if (s == null || s.release == null || s.release.apkUrl == null) return;
         // Android's "install?" screen is already prepared (the download finished while Daanvia was in the background, where
         // it couldn't be shown): show it now, from the screen the rider is on.
