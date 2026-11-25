@@ -26,7 +26,7 @@ Store listing text is in `listing/en-US/`, graphics in `graphics/`.
 
 | Field | Value |
 | --- | --- |
-| App name | Daanvia: Motorcycle Navigation (`listing/en-US/title.txt`) |
+| App name | Daanvia Offline Motorcycle GPS (`listing/en-US/title.txt`) |
 | Default language | English (United States) – en-US |
 | App or game | App |
 | Free or paid | **Paid, ₱99** (see Pricing) |

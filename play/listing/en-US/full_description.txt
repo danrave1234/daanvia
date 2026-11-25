@@ -1,6 +1,6 @@
-Daanvia is turn-by-turn navigation made for riding a motorcycle or scooter in the Philippines. Download the area you ride once, and the map, search, routes and parking all work without signal.
+Daanvia is offline motorcycle navigation for the Philippines. Download the area you ride once, and the map, search, turn-by-turn directions and parking keep working with no signal and no mobile data, in the mountains, in the province, or when your load runs out.
 
-OFFLINE MAPS
+WORKS WITHOUT SIGNAL
 • Download the part of the Philippines you ride, from Luzon to Mindanao. Daanvia shows the size in km and MB before you download.
 • After that, the map, search, directions and parking work without mobile data.
 • 1,650 towns are built in, so you can find yours before any download.

@@ -1,1 +1,1 @@
-Offline motorcycle navigation for the Philippines, with directions on your bike
+Offline motorcycle GPS for the Philippines. Maps and routes work without signal
