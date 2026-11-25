@@ -222,7 +222,32 @@ public final class NavSession {
             if(shown==r)roadIndex=index;
             if(tiles!=null){tiles.finish();if(shown==r){roadsUri=Uri.fromFile(new File(new File(r.dir,RoadTiles.DIR),RoadTiles.MAJOR)).toString();roadTiles=new File(r.dir,RoadTiles.DIR);roadsVersion++;signal();}}
         }catch(Throwable e){android.util.Log.w("Daanvia","Area roads unavailable",e);}
+        // Also after a failure: nothing more is coming, so a route waiting for these roads goes on without them.
+        finally{if(shown==r){roadsFor=r;signal();}}
     }
+    /** The area whose roads are in roadIndex; behind {@code shown} while the shown area's roads are still loading. */
+    private volatile Region roadsFor;
+    /** The shown area's roads are loaded (or failed to load), so nearestRoads can find the road beside a spot. */
+    public boolean roadsReady(){Region r=shown;return r!=null&&roadsFor==r;}
+    /** Longest a route waits for the area's roads: a large area's roads.geojson takes a few seconds to read. */
+    static final long ROADS_WAIT_MS=20000;
+    /** Checks {@code ready} every {@code stepMs} until it holds (true) or {@code timeoutMs} has passed (false). */
+    static boolean await(java.util.function.BooleanSupplier ready,long timeoutMs,long stepMs){
+        long end=System.nanoTime()+timeoutMs*1_000_000L;
+        while(!ready.getAsBoolean()){
+            if(System.nanoTime()-end>=0)return false;
+            try{Thread.sleep(stepMs);}catch(InterruptedException e){Thread.currentThread().interrupt();return false;}}
+        return true;}
+    /**
+     * Whether a ride picked up after the phone closed the app can be routed now. It waits for the area's roads, since from
+     * a spot off the router's roads (a parking lot, a lane) the route starts from the road beside the rider (fallback), and
+     * for a sharp, current fix rather than the phone's minutes-old last-known spot. After {@code RESUME_FIX_WAIT_MS} of
+     * waiting any fix from the last two minutes will do, so a weak signal still gets a route. {@code fixAgeMs} &lt; 0: no fix.
+     */
+    static boolean resumeCanPlan(boolean ready,boolean roadsReady,boolean routing,long fixAgeMs,float accuracy,long waitedMs){
+        if(!ready||!roadsReady||routing||fixAgeMs<0)return false;
+        return fixAgeMs<=12000&&accuracy<=50||waitedMs>=RESUME_FIX_WAIT_MS&&fixAgeMs<120000;}
+    static final long RESUME_FIX_WAIT_MS=20000;
     /** Worker thread only. A bundled graph is copied out of the APK once (again when its bundled size changes); an unpacked pack's graph is read in place. */
     private Valhalla engine(Region r)throws Exception{Valhalla e=engines.get(r.id);if(e!=null)return e;
         CombinedGraph.prepare(r);
@@ -534,6 +559,9 @@ public final class NavSession {
     }
     /** The closest point on each of the nearest public-looking streets within {@code radius} m, nearest first, a named street counting 40 m closer. */
     private List<double[]> nearestRoads(double lat,double lon,int max,double radius){
+        // Right after launch the roads are still loading and an empty index finds nothing, so a route from a spot off the
+        // router's roads failed outright. Mid-ride the last area's roads stay in the index, so a reroute doesn't wait.
+        if(!active)await(this::roadsReady,ROADS_WAIT_MS,100);
         ArrayList<double[]> found=new ArrayList<>();
         for(Road r:roadIndex.near(lat,lon,radius)){
             if(Branches.MINOR.contains(r.kind))continue;double bestD=radius;double[] best=null;

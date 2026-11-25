@@ -978,14 +978,25 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         plannedTrip=Collections.emptyList();
         destLat = lat; destLon = lon; destName = name; demoTrip = false; remember(lat, lon, name);
         go(Mode.ROUTE);
-        if (!freshFix()) { pendingPlan = true; locate(); }
-        else { pendingPlan = false; s.plan(lat, lon, name, false); }
+        if (!canPlan()) { pendingPlan = true; if (!freshFix()) locate(); }
+        else planPending();
         if (map != null && s.fixAt == 0) map.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(lat, lon), 15), 900);
         paintRoute();
     }
     /** A live fix from the last two minutes; the phone's last known spot can be much older. */
     private boolean freshFix() { return s.fixAt > 0 && SystemClock.elapsedRealtime() - s.fixAt < 120000; }
-    private void closeRoute() { if (!s.active) endSimulation(); pendingPlan = false; destName = null; demoTrip = false; go(fromResults && resultsShown != null ? Mode.RESULTS : Mode.EXPLORE); if (!s.active) getSharedPreferences("ui", 0).edit().remove("ride").apply(); }
+    /** When a ride picked up after the phone closed the app began waiting for its route (see offerResume); 0 otherwise. */
+    private long resumeSince;
+    private boolean canPlan() {
+        if (resumeSince == 0) return s.ready && !s.routing && freshFix();
+        long now = SystemClock.elapsedRealtime();
+        return NavSession.resumeCanPlan(s.ready, s.roadsReady(), s.routing, s.fixAt > 0 ? now - s.fixAt : -1, s.accuracy, now - resumeSince);
+    }
+    private void planPending() {
+        pendingPlan = false; resumeSince = 0;
+        if (plannedTrip.isEmpty()) s.plan(destLat, destLon, destName, false); else s.planTrip(plannedTrip, destName);
+    }
+    private void closeRoute() { if (!s.active) endSimulation(); pendingPlan = false; resumeSince = 0; destName = null; demoTrip = false; go(fromResults && resultsShown != null ? Mode.RESULTS : Mode.EXPLORE); if (!s.active) getSharedPreferences("ui", 0).edit().remove("ride").apply(); }
 
     private void start() {
         boolean demo = demoTrip;
@@ -1038,7 +1049,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         plannedTrip=new ArrayList<>(stops);TripStop end=stops.get(stops.size()-1);
         destLat=end.lat;destLon=end.lon;destName=name;demoTrip=false;pendingPlan=true;go(Mode.ROUTE);
         // While another route is still calculating, the trip waits and is planned as soon as that one finishes.
-        if(s.ready&&freshFix()&&!s.routing){pendingPlan=false;s.planTrip(plannedTrip,name);}else if(!s.routing)locate();
+        if(canPlan())planPending();else if(!s.routing)locate();
         paintRoute();
     }
     private boolean resumeOffered;
@@ -1060,6 +1071,8 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
             JSONArray stops=r.optJSONArray("stops"),via=r.optJSONArray("via");
             // Back on the route the rider chose, not the quickest one (see NavSession.chosenVia).
             if(via!=null&&via.length()==2)s.resumeVia(new double[]{via.getDouble(0),via.getDouble(1)});
+            // Routed once the area's roads and a sharp fix are in, not from the first stale spot (NavSession.resumeCanPlan).
+            resumeSince = SystemClock.elapsedRealtime();
             if(stops!=null&&stops.length()>0)openTrip(TripStop.parse(stops.toString()),name);else choose(la, lo, name); resumeTries = 0; ui.removeCallbacks(resumeStart); ui.postDelayed(resumeStart, 1500);
             if (killed) notice("Your phone closed Daanvia, so your ride to " + name + " is starting again. Tap to stop your phone closing it", "Fix", () -> { if (KeepAlive.colorOs() != null) openSettings("coloros"); else KeepAlive.fix(this); }, 15000);
             else notice("Continuing your ride to " + name, null, null, 6000);
@@ -1274,7 +1287,7 @@ public final class HomeActivity extends Activity implements DashboardLink.Host {
         if (!resumeOffered && started && s.ready && !s.active && mode == Mode.EXPLORE) { resumeOffered = true; offerResume(); }
         exploreStatus.setText(!s.ready ? "Getting the map ready…" : s.status.startsWith("Offline region could not load") ? "The map couldn't load. Open Settings › Support." : "");
         exploreStatus.setVisibility(exploreStatus.length() == 0 ? View.GONE : View.VISIBLE);
-        if (pendingPlan && s.ready && !s.routing && freshFix()) { pendingPlan = false; if(plannedTrip.isEmpty())s.plan(destLat, destLon, destName, false);else s.planTrip(plannedTrip,destName); }
+        if (pendingPlan && canPlan()) planPending();
         if (s.active && mode != Mode.RIDE) go(Mode.RIDE);
         else if (!s.active && mode == Mode.RIDE) {
             destName = null; demoTrip = false; go(Mode.EXPLORE);
