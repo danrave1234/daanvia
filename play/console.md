@@ -91,6 +91,11 @@ The Console form asks one task per permission, each with a video link, and won't
 connected device › "Continuous data transfer to an external device"; location › "Navigation"; media projection ›
 "Media and content projection, streaming".
 
+Videos so far (unlisted on the developer's YouTube channel):
+- location › Navigation: https://youtube.com/shorts/pZyxmn75uU8 (recorded on the emulator with GPS fed along a route;
+  source in `play/videos/`, which git ignores)
+- connected device and media projection: still to record on the bike.
+
 **Notification access** (optional, for cards on the bike). No form, but Play requires an in-app explanation before
 the rider is sent to Android's Notification access screen; the app shows one.
 
