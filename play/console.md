@@ -87,6 +87,10 @@ impact if Android delayed it, and a link to a short video (an unlisted YouTube l
 
 If you don't have the bike at hand to film, record the location video first and the bike ones on the next ride.
 
+The Console form asks one task per permission, each with a video link, and won't save until every link is in:
+connected device › "Continuous data transfer to an external device"; location › "Navigation"; media projection ›
+"Media and content projection, streaming".
+
 **Notification access** (optional, for cards on the bike). No form, but Play requires an in-app explanation before
 the rider is sent to Android's Notification access screen; the app shows one.
 
