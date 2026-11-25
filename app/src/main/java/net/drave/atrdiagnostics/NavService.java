@@ -37,10 +37,11 @@ public final class NavService extends Service {
             // the whole ride, not only while the bike display is connected.
             if(!demo&&KeepAlive.colorOs()!=null){if(quiet==null)quiet=new QuietAudio(m->LogUpload.add(this,stamp()+m+"\n"));quiet.start(this);}
     }
-    private Notification build(boolean demo,String text){
+    private Notification build(boolean demo,String text){return build(demo,text,null);}
+    private Notification build(boolean demo,String text,String sub){
         PendingIntent open=PendingIntent.getActivity(this,20,new Intent(this,HomeActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent commands=PendingIntent.getActivity(this,24,new Intent(this,VoiceCommandsActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this,NotifyChannels.RIDE).setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText(text).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PUBLIC)
+        return new Notification.Builder(this,NotifyChannels.RIDE).setSmallIcon(R.drawable.ic_stat_daanvia).setContentTitle(demo?"Daanvia · demo ride":"Daanvia directions").setContentText(text).setSubText(sub).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PUBLIC)
             // Work from the lock screen: Reconnect bike and Exit run in the background; Commands opens over the lock screen.
             .addAction(new Notification.Action.Builder(null,"Reconnect bike",RideActions.intent(this,RideActions.RECONNECT,25)).build()).addAction(new Notification.Action.Builder(null,"Commands",commands).build()).addAction(new Notification.Action.Builder(null,"Exit",RideActions.intent(this,RideActions.EXIT,26)).build()).build();
     }
@@ -107,11 +108,25 @@ public final class NavService extends Service {
     private static NavService running;
     /** The rider tapped Reconnect: look for the bike at the short pace again. */
     static void searchAgain(){NavService n=running;if(n==null)return;n.searches=0;n.handler.removeCallbacks(n.bikeSearch);n.handler.postDelayed(n.bikeSearch,50000);}
-    /** The bike display's state, as the ride notification's text, so a tap on Reconnect visibly does something. */
-    static void status(String text){NavService n=running;if(n==null||n.s==null||!n.s.active||text==null)return;
-        String shown=StreamService.navigationActive?n.back():text;if(shown.equals(n.shownStatus))return;n.shownStatus=shown;
-        try{n.getSystemService(NotificationManager.class).notify(22,n.build(n.demoRide,shown));}catch(Exception ignored){}}
-    private String shownStatus;
+    /** The bike display's state, shown on the ride notification so a tap on Reconnect visibly does something. */
+    static void status(String text){NavService n=running;if(n==null||text==null)return;n.bikeStatus=text;n.refresh();}
+    private String shownStatus,bikeStatus;
+    /**
+     * Keeps the ride notification current: the next turn first, so a rider with the phone in a pocket or the screen off
+     * still sees where to go, and the bike display's state under it while the bike isn't showing the directions.
+     */
+    private void refresh(){if(s==null||!s.active)return;
+        String turn=turnLine(s.active,s.arrived,s.instruction,s.distanceToTurn);boolean onBike=StreamService.navigationActive;
+        String main=turn!=null?turn:onBike||bikeStatus==null?back():bikeStatus,sub=turn!=null&&!onBike?bikeStatus:null;
+        String key=main+"\n"+sub;if(key.equals(shownStatus))return;shownStatus=key;
+        try{getSystemService(NotificationManager.class).notify(22,build(demoRide,main,sub));}catch(Exception ignored){}}
+    /** "In 40 m · Turn left onto Don Jose Avila Street", or null before the route's first turn is known. */
+    static String turnLine(boolean active,boolean arrived,String instruction,double toTurn){
+        if(!active||instruction==null)return null;// "General Maxilom Avenue/8": the router joins a road's route number to its name; the ride screen shows the name only.
+        String t=instruction.trim().replaceAll("/[A-Za-z]{0,2}[0-9]{1,4}[A-Za-z]?(?=\\b|$)","");if(t.endsWith("."))t=t.substring(0,t.length()-1);
+        if(t.isEmpty()||t.equals("Route ready")||t.equals("Choose a destination"))return null;
+        if(arrived||t.equals("Destination nearby")||!(toTurn>0))return t;
+        return "In "+Gabi.distance(toTurn)+" · "+t;}
     private void subscribe(){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)throw new SecurityException("Precise location required");if(gps==null)gps=new LocationFeed(this,this::onLocationChanged,true);gps.stop();if(!gps.start())s.message("GPS is off · enable Location");else s.message("Waiting for GPS · offline region ready");}
     private void onLocationChanged(Location l){if(l.getElapsedRealtimeNanos()>0&&SystemClock.elapsedRealtimeNanos()-l.getElapsedRealtimeNanos()>12000000000L)return;
         // A fix that bounced off buildings would pull the rider off the route and start a reroute (see FixFilter).
@@ -120,7 +135,7 @@ public final class NavService extends Service {
         boolean moving=l.hasBearing()&&(!l.hasSpeed()||l.getSpeed()>1.4f);
         // Not moved yet this ride (starting at a pump): the phone's compass faces the arrow, until GPS has a course (Compass).
         float kept=s.bearing;if(moving){courseSeen=true;if(compass!=null)compass.stop();}else if(!courseSeen){float h=compass.heading();if(!Float.isNaN(h))kept=h;}
-        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.headingLive=moving;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():kept,false);speak();checkArrival(l);}
+        s.speedMetersPerSecond=l.hasSpeed()?Math.max(0,l.getSpeed()):0;s.headingLive=moving;s.update(l.getLatitude(),l.getLongitude(),l.getAccuracy(),moving?l.getBearing():kept,false);speak();refresh();checkArrival(l);}
     /**
      * Arriving ends the ride on its own, so nobody has to tap End: once the rider has stopped near the arrival spot for
      * 20 s (parked), has ridden 250 m past it, or 5 minutes after arriving. Measured from where the arrival was noticed,
@@ -163,7 +178,7 @@ public final class NavService extends Service {
         if(stage!=GuidancePrompts.ARRIVAL&&!structure.isEmpty())text+=" Take the "+structure+".";
         if(voice.speak(text))prompts.spoken(stage,now);
     }
-    private void startSimulation(){if(simulator!=null)handler.removeCallbacks(simulator);demoIndex=0;simulator=new Runnable(){public void run(){if(!s.active||!s.simulation)return;if(!s.shape.isEmpty()){double[] p=s.shape.get(Math.min(demoIndex,s.shape.size()-1));double[] next=s.shape.get(Math.min(demoIndex+1,s.shape.size()-1));s.speedMetersPerSecond=8;s.update(p[0],p[1],3,GeoMath.bearing(p,next),true);speak();demoIndex=Math.min(demoIndex+1,s.shape.size()-1);}handler.postDelayed(this,900);}};handler.post(simulator);}
+    private void startSimulation(){if(simulator!=null)handler.removeCallbacks(simulator);demoIndex=0;simulator=new Runnable(){public void run(){if(!s.active||!s.simulation)return;if(!s.shape.isEmpty()){double[] p=s.shape.get(Math.min(demoIndex,s.shape.size()-1));double[] next=s.shape.get(Math.min(demoIndex+1,s.shape.size()-1));s.speedMetersPerSecond=8;s.update(p[0],p[1],3,GeoMath.bearing(p,next),true);speak();refresh();demoIndex=Math.min(demoIndex+1,s.shape.size()-1);}handler.postDelayed(this,900);}};handler.post(simulator);}
     /** This ride is a demo: its numbers are not uploaded (s.simulation is already cleared when the service ends). */
     private boolean demoRide;
     /** Into the uploaded log only (not the ride status on screen): whether the phone may close Daanvia mid-ride. */
