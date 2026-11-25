@@ -38,9 +38,9 @@ Store listing text is in `listing/en-US/`, graphics in `graphics/`.
 ## App content
 
 - **Privacy policy:** the URL above.
-- **App access:** "All functionality is available without special access." In the notes: *No account. The bike
-  display needs a compatible motorcycle dashboard; without one, Settings › Bike display shows a live preview of what
-  it would show, and Settings › Help › Demo ride plays a sample route.*
+- **Sign in details** (was "App access"): **No**, no part of the app is restricted. There's no account, password or
+  access code; the bike's QR code only pairs hardware. If review ever asks how to see the bike display: Settings ›
+  Bike display shows a live preview, and Settings › Help › Demo ride plays a sample route.
 - **Ads:** No, the app doesn't contain ads.
 - **Content rating:** category "All other app types". No violence, sexuality, language, controlled substances,
   gambling or user-generated content. Users can't talk to each other. The app doesn't share the user's location with
@@ -63,8 +63,11 @@ declared.
 | Device or other IDs | Yes | No | Yes | Analytics | A random id made for this install, sent with the log |
 
 - Data is encrypted in transit: **Yes** (HTTPS only; the app refuses plain HTTP).
-- Users can ask for data to be deleted: **Yes**. Logs are deleted after 30 days, and riders can turn diagnostics off.
-  Add the support email as the way to ask sooner.
+- Accounts: "My app does not allow users to create an account", and no outside logins.
+- Deletion requests: **"No, but user data is automatically deleted within 90 days"**. Logs are deleted after 30
+  days, and riders can turn diagnostics off.
+- Every type above is "not processed ephemerally". Location and search history are required; diagnostics and the
+  install id are optional (Settings › Help turns them off).
 - With signal, map tiles come from OpenFreeMap. The tile requests show which area is on screen but carry nothing the
   app adds, so they aren't declared above; the privacy page mentions them.
 
